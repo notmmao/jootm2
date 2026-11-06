@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""pyserver 离线自检（零第三方依赖，不需要启动任何服务端）。
+
+覆盖：配置、密码哈希、CSV 模板、GBK 配置解析、.map 二进制（12/14 字节、
+列优先、阻挡/高墙/门）、资源索引的 WZL 拒绝、HTTP Range、WS 帧编码、
+Gson 模板字段互通。
+
+    python scripts/test_pyserver.py               # 只跑离线用例
+    python scripts/test_pyserver.py --live 8081   # 额外做端到端 HTTP/WS 探测
+
+退出码：0 全通过 / 1 有用例失败。
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import struct
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pyserver import config as config_mod  # noqa: E402
+from pyserver.db import Database, hash_password, new_salt  # noqa: E402
+from pyserver.gamedata import (  # noqa: E402
+    _TILE_12, _TILE_14, generate_resources_index, parse_map_info,
+    parse_mini_map, parse_mon_gen, parse_start_point, read_map,
+)
+from pyserver.net import cache_control, content_type, parse_range, ws_frame  # noqa: E402
+from pyserver.templates import ItemTemplate, MagicTemplate, MonsterTemplate  # noqa: E402
+from pyserver.world import direction_delta, exp_for_level  # noqa: E402
+
+PASS, FAIL = [], []
+
+
+def check(name: str, condition: bool, detail: str = "") -> None:
+    (PASS if condition else FAIL).append(name)
+    print(f"  {'PASS' if condition else 'FAIL'}  {name}" + (f"  {detail}" if detail else ""))
+
+
+def test_config() -> None:
+    print("\n[1] 配置")
+    cfg = config_mod.load(root=ROOT)
+    check("默认端口取自 server.properties", cfg.port == 8080, f"port={cfg.port}")
+    check("gamedata 指向项目内目录", (cfg.envir_dir / "MapInfo.txt").is_file())
+    check("web root 存在", (cfg.web_root / "index.html").is_file())
+    os.environ["JOOTM2_PORT"] = "9999"
+    check("环境变量可覆盖端口", config_mod.load(root=ROOT, config="no-such-file").port == 9999)
+    os.environ.pop("JOOTM2_PORT", None)
+
+
+def test_password() -> None:
+    print("\n[2] 密码哈希（Java DbUtil 等价）")
+    expect = hashlib.sha256(b"abc1234").hexdigest()
+    check("SHA-256(salt+password) 拼接规则", hash_password("abc", "1234") == expect)
+    check("salt 为 16 字节 hex", len(new_salt()) == 32)
+
+
+def test_csv_templates() -> None:
+    print("\n[3] CSV 模板映射 + Gson 字段互通")
+    from pyserver.templates import item_from_csv, magic_from_csv, monster_from_csv, read_csv_rows
+    mud2 = ROOT / "gamedata" / "mud2" / "DB"
+    items = read_csv_rows(mud2 / "StdItems.csv")
+    monsters = read_csv_rows(mud2 / "Monster.csv")
+    magics = read_csv_rows(mud2 / "Magic.csv")
+    check("StdItems.csv 行数", len(items) >= 500, f"{len(items)} 行")
+    check("Monster.csv 行数", len(monsters) >= 250, f"{len(monsters)} 行")
+    check("Magic.csv 行数", len(magics) >= 30, f"{len(magics)} 行")
+    t = item_from_csv(items[0])
+    check("物品模板字段映射", t.name == items[0][1] and t.stdMode == int(items[0][2] or 0))
+    m = monster_from_csv(monsters[0])
+    check("怪物模板字段映射", m.name == monsters[0][0])
+    mg = magic_from_csv(magics[0])
+    check("技能 attrs + resolve", mg.magId == int(magics[0][0]) and mg.spell >= 0)
+    keys = set(ItemTemplate().to_storage())
+    check("ItemTemplate 含 Java Gson 关键字段",
+          {"name", "stdMode", "duraMax", "dcMin", "hpAdd"} <= keys)
+    check("MonsterTemplate 可反序列化",
+          MonsterTemplate.from_storage(MonsterTemplate(name="鸡").to_storage()).name == "鸡")
+    check("MagicTemplate 可反序列化",
+          MagicTemplate.from_storage(MagicTemplate(magId=1, name="火球术").to_storage()).name == "火球术")
+
+
+def test_text_data() -> None:
+    print("\n[4] GBK 配置解析")
+    env = ROOT / "gamedata" / "Mir200" / "Envir"
+    sp = parse_start_point(env / "StartPoint.txt")
+    check("StartPoint 解析", sp.map_id and sp.x > 0 and sp.y > 0, str(sp))
+    info = parse_map_info(env / "MapInfo.txt")
+    check("MapInfo 地图定义数", len(info.titles) >= 400, f"{len(info.titles)} 张")
+    check("MapInfo 门数量", len(info.gates) >= 2000, f"{len(info.gates)} 个")
+    check("MonGen 刷怪条目", len(parse_mon_gen(env / "MonGen.txt")) >= 2000)
+    check("MiniMap 索引", len(parse_mini_map(env / "MiniMap.txt")) >= 150)
+
+
+def _write_map(path: Path, width: int, height: int, tile: struct.Struct,
+               cells: dict[tuple[int, int], tuple[int, int, int, int]]) -> None:
+    data = bytearray(struct.pack("<HH", width, height) + bytes(48))
+    for x in range(width):
+        for y in range(height):
+            data += tile.pack(*cells.get((x, y), (0, 0, 0, 0)))
+    path.write_bytes(bytes(data))
+
+
+def test_map_binary() -> None:
+    print("\n[5] .map 二进制解析")
+    check("tile 结构长度", _TILE_12.size == 12 and _TILE_14.size == 14)
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        cells = {
+            (0, 0): (0x8000, 0, 0, 0),        # 普通阻挡
+            (1, 0): (0, 0, 0x8000, 0),        # 高墙
+            (2, 0): (0, 0, 0, 0x81),          # 门（低 7 位 = 1）
+        }
+        _write_map(d / "a.map", 3, 2, _TILE_12, cells)
+        g = read_map("a", d)
+        check("12 字节头+尺寸", g.width == 3 and g.height == 2 and g.from_file)
+        check("普通阻挡", not g.can_walk(0, 0) and not g.is_high_wall(0, 0))
+        check("高墙标志", g.is_high_wall(1, 0))
+        check("门标志", (2, 0) in g.doors and g.doors[(2, 0)] == 1)
+        check("列优先不错位", g.can_walk(0, 1) and not g.can_walk(1, 0))
+        _write_map(d / "b.map", 3, 2, _TILE_14, cells)
+        g14 = read_map("b", d)
+        check("14 字节变体自适应", g14.is_high_wall(1, 0) and g14.can_walk(0, 1))
+        missing = read_map("zzz", d)
+        check("缺失地图回退 256x256 全通行",
+              missing.width == 256 and missing.can_walk(10, 10) and not missing.from_file)
+
+
+def test_resources_index() -> None:
+    print("\n[6] resources.json 索引（WZL 假兼容修复）")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for name in ("Data", "Map", "Wav"):
+            (root / name).mkdir()
+        (root / "Data" / "hum.wix").write_bytes(b"x" * 48)
+        (root / "Data" / "hum.wil").write_bytes(b"x" * 1080)
+        (root / "Data" / "modern.wzx").write_bytes(b"x")
+        (root / "Data" / "modern.wzl").write_bytes(b"x")
+        (root / "Map" / "0.map").write_bytes(b"m")
+        (root / "Wav" / "001.wav").write_bytes(b"w")
+        idx = generate_resources_index(root)
+        check("只索引 WIL/WIX 成对图库", set(idx["images"]) == {"hum"}, str(list(idx["images"])))
+        check("WZL/WZX 被排除", not any("modern" in k for k in idx["images"]))
+        check("地图索引", idx["maps"].get("0", "").startswith("Map/"))
+        check("音效索引", idx["wavs"].get("001", "").startswith("Wav/"))
+        check("索引文件已落盘 UTF-8",
+              json.loads((root / "resources.json").read_text(encoding="utf-8")) == idx)
+
+
+def test_http_ws_helpers() -> None:
+    print("\n[7] HTTP / WS 工具函数")
+    check("Range 0-99", parse_range("bytes=0-99", 1000) == (0, 99))
+    check("Range 900-", parse_range("bytes=900-", 1000) == (900, 999))
+    check("Range -50 后缀", parse_range("bytes=-50", 1000) == (950, 999))
+    check("Range 越界返回 None", parse_range("bytes=2000-", 1000) is None)
+    check("mjs no-cache", cache_control("x.mjs") == "no-cache")
+    check("wil immutable", "immutable" in cache_control("x.wil"))
+    check("MIME mjs", "javascript" in content_type("a.mjs"))
+    for size in (5, 200, 70000):
+        f = ws_frame(b"x" * size)
+        head = 2 if size < 126 else (4 if size < 65536 else 10)
+        check(f"WS 帧编码 len={size}", f[0] == 0x81 and len(f) == size + head)
+
+
+def test_misc() -> None:
+    print("\n[8] 世界常量")
+    check("经验表 101 级", exp_for_level(1) == 100 and exp_for_level(101) == 2140000000)
+    check("方向表 dir2=右", direction_delta(2) == (1, 0))
+    check("方向表 dir4=下", direction_delta(4) == (0, 1))
+
+
+def test_live(port: int) -> None:
+    print(f"\n[9] 端到端探测 127.0.0.1:{port}")
+    import urllib.error
+    import urllib.request
+    from smoke_ws import WS
+
+    def get(path: str, headers: dict | None = None):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    code, _, body = get("/api/status")
+    check("/api/status 200 + JSON", code == 200 and "monsters" in body.decode("utf-8"))
+    code, headers, body = get("/main.mjs", {"Range": "bytes=0-99"})
+    check("Range 返回 206", code == 206, headers.get("Content-Range", ""))
+    import re
+    check("Content-Range 带总长", bool(re.search(r"/\d+\s*$", headers.get("Content-Range", ""))))
+    check("206 恰好 100 字节", len(body) == 100)
+    check("CORS 头", headers.get("Access-Control-Allow-Origin") == "*")
+    code, _, _ = get("/")
+    check("静态首页 200", code == 200)
+    try:
+        ws = WS("127.0.0.1", port, "/ws", timeout=0.8)
+        ws.send({"type": "ping"})
+        got = ws.drain(4)
+        ws.close()
+        check("WS ping→pong", any(m.get("type") == "pong" for m in got))
+    except (OSError, RuntimeError, EOFError) as e:
+        check("WS ping→pong", False, str(e))
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="pyserver 离线自检")
+    ap.add_argument("--live", type=int, metavar="PORT", help="额外探测运行中的服务端端口")
+    a = ap.parse_args()
+    print("=" * 64)
+    print("jootm2 pyserver 自检")
+    print("=" * 64)
+    test_config()
+    test_password()
+    test_csv_templates()
+    test_text_data()
+    test_map_binary()
+    test_resources_index()
+    test_http_ws_helpers()
+    test_misc()
+    if a.live:
+        test_live(a.live)
+    print("\n" + "=" * 64)
+    print(f"结果: {len(PASS)} PASS / {len(FAIL)} FAIL")
+    if FAIL:
+        for name in FAIL:
+            print("  FAILED:", name)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

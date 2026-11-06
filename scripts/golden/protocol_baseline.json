@@ -1,0 +1,265 @@
+{
+  "handshake": "HTTP/1.1 101 Switching Protocols",
+  "steps": {
+    "ping": {
+      "types": [
+        "pong"
+      ],
+      "summary": {
+        "pong": {
+          "shape": {
+            "type": "str"
+          },
+          "stable": {
+            "type": "pong"
+          }
+        }
+      }
+    },
+    "register": {
+      "types": [
+        "registerResult"
+      ],
+      "summary": {
+        "registerResult": {
+          "shape": {
+            "ok": "bool",
+            "type": "str"
+          },
+          "stable": {
+            "ok": true,
+            "type": "registerResult"
+          }
+        }
+      }
+    },
+    "login": {
+      "types": [
+        "loginResult"
+      ],
+      "summary": {
+        "loginResult": {
+          "shape": {
+            "ok": "bool",
+            "type": "str"
+          },
+          "stable": {
+            "ok": true,
+            "type": "loginResult"
+          }
+        }
+      }
+    },
+    "listCharacters": {
+      "types": [
+        "characterList"
+      ],
+      "summary": {
+        "characterList": {
+          "shape": {
+            "characters": "<any>",
+            "type": "str"
+          },
+          "stable": {
+            "type": "characterList"
+          }
+        }
+      }
+    },
+    "createCharacter": {
+      "types": [
+        "createCharacterResult"
+      ],
+      "summary": {
+        "createCharacterResult": {
+          "shape": {
+            "ok": "bool",
+            "type": "str"
+          },
+          "stable": {
+            "ok": true,
+            "type": "createCharacterResult"
+          }
+        }
+      }
+    },
+    "enterGame": {
+      "types": [
+        "notice"
+      ],
+      "summary": {
+        "notice": {
+          "shape": {
+            "lines": "<any>",
+            "type": "str"
+          },
+          "stable": {
+            "type": "notice"
+          }
+        }
+      }
+    },
+    "noticeOk": {
+      "types": [
+        "enterGameResult",
+        "enterGame",
+        "stats",
+        "entityAdd"
+      ],
+      "summary": {
+        "enterGameResult": {
+          "shape": {
+            "ok": "bool",
+            "type": "str"
+          },
+          "stable": {
+            "ok": true,
+            "type": "enterGameResult"
+          }
+        },
+        "enterGame": {
+          "shape": {
+            "dayBright": "number",
+            "groundItems": "<any>",
+            "map": {
+              "height": "number",
+              "name": "str",
+              "title": "str",
+              "width": "number"
+            },
+            "miniMapIndex": "number",
+            "nearby": "<any>",
+            "player": {
+              "ac": "str",
+              "appr": "number",
+              "dc": "str",
+              "dir": "number",
+              "dress": "number",
+              "exp": "number",
+              "gold": "number",
+              "hair": "number",
+              "handWeight": "number",
+              "hit": "number",
+              "hp": "number",
+              "id": "<any>",
+              "items": "<any>",
+              "job": "number",
+              "level": "number",
+              "mac": "str",
+              "maxExp": "number",
+              "maxHandWeight": "number",
+              "maxHp": "number",
+              "maxMp": "number",
+              "maxWearWeight": "number",
+              "maxWeight": "number",
+              "mc": "str",
+              "mp": "number",
+              "name": "str",
+              "quickSlots": "<any>",
+              "race": "number",
+              "sc": "str",
+              "sex": "number",
+              "skills": "<any>",
+              "speed": "number",
+              "type": "str",
+              "weapon": "number",
+              "wearWeight": "number",
+              "weight": "number",
+              "x": "number",
+              "y": "number"
+            },
+            "type": "str"
+          },
+          "stable": {
+            "miniMapIndex": 101,
+            "type": "enterGame"
+          }
+        },
+        "stats": {
+          "shape": {
+            "ac": "str",
+            "dc": "str",
+            "exp": "number",
+            "fireHit": "bool",
+            "hidden": "bool",
+            "hit": "number",
+            "hp": "number",
+            "id": "<any>",
+            "level": "number",
+            "longHit": "bool",
+            "mac": "str",
+            "maxHp": "number",
+            "maxMp": "number",
+            "mc": "str",
+            "mp": "number",
+            "poison": "bool",
+            "poisonArmor": "bool",
+            "sc": "str",
+            "shield": "bool",
+            "speed": "number",
+            "type": "str",
+            "wideHit": "bool"
+          },
+          "stable": {
+            "level": 1,
+            "type": "stats"
+          }
+        },
+        "entityAdd": {
+          "shape": {
+            "entity": "<any>",
+            "type": "str"
+          },
+          "stable": {
+            "type": "entityAdd"
+          }
+        }
+      }
+    },
+    "move": {
+      "types": [
+        "move"
+      ],
+      "summary": {
+        "move": {
+          "shape": {
+            "dir": "number",
+            "id": "<any>",
+            "run": "bool",
+            "type": "str",
+            "x": "number",
+            "y": "number"
+          },
+          "stable": {
+            "dir": 2,
+            "run": false,
+            "type": "move"
+          }
+        }
+      }
+    },
+    "say": {
+      "types": [
+        "chat"
+      ],
+      "summary": {
+        "chat": {
+          "shape": {
+            "id": "<any>",
+            "name": "str",
+            "text": "str",
+            "type": "str"
+          },
+          "stable": {
+            "name": "<CHAR>",
+            "type": "chat"
+          }
+        }
+      }
+    },
+    "logout": {
+      "types": [],
+      "summary": {}
+    }
+  }
+}

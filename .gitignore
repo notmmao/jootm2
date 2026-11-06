@@ -10,6 +10,11 @@ gamedata/Mir200/Envir/GuildBase/
 resources
 gamedata/Mir200/Map
 
+# --- Python (pyserver) ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # --- macOS ---
 .DS_Store
 **/.DS_Store
