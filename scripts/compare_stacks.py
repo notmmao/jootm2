@@ -38,6 +38,24 @@ STEPS = (
     "createCharacter", "enterGame", "noticeOk", "move", "say", "logout",
 )
 
+# 阶段 4 全量模式：把其余 35 种消息也发给两端，比较响应类型与字段结构。
+# 故意使用无效/中性参数（无目标、无物品），这样两端都走「早退或提示」路径，
+# 结果稳定，不依赖随机战斗/掉落；专门验证协议层没有漏字段或改名。
+FULL_EXTRA = (
+    "attack", "dirAttack", "castMagic", "magicKeyChange",
+    "pickup", "useItem", "takeOnItem", "takeOffItem", "quickSlot", "drop", "moveItem",
+    "npcTalk", "npcSelect", "buyItem", "sellItem",
+    "createGuild", "joinGuild", "leaveGuild", "guildInfo", "guildChat",
+    "siege", "guildWar", "guildAlly",
+    "partyInvite", "partyLeave", "partyChat",
+    "storageOpen", "storageStore", "storageTake",
+    "tradeRequest", "tradeAccept", "tradeCancel", "tradeAddItem",
+    "tradeAddGold", "tradeConfirm",
+)
+
+FULL_STEPS = (STEPS[:7] + ("deleteCharacter",) + FULL_EXTRA
+              + ("move", "say", "logout"))
+
 EXPECT = {
     "ping": ("pong",),
     "register": ("registerResult",),
@@ -49,6 +67,8 @@ EXPECT = {
     "move": ("move",),
     "say": ("chat",),
     "logout": (),
+    # 全量模式下这些消息允许「无响应」（参数无效时两端都静默早退）。
+    **{name: () for name in ("deleteCharacter",) + FULL_EXTRA},
 }
 
 # 这些键的内容依赖随机刷怪 / 自增长 id / 账号名，只比较「存在性」不比较结构。
@@ -101,7 +121,50 @@ def summarize(msgs: list[dict], user: str, char: str) -> dict:
     return out
 
 
-def build_steps(tag: str, suffix: str) -> tuple[str, str, dict]:
+def full_messages(char: str) -> dict:
+    """全量模式下 35 种新消息，统一用中性参数保证两端行为稳定。"""
+    return {
+        "deleteCharacter": {"type": "deleteCharacter", "name": "NoSuchChar"},
+        "attack": {"type": "attack", "targetId": -1},
+        "dirAttack": {"type": "dirAttack", "dir": 2},
+        "castMagic": {"type": "castMagic", "magicId": 3, "targetX": -1,
+                      "targetY": -1, "targetId": -1},
+        "magicKeyChange": {"type": "magicKeyChange", "magicId": 3, "key": 1},
+        "pickup": {"type": "pickup", "itemId": -1},
+        "useItem": {"type": "useItem", "makeIndex": -1},
+        "takeOnItem": {"type": "takeOnItem", "makeIndex": -1, "slot": 1},
+        "takeOffItem": {"type": "takeOffItem", "slot": 1, "makeIndex": -1},
+        "quickSlot": {"type": "quickSlot", "slot": 0, "makeIndex": 0},
+        "drop": {"type": "drop", "makeIndex": -1},
+        "moveItem": {"type": "moveItem", "makeIndex": -1, "targetIndex": 0},
+        "npcTalk": {"type": "npcTalk", "npcId": -1},
+        "npcSelect": {"type": "npcSelect", "npcId": -1, "value": "@main"},
+        "buyItem": {"type": "buyItem", "npcId": -1, "index": -1, "count": 1},
+        "sellItem": {"type": "sellItem", "npcId": -1, "makeIndex": -1},
+        "createGuild": {"type": "createGuild", "name": "CmpGuild"},
+        "joinGuild": {"type": "joinGuild", "name": "CmpGuild"},
+        "leaveGuild": {"type": "leaveGuild"},
+        "guildInfo": {"type": "guildInfo"},
+        "guildChat": {"type": "guildChat", "text": "guild"},
+        "siege": {"type": "siege"},
+        "guildWar": {"type": "guildWar", "name": "None"},
+        "guildAlly": {"type": "guildAlly", "name": "None"},
+        "partyInvite": {"type": "partyInvite", "name": "NoSuchPlayer"},
+        "partyLeave": {"type": "partyLeave"},
+        "partyChat": {"type": "partyChat", "text": "party"},
+        "storageOpen": {"type": "storageOpen"},
+        "storageStore": {"type": "storageStore", "makeIndex": -1},
+        "storageTake": {"type": "storageTake", "makeIndex": -1},
+        "tradeRequest": {"type": "tradeRequest", "name": "NoSuchPlayer"},
+        "tradeAccept": {"type": "tradeAccept"},
+        "tradeCancel": {"type": "tradeCancel"},
+        "tradeAddItem": {"type": "tradeAddItem", "makeIndex": -1},
+        "tradeAddGold": {"type": "tradeAddGold", "amount": 1},
+        "tradeConfirm": {"type": "tradeConfirm"},
+    }
+
+
+def build_steps(tag: str, suffix: str, full: bool = False) -> tuple[str, str, dict]:
     user = f"cmp{tag}{suffix}"
     char = f"C{tag[-4:]}{suffix.upper()}"
     steps = {
@@ -117,18 +180,25 @@ def build_steps(tag: str, suffix: str) -> tuple[str, str, dict]:
         "say": {"type": "say", "text": "hello from compare"},
         "logout": {"type": "logout"},
     }
+    if full:
+        steps.update(full_messages(char))
     return user, char, steps
 
 
-def run_stack(host: str, port: int, tag: str, suffix: str) -> dict:
-    user, char, steps = build_steps(tag, suffix)
+def steps_for(full: bool) -> tuple[str, ...]:
+    return FULL_STEPS if full else STEPS
+
+
+def run_stack(host: str, port: int, tag: str, suffix: str,
+              full: bool = False) -> dict:
+    user, char, steps = build_steps(tag, suffix, full)
     try:
         ws = WS(host, port, "/ws", timeout=0.45)
     except (OSError, RuntimeError) as e:
         raise RuntimeError(f"{host}:{port} 连接失败: {e}") from e
     report = {"handshake": ws.status, "steps": {}}
     try:
-        for name in STEPS:
+        for name in steps_for(full):
             try:
                 ws.send(steps[name])
                 got = ws.drain(max_frames=24)
@@ -162,10 +232,11 @@ def diff_shape(a, b, path: str, out: list[str]) -> None:
         out.append(f"  ~ {path}   类型 {a} -> {b}")
 
 
-def compare(baseline: dict, target: dict, baseline_name: str) -> tuple[int, list[str]]:
+def compare(baseline: dict, target: dict, baseline_name: str,
+            steps: tuple[str, ...] = STEPS, strict: bool = True) -> tuple[int, list[str]]:
     problems: list[str] = []
-    print(f"\n=== 逐步响应类型（{baseline_name} vs Python）===")
-    for name in STEPS:
+    print(f"\n=== 逐步响应类型（{baseline_name} vs Python，共 {len(steps)} 步）===")
+    for name in steps:
         b = baseline["steps"].get(name, {})
         t = target["steps"].get(name, {})
         bt, tt = set(b.get("types", [])), set(t.get("types", []))
@@ -178,10 +249,13 @@ def compare(baseline: dict, target: dict, baseline_name: str) -> tuple[int, list
               f"  python={','.join(sorted(tt)) or '-'}")
         if not ok:
             problems.append(f"  ! {name}: Python 缺少期望响应 {EXPECT[name]}")
-        if missing and name not in ("noticeOk", "move"):
+        if strict and missing and name not in ("noticeOk", "move"):
             problems.append(f"  ! {name}: Python 缺少 {baseline_name} 的类型 {missing}")
-        if extra and name not in ("noticeOk", "move", "logout"):
+        if strict and extra and name not in ("noticeOk", "move", "logout"):
             problems.append(f"  ! {name}: Python 多出类型 {extra}")
+        if not strict and (missing or extra):
+            # 全量模式允许随机/状态差异，只报告不判失败。
+            print(f"       差异(仅记录): 缺少={missing} 多出={extra}")
 
     print(f"\n=== 字段结构差异（{baseline_name} vs Python）===")
     shape_diffs: list[str] = []
@@ -215,6 +289,8 @@ def main() -> int:
     ap.add_argument("--py-port", type=int, default=8081, help="Python 服务端端口")
     ap.add_argument("--golden", help="离线 golden 基线 JSON（此时不需要 Java 服务端）")
     ap.add_argument("--save-golden", help="把基线写入该 JSON 文件")
+    ap.add_argument("--full", action="store_true",
+                    help="全量模式：对比 Java switch 的全部 46 种消息")
     a = ap.parse_args()
 
     tag = "%d%d" % (os.getpid() % 10000, int(time.time()) % 10000)
@@ -224,22 +300,25 @@ def main() -> int:
             print(f"找不到 golden 基线: {golden_path}")
             return 2
         baseline = json.loads(golden_path.read_text(encoding="utf-8"))
+        full = bool(baseline.get("_full", False)) or a.full
         baseline_name = "golden"
-        print(f"已加载 golden 基线: {golden_path}")
+        print(f"已加载 golden 基线: {golden_path} (full={full})")
     else:
+        full = a.full
         if not a.java_port:
             print("需要 --java-port 或 --golden")
             return 2
         try:
-            baseline = run_stack(a.host, a.java_port, tag, "j")
+            baseline = run_stack(a.host, a.java_port, tag, "j", full=full)
         except RuntimeError as e:
             print(e)
             return 2
         baseline_name = "java"
-        print(f"Java 基线采集完成: {a.host}:{a.java_port} ({baseline['handshake'].strip()})")
+        print(f"Java 基线采集完成: {a.host}:{a.java_port} ({baseline['handshake'].strip()}, "
+              f"{len(steps_for(full))} 步)")
 
     try:
-        target = run_stack(a.host, a.py_port, tag, "p")
+        target = run_stack(a.host, a.py_port, tag, "p", full=full)
     except RuntimeError as e:
         print(e)
         return 2
@@ -248,10 +327,12 @@ def main() -> int:
     if a.save_golden:
         out = Path(a.save_golden)
         out.parent.mkdir(parents=True, exist_ok=True)
+        baseline["_full"] = full
         out.write_text(json.dumps(baseline, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"基线已保存: {out}")
+        print(f"基线已保存: {out} (full={full})")
 
-    code, _ = compare(baseline, target, baseline_name)
+    code, _ = compare(baseline, target, baseline_name,
+                      steps=steps_for(full), strict=not full)
     return code
 
 

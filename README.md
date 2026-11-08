@@ -2,8 +2,10 @@
 
 传奇（Legend of Mir 2，热血传奇 1.80 风格）游戏的现代移植版。
 
-**后端**：Java 11 + Netty + SQLite，单端口（8080）同时承载前端静态文件、REST API、WebSocket 游戏协议与资源服务。
+**后端（当前默认）**：Python 3.10+ 纯标准库（asyncio）+ SQLite，单端口（8080）同时承载前端静态文件、REST API、WebSocket 游戏协议与资源服务；Java 11 + Netty 版保留在 `src/` 作为协议对照实现。
 **前端**：原生 Canvas 2D 等距渲染 + DOM GUI（ES Module，无框架依赖），界面与交互 1:1 复刻原版。
+
+> 两个服务端共用同一份 `config/server.properties`、同一套 SQLite schema 和同一套 WebSocket JSON 协议，前端无需改动即可在两者之间切换。Python 版已迁移全部 46 种消息（见 `/api/migration`）。
 
 > 本项目是个人学习 / 怀旧项目，代码开放、**不商用**。资源文件（图片库 / 地图）因版权原因**不分发**，需自行准备（见下文「资源准备」）。
 
@@ -50,19 +52,37 @@
 
 ### 环境要求
 
-- JDK 11+
-- Maven 3.6+
+- Python 3.10+（无第三方依赖，`asyncio` / `sqlite3` / `struct` 等均为标准库）
+- 可选：JDK 11+ / Maven 3.6+（仅当需要跑旧 Java 版做双栈对比）
 
 ### 构建与运行
 
 ```bash
-mvn -q -DskipTests package
-java -jar target/jootm2.jar
+python -m pyserver
 ```
 
 启动后访问 http://localhost:8080/ 即可注册 → 登录 → 建角色 → 进入游戏。
+服务端状态：`/api/status`；消息迁移进度：`/api/migration`；WebSocket：`/ws`。
+
+双栈并行（同一个 8080 会冲突，需给 Python 侧换端口和独立 DB）：
+
+```bash
+mvn -q -DskipTests package && java -jar target/jootm2.jar   # Java 版占 8080
+python -m pyserver --port 8081 --db data/jootm2-py.db        # Python 版占 8081
+```
 
 > 建议在项目根目录运行。若从其他目录运行，程序会自动向上定位 `frontend` / `gamedata` / `resources`；`config/server.properties` 缺失时回退到内置默认值。
+> 全部路径都可用环境变量覆盖：`JOOTM2_PORT` / `JOOTM2_HOST` / `JOOTM2_DB` / `JOOTM2_WEB_ROOT` / `JOOTM2_GAMEDATA` / `JOOTM2_RESOURCES` / `JOOTM2_ROOT`。
+
+### 回归测试
+
+```bash
+python scripts/verify_resources.py --self-test          # 资源体检脚本自检
+python scripts/test_pyserver.py --live 8081             # pyserver 单元 + 实时自检
+python scripts/smoke_ws.py --port 8081                  # WebSocket 8 步冒烟
+python scripts/test_all_messages.py --live 8081         # 46 种消息 + 33 个技能分支
+python scripts/compare_stacks.py --java-port 8080 --py-port 8081 --full
+```
 
 ---
 
@@ -108,18 +128,25 @@ ln -s "/你的热血传奇客户端安装目录/Map" gamedata/Mir200/Map
 ## Docker 运行
 
 ```bash
-# 1. 准备好 ./resources 与 ./data 目录
+# 1. 准备好 ./resources（客户端素材）与 ./data（SQLite）目录
 docker compose up --build
 ```
 
-`resources/` 和 `data/`（SQLite）以卷挂载，不打进镜像。
+默认镜像是 `python:3.12-slim`，直接 `ENTRYPOINT ["python", "-m", "pyserver"]`；`pyserver/` / `frontend/` / `config/` / `gamedata/` 打进镜像，`resources/` 与 `data/`（SQLite）以卷挂载。
+`gamedata/` 也挂载出来，方便覆盖 CSV 模板或补入自备的 `.map`（旧镜像缺这份数据，已修）。
+
+需要跑旧 Java 版做协议对比时：
+
+```bash
+docker compose --profile java up jootm2-java --build   # 映射到宿主 8082
+```
 
 ## 配置（config/server.properties）
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | server.port | 8080 | 监听端口 |
-| server.ioThreads | 2 | Netty worker 线程数 |
+| server.ioThreads | 2 | 仅 Java/Netty 版使用；Python 版是单事件循环 |
 | server.backlog | 256 | accept 队列 |
 | db.file | data/jootm2.db | SQLite 文件 |
 | game.tickMs | 100 | 游戏 tick（毫秒） |

@@ -24,6 +24,8 @@ from .gamedata import (
     parse_mon_gen, parse_notice, parse_start_point, read_map, scan_available_maps,
 )
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
+from .util import slot_accepts, slot_for
+from .world_extra import WorldExtra
 
 SIGHT_RANGE = 12
 BAG_SIZE = 46
@@ -207,6 +209,61 @@ class Player(Actor):
     hide_until: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
+    last_use_item_at: int = 0
+    pk_point: int = 0
+    quest_params: dict[int, int] = field(default_factory=dict)
+    guild_name: str = ""
+    last_attack_at: int = 0
+    last_spell_at: int = 0
+    # 战斗 / 技能状态（对齐 Java Player 字段）
+    luck: int = 0
+    suck_health_rate: int = 0
+    paralysis_weapon: bool = False
+    revival_ring: bool = False
+    summon_id: int = -1
+    target_id: int = -1
+    inc_healing: int = 0
+    poison_damage: int = 0
+    last_poison_at: int = 0
+    ac_buff_until: int = 0
+    mac_buff_until: int = 0
+    ac_buff_bonus: int = 0
+    mac_buff_bonus: int = 0
+    last_fire_hit_at: int = 0
+    last_rush_rush_at: int = 0
+    power_hit_count: int = 0
+    power_hit_point: int = 0
+    attack_mode: int = 1
+    skill_cooldown: dict[int, int] = field(default_factory=dict)
+
+    def bag_item(self, make_index: int) -> dict | None:
+        return next((it for it in self.bag
+                     if int(it.get("makeIndex", 0)) == make_index), None)
+
+    def clear_quick_ref(self, make_index: int) -> None:
+        if make_index <= 0:
+            return
+        for i in range(len(self.quick_slots)):
+            if self.quick_slots[i] == make_index:
+                self.quick_slots[i] = 0
+
+    def quick_slot_valid(self, slot: int) -> bool:
+        return (0 <= slot < len(self.quick_slots)
+                and self.quick_slots[slot] > 0
+                and self.bag_item(self.quick_slots[slot]) is not None)
+
+    def distance_to(self, other) -> int:
+        return max(abs(self.x - other.x), abs(self.y - other.y))
+
+    def wear_weight_ex(self, world: "GameWorld", exclude_slot: int) -> int:
+        total = 0
+        for i, it in enumerate(self.equipment):
+            if i in (U_WEAPON, U_RIGHTHAND) or i == exclude_slot:
+                continue
+            t = self._template(world, it)
+            if t is not None:
+                total += t.weight
+        return total
 
     def brief_json(self) -> dict:
         o = super().brief_json()
@@ -236,7 +293,8 @@ class Player(Actor):
         for it in self.bag:
             slot = int(it.get("slot", -1))
             t = self._template(world, it)
-            if t and 0 <= slot < EQUIP_SLOTS and self.equipment[slot] is None:
+            if (t and 0 <= slot < EQUIP_SLOTS and self.equipment[slot] is None
+                    and slot_accepts(slot, t.stdMode)):
                 self.equipment[slot] = it
             else:
                 remain.append(it)
@@ -321,9 +379,17 @@ class Player(Actor):
             o.update(stdMode=t.stdMode, shape=t.shape, weight=t.weight,
                      dc=t.dcMin, dcMax=t.dcMax, mc=t.mcMin, mcMax=t.mcMax,
                      sc=t.scMin, scMax=t.scMax, ac=t.acMin, acMax=t.acMax,
-                     mac=t.macMin, macMax=t.macMax, needLevel=t.needLevel,
-                     price=t.price, duraMax=t.duraMax)
+                     mac=t.macMin, macMax=t.macMax, need=t.need,
+                     needLevel=t.needLevel)
         return o
+
+    @staticmethod
+    def storage_json(it: dict, name: str, looks: int) -> dict:
+        """``ItemInstance.toJson``：仓库下发的精简字段。"""
+        return {"makeIndex": it.get("makeIndex", 0), "index": it.get("index", 0),
+                "name": name, "looks": looks,
+                "durability": it.get("durability", 0),
+                "durabilityMax": it.get("durabilityMax", 0)}
 
     def items_json(self, world: "GameWorld") -> list[dict]:
         out = [self.instance_json(world, it) for it in self.bag]
@@ -384,6 +450,13 @@ class Monster(Actor):
     respawn_at: int = 0
     pending_respawn: bool = False
     target_id: int = -1
+    master_id: int = -1
+    last_hiter_id: int = -1
+    slave_make_level: int = 0
+    poison_ticks: int = 0
+    poison_armor_until: int = 0
+    poison_damage: int = 0
+    last_poison_at: int = 0
     last_move_at: int = 0
     last_attack_at: int = 0
     paralyzed_until: int = 0
@@ -391,7 +464,7 @@ class Monster(Actor):
 
 # ---------------------------------------------------------------- 世界
 
-class GameWorld:
+class GameWorld(WorldExtra):
     def __init__(self, config: ServerConfig, db: Database):
         self.config = config
         self.db = db
@@ -432,6 +505,7 @@ class GameWorld:
         self.mon_gen_entries: list[MonGen] = parse_mon_gen(config.envir_dir / "MonGen.txt")
         self.notice_lines = parse_notice(config.notice_file)
         self.spawn_monsters(self.default_map)
+        self.init_extra()
 
     # ---- id / 生命周期 -------------------------------------------------
 
@@ -615,8 +689,8 @@ class GameWorld:
                      mc=f"{c.get('mcMin', 0)}-{c.get('mcMax', 0)}",
                      sc=f"{c.get('scMin', 0)}-{c.get('scMax', 0)}",
                      hit=c.get("hit", 0), speed=c.get("speed", 0))
-        o["poison"] = a.poison_ticks > 0 if isinstance(a, Player) else False
-        o["poisonArmor"] = a.poison_armor_until > now if isinstance(a, Player) else False
+        o["poison"] = getattr(a, "poison_ticks", 0) > 0
+        o["poisonArmor"] = getattr(a, "poison_armor_until", 0) > now
         if isinstance(a, Monster):
             o["paralyzed"] = a.paralyzed_until > now
         if extras:
@@ -648,7 +722,7 @@ class GameWorld:
             "miniMapIndex": self.map_mini_index.get(game_map.name, -1),
             "player": p.to_player_json(self),
             "nearby": nearby,
-            "groundItems": [],
+            "groundItems": self.ground_items_json(p),
         }
 
     def update_sight(self, p: Player) -> None:
@@ -733,3 +807,4 @@ class GameWorld:
                     target.x, target.y = target.home_x, target.home_y
                     self.send_stats(target)
                     self.send_system(target, "你被击败了，已回到出生点。")
+        self.tick_extra(now)

@@ -1,0 +1,751 @@
+"""GameWorld 的领域扩展（物品/掉落/NPC/行会/组队/交易/攻城）。
+
+以 mixin 方式挂到 ``GameWorld``，避免把 world.py 撑成单体。所有状态仍在
+asyncio 单 loop 内串行读写，与 Java 的 ``synchronized (world.lock)`` 等价。
+"""
+from __future__ import annotations
+
+import random
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from .gamedata import read_lines
+from .util import (
+    BAG_SIZE, GROUND_ITEM_TTL_MS, SIGHT_RANGE, U_WEAPON, encode, java_div,
+    now_ms,
+)
+
+
+# ---------------------------------------------------------------- 数据结构
+
+@dataclass(slots=True)
+class GroundItem:
+    id: int
+    item: dict | None
+    gold: int
+    x: int
+    y: int
+    created_at: int
+    map: Any = None
+
+    def is_gold(self) -> bool:
+        return self.gold > 0
+
+    def to_json(self, name: str, looks: int) -> dict:
+        if self.is_gold():
+            return {"id": self.id, "x": self.x, "y": self.y, "gold": self.gold,
+                    "name": "金币", "looks": 0}
+        return {"id": self.id, "x": self.x, "y": self.y, "gold": 0,
+                "name": name, "looks": looks}
+
+
+@dataclass(slots=True)
+class DropEntry:
+    sel_point: int
+    max_point: int
+    item_name: str
+    count: int = 1
+
+
+@dataclass(slots=True)
+class Npc:
+    id: int
+    name: str
+    script_name: str = ""
+    map_name: str = ""
+    x: int = 0
+    y: int = 0
+    dir: int = 0
+    face: int = 0
+    appr: int = 0
+    kind: int = 0
+    merchant: bool = False
+    script: Any = None
+    map: Any = None
+    alive: bool = True
+    level: int = 1
+    race: int = 50          # MessageIds.RC_PEACENPC
+    race_img: int = 0
+    seen: set[int] = field(default_factory=set)
+
+    def brief_json(self) -> dict:
+        return {"id": self.id, "name": self.name, "type": "npc",
+                "x": self.x, "y": self.y, "dir": self.dir,
+                "hp": 1, "maxHp": 1, "race": self.race, "raceImg": self.race_img,
+                "appr": self.appr, "level": self.level, "merchant": self.merchant,
+                "face": self.face}
+
+
+@dataclass(slots=True)
+class Guild:
+    name: str
+    master_name: str
+    members: list[str] = field(default_factory=list)
+    war_guilds: list[str] = field(default_factory=list)
+    ally_guilds: list[str] = field(default_factory=list)
+    owns_castle: bool = False
+
+    def member_count(self) -> int:
+        return len(self.members)
+
+    def add_member(self, name: str) -> bool:
+        if name in self.members:
+            return False
+        self.members.append(name)
+        return True
+
+
+@dataclass(slots=True)
+class Party:
+    member_ids: list[int] = field(default_factory=list)
+
+    def leader_id(self) -> int:
+        return self.member_ids[0] if self.member_ids else -1
+
+
+@dataclass(slots=True)
+class TradeSession:
+    a: Any
+    b: Any
+    a_items: list[dict] = field(default_factory=list)
+    b_items: list[dict] = field(default_factory=list)
+    a_gold: int = 0
+    b_gold: int = 0
+    a_confirm: bool = False
+    b_confirm: bool = False
+
+
+@dataclass(slots=True)
+class Castle:
+    name: str = "沙巴克"
+    own_guild: str = ""
+    map_id: str = "3"
+    main_door_x: int = 0
+    main_door_y: int = 0
+    main_door_hp: int = 0
+    main_door_max_hp: int = 0
+    main_door_open: bool = False
+    wall_hp: list[int] = field(default_factory=lambda: [0, 0, 0])
+    wall_max_hp: list[int] = field(default_factory=lambda: [0, 0, 0])
+    war_active: bool = False
+    war_end_at: int = 0
+    war_guild: str = ""
+
+    def door_broken(self) -> bool:
+        return self.main_door_hp <= 0
+
+    def walls_broken(self) -> bool:
+        return all(h <= 0 for h in self.wall_hp)
+
+
+@dataclass(slots=True)
+class GoodsEntry:
+    index: int
+    name: str
+    price: int
+    stock: int
+
+
+# ---------------------------------------------------------------- 数据解析
+
+def _split_quoted(line: str) -> list[str]:
+    """空白分隔但保留双引号字段（对齐 NpcData.split / WorldData.splitQuoted）。"""
+    out: list[str] = []
+    i, n = 0, len(line)
+    while i < n:
+        while i < n and line[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        if line[i] == '"':
+            end = line.find('"', i + 1)
+            if end < 0:
+                out.append(line[i:])
+                break
+            out.append(line[i + 1:end])
+            i = end + 1
+        else:
+            start = i
+            while i < n and not line[i].isspace():
+                i += 1
+            out.append(line[start:i])
+    return out
+
+
+def _num(v: str, default: int = 0) -> int:
+    try:
+        return int(str(v).strip())
+    except (ValueError, TypeError):
+        return default
+
+
+def load_drop_tables(envir: Path) -> dict[str, list[DropEntry]]:
+    out: dict[str, list[DropEntry]] = {}
+    d = envir / "MonItems"
+    if not d.is_dir():
+        return out
+    for path in sorted(d.glob("*.txt")):
+        entries: list[DropEntry] = []
+        for line in read_lines(path):
+            t = line.strip()
+            if not t or t.startswith(";"):
+                continue
+            tokens = t.split()
+            if len(tokens) < 2 or "/" not in tokens[0]:
+                continue
+            prob = tokens[0].split("/", 1)
+            n, m = _num(prob[0]), _num(prob[1])
+            if n > 0 and m > 0:
+                entries.append(DropEntry(n - 1, m, tokens[1],
+                                         _num(tokens[2], 1) if len(tokens) > 2 else 1))
+        if entries:
+            out[path.stem] = entries
+    return out
+
+
+def load_npc_spawns(envir: Path) -> list[dict]:
+    spawns: list[dict] = []
+    for filename, merchant in (("Npcs.txt", False), ("MerChant.txt", True)):
+        for line in read_lines(envir / filename):
+            t = line.strip()
+            if not t or t.startswith(";"):
+                continue
+            p = _split_quoted(t)
+            if len(p) < 7:
+                continue
+            if merchant:
+                spawns.append(dict(name=p[4], script_name=p[0], map_name=p[1],
+                                   x=_num(p[2]), y=_num(p[3]), face=_num(p[5]),
+                                   appr=_num(p[6]), kind=0, merchant=True))
+            else:
+                spawns.append(dict(name=p[0], script_name=p[0], map_name=p[2],
+                                   x=_num(p[3]), y=_num(p[4]), face=_num(p[5]),
+                                   appr=_num(p[6]), kind=_num(p[1]), merchant=False))
+    return spawns
+
+
+def load_unbind_list(envir: Path) -> dict[int, str]:
+    """UnbindList.txt：卷包 shape → 拆出的物品名。"""
+    out: dict[int, str] = {}
+    for line in read_lines(envir / "UnbindList.txt"):
+        t = line.strip()
+        if not t or t.startswith(";"):
+            continue
+        p = _split_quoted(t)
+        if len(p) >= 2:
+            out[_num(p[0])] = p[1]
+        elif "=" in t:
+            k, v = t.split("=", 1)
+            out[_num(k)] = v.strip()
+    return out
+
+
+def load_castle(envir: Path) -> Castle:
+    c = Castle()
+    keys = {
+        "CastleName": "name", "OwnGuild": "own_guild", "CastleMap": "map_id",
+        "MainDoorX": "main_door_x", "MainDoorY": "main_door_y",
+        "MainDoorOpen": "main_door_open",
+    }
+    wall_keys = {"LeftWallHP": 0, "CenterWallHP": 1, "RightWallHP": 2}
+    for line in read_lines(envir / "Castle" / "Sabuk.txt"):
+        t = line.strip()
+        if not t or t.startswith((";", "[")) or "=" not in t:
+            continue
+        k, v = (x.strip() for x in t.split("=", 1))
+        if k in keys:
+            attr = keys[k]
+            setattr(c, attr, (_num(v) != 0) if attr == "main_door_open"
+                    else (v if attr in ("name", "own_guild", "map_id") else _num(v)))
+        elif k == "MainDoorHP":
+            c.main_door_hp = c.main_door_max_hp = _num(v)
+        elif k in wall_keys:
+            i = wall_keys[k]
+            c.wall_hp[i] = c.wall_max_hp[i] = _num(v)
+    return c
+
+
+# ---------------------------------------------------------------- Mixin
+
+class WorldExtra:
+    """挂到 GameWorld 的扩展方法集合。``init_extra()`` 必须在 __init__ 末尾调用。"""
+
+    def init_extra(self) -> None:
+        envir = self.config.envir_dir
+        self.drop_tables = load_drop_tables(envir)
+        self.unbind_items = load_unbind_list(envir)
+        self.castle = load_castle(envir)
+        self.guilds: dict[str, Guild] = {}
+        self.guild_of_player: dict[str, str] = {}
+        self.parties: dict[int, Party] = {}
+        self.trades: dict[int, TradeSession] = {}
+        self.trade_requests: dict[int, int] = {}
+        self.combat_state: dict[str, Any] = {"fire_walls": [], "pets": {}}
+        self.npcs: dict[int, Npc] = {}
+        self.npcs_by_map: dict[str, list[Npc]] = {}
+        self.script_cache: dict[str, Any] = {}
+        self.map_quests: list[dict] = []
+        self._load_npcs()
+        print(f"[world] loaded {len(self.drop_tables)} drop tables, "
+              f"{len(self.npcs)} npcs, castle={self.castle.name}/{self.castle.map_id}")
+
+    # ---- NPC ------------------------------------------------------------
+
+    def _load_npcs(self) -> None:
+        from .npc_script import load_script
+
+        envir = self.config.envir_dir
+        for s in load_npc_spawns(envir):
+            npc = Npc(id=self.new_id(), name=s["name"], script_name=s["script_name"],
+                      map_name=s["map_name"], x=s["x"], y=s["y"], face=s["face"],
+                      appr=s["appr"], kind=s["kind"], merchant=s["merchant"])
+            d = envir / ("Market_Def" if npc.merchant else "Npc_Def")
+            key = f"{'M' if npc.merchant else 'N'}:{npc.script_name}:{npc.map_name}"
+            if key not in self.script_cache:
+                self.script_cache[key] = load_script(d, npc.script_name, npc.map_name)
+            npc.script = self.script_cache[key]
+            self.npcs[npc.id] = npc
+            self.npcs_by_map.setdefault(npc.map_name, []).append(npc)
+            # NPC 作为静态 Actor 挂到地图，才能出现在 nearby / entityAdd 里。
+            gm = self.maps.get(npc.map_name) or self.get_or_load_map(npc.map_name)
+            if gm is not None:
+                npc.map = gm
+                gm.add(npc)
+
+    def npc(self, npc_id: int) -> Npc | None:
+        return self.npcs.get(int(npc_id))
+
+    def actor(self, actor_id: int) -> Any:
+        return self.actors.get(int(actor_id))
+
+    def goods(self, npc: Npc | None) -> list[dict]:
+        """商店货物：对齐 ``NpcScriptEngine.goods`` 的 [goods] 段。"""
+        from .npc_script import NpcScriptEngine
+
+        return NpcScriptEngine(self).goods(npc)
+
+    # ---- 模板 / 背包 ----------------------------------------------------
+
+    def item_template_by_name(self, name: str | None):
+        if name is None:
+            return None
+        return next((t for t in self.item_templates.values() if t.name == name), None)
+
+    def new_item_instance(self, t, dura: int | None = None) -> dict:
+        d = dura if dura is not None else t.duraMax
+        return {"makeIndex": self.next_item_make_index(), "index": t.index,
+                "durability": d, "durabilityMax": t.duraMax, "lucky": 0, "slot": -1}
+
+    def count_item(self, p, name: str) -> int:
+        if name == "金币":
+            return min(p.gold, 2_147_483_647)
+        n = 0
+        for it in list(p.bag) + [e for e in p.equipment if e]:
+            t = self.item_templates.get(int(it.get("index", 0)))
+            if t is not None and t.name == name:
+                n += 1
+        return n
+
+    def give_item(self, p, name: str, count: int) -> bool:
+        if name == "金币":
+            p.gold += count
+            return True
+        t = self.item_template_by_name(name)
+        if t is None:
+            return False
+        if len(p.bag) + count > BAG_SIZE:
+            return False
+        for _ in range(count):
+            p.bag.append(self.new_item_instance(t))
+        return True
+
+    def take_item(self, p, name: str, count: int) -> bool:
+        if name == "金币":
+            if p.gold < count:
+                return False
+            p.gold -= count
+            return True
+        if self.count_item(p, name) < count:
+            return False
+        left = count
+        for i in range(len(p.bag) - 1, -1, -1):
+            if left <= 0:
+                break
+            t = self.item_templates.get(int(p.bag[i].get("index", 0)))
+            if t is not None and t.name == name:
+                removed = p.bag.pop(i)
+                p.clear_quick_ref(int(removed.get("makeIndex", 0)))
+                left -= 1
+        return True
+
+    # ---- 地面物品 / 掉落 ------------------------------------------------
+
+    def ground_item(self, item_id: int) -> GroundItem | None:
+        return self.ground_items.get(int(item_id))
+
+    def _broadcast_item_drop(self, gi: GroundItem) -> None:
+        t = self.item_templates.get(int(gi.item.get("index", 0))) if gi.item else None
+        o = gi.to_json(t.name if t else "?", t.looks if t else 0)
+        o["type"] = "itemDrop"
+        self.broadcast_around(gi.map, o, gi.x, gi.y, SIGHT_RANGE)
+
+    def _broadcast_item_remove(self, gi: GroundItem) -> None:
+        self.broadcast_around(gi.map, {"type": "itemRemove", "id": gi.id},
+                              gi.x, gi.y, SIGHT_RANGE)
+
+    def drop_instance(self, p, it: dict) -> GroundItem:
+        gi = GroundItem(self.new_id(), it, 0, p.x, p.y, now_ms(), p.map)
+        self.ground_items[gi.id] = gi
+        self._broadcast_item_drop(gi)
+        return gi
+
+    def drop_item(self, p, make_index: int) -> bool:
+        for i, it in enumerate(p.bag):
+            if int(it.get("makeIndex", 0)) == make_index:
+                p.bag.pop(i)
+                self.drop_instance(p, it)
+                return True
+        return False
+
+    def pickup(self, p, item_id: int) -> bool:
+        gi = self.ground_items.get(int(item_id))
+        if gi is None or gi.map is not p.map:
+            return False
+        if max(abs(p.x - gi.x), abs(p.y - gi.y)) > 1:
+            return False
+        if not gi.is_gold() and len(p.bag) >= BAG_SIZE:
+            self.send_system(p, "背包已满，无法拾取。")
+            return False
+        del self.ground_items[gi.id]
+        if gi.is_gold():
+            p.gold += gi.gold
+        elif gi.item is not None:
+            p.bag.append(gi.item)
+        self._broadcast_item_remove(gi)
+        return True
+
+    def scatter_pos(self, game_map, cx: int, cy: int):
+        for _ in range(50):
+            x = cx + int(random.random() * 7) - 3
+            y = cy + int(random.random() * 7) - 3
+            if game_map.can_walk(x, y):
+                return x, y
+        return (cx, cy) if game_map.can_walk(cx, cy) else None
+
+    def drop_loot(self, m) -> None:
+        table = self.drop_tables.get(m.template.name if m.template else m.name)
+        if not table:
+            return
+        for e in table:
+            if e.sel_point < int(random.random() * e.max_point):
+                continue
+            pos = self.scatter_pos(m.map, m.x, m.y)
+            if pos is None:
+                continue
+            if e.item_name == "金币":
+                gold = java_div(e.count, 2) + int(random.random() * e.count)
+                gi = GroundItem(self.new_id(), None, max(1, gold), pos[0], pos[1],
+                                now_ms(), m.map)
+            else:
+                t = self.item_template_by_name(e.item_name)
+                if t is None:
+                    continue
+                dura = max(1, java_div(t.duraMax * (20 + int(random.random() * 81)), 100))
+                gi = GroundItem(self.new_id(), self.new_item_instance(t, dura), 0,
+                                pos[0], pos[1], now_ms(), m.map)
+            self.ground_items[gi.id] = gi
+            self._broadcast_item_drop(gi)
+
+    def ground_items_json(self, p) -> list[dict]:
+        out = []
+        for gi in self.ground_items.values():
+            if gi.map is not p.map:
+                continue
+            if max(abs(gi.x - p.x), abs(gi.y - p.y)) > SIGHT_RANGE:
+                continue
+            t = self.item_templates.get(int(gi.item.get("index", 0))) if gi.item else None
+            out.append(gi.to_json(t.name if t else "?", t.looks if t else 0))
+        return out
+
+    def kill_monster(self, m, now: int, killer=None) -> None:
+        m.alive = False
+        m.pending_respawn = True
+        m.respawn_at = now + (m.respawn_interval_ms or 15_000)
+        m.hp = 0
+        m.target_id = -1
+        self.drop_loot(m)
+        self.broadcast_around(m.map, {"type": "death", "id": m.id},
+                              m.x, m.y, SIGHT_RANGE)
+
+    def level_for_exp(self, exp: int) -> int:
+        """``ExperienceTable.levelForExp``：NEED_EXPS 是每级升级阈值的累计和。"""
+        from .world import NEED_EXPS
+
+        total = 0
+        for level in range(1, 102):
+            total += NEED_EXPS[min(level, len(NEED_EXPS)) - 1]
+            if exp < total:
+                return level
+        return 101
+
+    def add_exp(self, p, exp: int) -> None:
+        p.exp += exp
+        old_level = p.level
+        new_level = self.level_for_exp(p.exp)
+        if new_level > old_level:
+            p.level = new_level
+            p.recompute(self)
+            p.hp, p.mp = p.max_hp, p.max_mp
+            self.send_system(p, f"恭喜！你升到了 {new_level} 级。")
+        self.send_stats(p)
+
+    # ---- 玩家死亡 / 冲撞 / 火墙 / 召唤 --------------------------------
+
+    def kill_player(self, p) -> None:
+        if p.revival_ring:
+            p.revival_ring = False
+            p.hp, p.mp = p.max_hp // 2, p.max_mp
+            self.send_system(p, "复活戒指生效，你免于一死！")
+            self.send_stats(p)
+            return
+        self.broadcast_around(p.map, {"type": "death", "id": p.id}, p.x, p.y)
+        summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
+        if summon is not None and summon.alive:
+            self.remove_summon(summon)
+        p.hp, p.mp, p.dir = p.max_hp, p.max_mp, 4
+        self.broadcast_around(p.map, {"type": "entityRemove", "id": p.id}, p.x, p.y)
+        self.change_map(p, p.home_map, p.home_x, p.home_y)
+        if p.session is not None:
+            p.session.send_json(self.map_snapshot(p, "changeMap"))
+        self.broadcast_entity_add(p)
+        self.send_stats(p)
+        self.send_system(p, "你被击败了，已回到出生点。")
+
+    def broadcast_rush(self, a, steps: int) -> None:
+        self.broadcast_around(a.map, {"type": "move", "id": a.id, "x": a.x, "y": a.y,
+                                      "dir": a.dir, "rush": True,
+                                      "rushSteps": max(1, steps)}, a.x, a.y)
+
+    def can_fire_fly(self, game_map, x: int, y: int) -> bool:
+        return game_map.inside(x, y) and not game_map.is_high_wall(x, y)
+
+    def make_fire_wall_at(self, p, tx: int, ty: int, damage: int,
+                          duration_sec: int) -> int:
+        expire = now_ms() + duration_sec * 1000
+        cells = ((tx, ty - 1), (tx - 1, ty), (tx, ty), (tx + 1, ty), (tx, ty + 1))
+        made = 0
+        walls = self.combat_state.setdefault("fire_walls", [])
+        for cx, cy in cells:
+            if not self.can_fire_fly(p.map, cx, cy):
+                continue
+            walls.append({"map": p.map, "x": cx, "y": cy, "expire": expire,
+                          "damage": damage, "owner": p.id})
+            made += 1
+            self.broadcast_around(p.map, {"type": "fireWall", "x": cx, "y": cy,
+                                          "duration": duration_sec}, cx, cy)
+        return made
+
+    def spawn_summon(self, owner, monster_name: str):
+        from .world import Monster
+
+        t = self.monster_templates.get(monster_name)
+        if t is None:
+            return None
+        pos = self._free_near(owner.map, owner.x, owner.y, 2)
+        if pos is None:
+            return None
+        m = Monster(id=self.new_id(), name=t.name, x=pos[0], y=pos[1], dir=4,
+                    hp=t.hp, max_hp=t.hp, level=t.level, race=t.race,
+                    race_img=t.raceImg, appr=t.appr, template=t,
+                    spawn_x=pos[0], spawn_y=pos[1], master_id=owner.id)
+        m.exp = t.exp
+        self.add_actor(m, owner.map)
+        self.broadcast_entity_add(m)
+        return m
+
+    def remove_summon(self, m) -> None:
+        m.alive = False
+        m.pending_respawn = False
+        self.remove_actor(m.id)
+        self.broadcast_around(m.map, {"type": "death", "id": m.id}, m.x, m.y)
+
+    # ---- 传送卷 / 解包 --------------------------------------------------
+
+    def unbind_item_name(self, shape: int) -> str | None:
+        return self.unbind_items.get(shape)
+
+    def random_walk_pos(self, game_map):
+        for _ in range(100):
+            x = int(random.random() * game_map.width)
+            y = int(random.random() * game_map.height)
+            if game_map.can_walk(x, y):
+                return x, y
+        return self.start_x, self.start_y
+
+    def use_scroll(self, p, shape: int) -> bool:
+        shape_map = {1: (p.home_map, -1, -1), 2: (p.map.name if p.map else "0", -1, -1),
+                     3: (p.home_map, p.home_x, p.home_y), 5: (p.home_map, p.home_x, p.home_y)}
+        if shape not in shape_map:
+            return False
+        map_id, tx, ty = shape_map[shape]
+        target = self.get_or_load_map(map_id)
+        if target is None:
+            return False
+        if tx < 0 or ty < 0 or not target.can_walk(tx, ty):
+            tx, ty = self.random_walk_pos(target)
+        self.broadcast_around(p.map, {"type": "entityRemove", "id": p.id}, p.x, p.y)
+        self.change_map(p, map_id, tx, ty)
+        if p.session is not None:
+            p.session.send_json(self.map_snapshot(p, "changeMap"))
+        self.broadcast_entity_add(p)
+        return True
+
+    # ---- 行会 / 攻城 ----------------------------------------------------
+
+    def create_guild(self, name: str | None, master: str) -> Guild | None:
+        if not name or not name.strip() or name in self.guilds or master in self.guild_of_player:
+            return None
+        g = Guild(name, master, [master])
+        self.guilds[name] = g
+        self.guild_of_player[master] = name
+        self._save_guild(g)
+        return g
+
+    def guild_of(self, player_name: str) -> Guild | None:
+        gname = self.guild_of_player.get(player_name)
+        return self.guilds.get(gname) if gname else None
+
+    def join_guild(self, player_name: str, guild_name: str | None) -> bool:
+        if player_name in self.guild_of_player:
+            return False
+        g = self.guilds.get(guild_name or "")
+        if g is None or not g.add_member(player_name):
+            return False
+        self.guild_of_player[player_name] = g.name
+        self._save_guild(g)
+        return True
+
+    def leave_guild(self, player_name: str) -> bool:
+        gname = self.guild_of_player.pop(player_name, None)
+        if gname is None:
+            return False
+        g = self.guilds.get(gname)
+        if g is not None:
+            if player_name in g.members:
+                g.members.remove(player_name)
+            if g.master_name == player_name:
+                del self.guilds[gname]
+            else:
+                self._save_guild(g)
+        return True
+
+    def declare_guild_war(self, a_name: str, b_name: str | None) -> bool:
+        a, b = self.guilds.get(a_name), self.guilds.get(b_name or "")
+        if a is None or b is None:
+            return False
+        if b.name not in a.war_guilds:
+            a.war_guilds.append(b.name)
+            b.war_guilds.append(a.name)
+        return True
+
+    def make_guild_ally(self, a_name: str, b_name: str | None) -> bool:
+        a, b = self.guilds.get(a_name), self.guilds.get(b_name or "")
+        if a is None or b is None:
+            return False
+        for g, other in ((a, b.name), (b, a.name)):
+            if other in g.war_guilds:
+                g.war_guilds.remove(other)
+            if other not in g.ally_guilds:
+                g.ally_guilds.append(other)
+        return True
+
+    def _save_guild(self, g: Guild) -> None:
+        """行会落盘（与 Java GuildSave 同目录，纯文本，无第三方依赖）。"""
+        # 与 Java 的行会目录分开，避免双栈并行时互相覆盖。
+        d = self.config.db_file.parent / "pyserver_guilds"
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{g.name}.json").write_text(
+                encode({"name": g.name, "master": g.master_name,
+                        "members": g.members, "wars": g.war_guilds,
+                        "allies": g.ally_guilds}), encoding="utf-8")
+        except OSError as e:
+            print(f"[guild] save failed: {e}")
+
+    def _castle_msg(self, text: str) -> None:
+        self.broadcast_all({"type": "systemMessage", "text": text})
+
+    def declare_siege(self, guild_name: str, duration_sec: int) -> bool:
+        if self.castle.war_active or guild_name not in self.guilds:
+            return False
+        self.castle.war_active = True
+        self.castle.war_end_at = now_ms() + duration_sec * 1000
+        self.castle.war_guild = guild_name
+        self._castle_msg(f"行会 {guild_name} 开始攻打 {self.castle.name}！")
+        return True
+
+    def attack_castle_door(self, p, damage: int) -> int:
+        c = self.castle
+        if not c.war_active or p.map is None or c.map_id != p.map.name:
+            return 0
+        if abs(p.x - c.main_door_x) > 1 or abs(p.y - c.main_door_y) > 1 or c.door_broken():
+            return 0
+        c.main_door_hp = max(0, c.main_door_hp - damage)
+        if c.door_broken():
+            c.main_door_open = True
+            self._castle_msg(f"{c.name} 的城门已被攻破！")
+        return damage
+
+    def tick_siege(self, now: int) -> None:
+        c = self.castle
+        if not c.war_active or now < c.war_end_at:
+            return
+        c.war_active = False
+        if c.door_broken() and c.walls_broken():
+            c.own_guild = c.war_guild
+            g = self.guilds.get(c.war_guild)
+            if g is not None:
+                g.owns_castle = True
+            self._castle_msg(f"攻城战结束，行会 {c.war_guild} 占领了 {c.name}！")
+        else:
+            self._castle_msg("攻城战结束，守城成功。")
+        c.war_guild = ""
+
+    # ---- 组队 -----------------------------------------------------------
+
+    def party_of(self, player_id: int) -> Party | None:
+        return self.parties.get(int(player_id))
+
+    def create_party(self, a_id: int, b_id: int) -> Party:
+        party = Party([a_id, b_id])
+        self.parties[a_id] = self.parties[b_id] = party
+        return party
+
+    def join_party(self, player_id: int, leader_id: int) -> bool:
+        party = self.parties.get(leader_id)
+        if party is None or player_id in self.parties or player_id in party.member_ids:
+            return False
+        party.member_ids.append(player_id)
+        self.parties[player_id] = party
+        return True
+
+    def leave_party(self, player_id: int) -> bool:
+        party = self.parties.pop(player_id, None)
+        if party is None:
+            return False
+        if player_id in party.member_ids:
+            party.member_ids.remove(player_id)
+        for pid in party.member_ids:
+            self.parties.pop(pid, None)
+        return True
+
+    # ---- tick -----------------------------------------------------------
+
+    def tick_extra(self, now: int) -> None:
+        for gid, gi in list(self.ground_items.items()):
+            if now - gi.created_at >= GROUND_ITEM_TTL_MS:
+                del self.ground_items[gid]
+                self._broadcast_item_remove(gi)
+        self.tick_siege(now)

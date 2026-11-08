@@ -1,0 +1,409 @@
+"""NPC 脚本（Npc_Def / Market_Def）解析与执行引擎。
+
+直译 Java ``NpcScript`` + ``NpcScriptEngine``：``[@label]`` 分段、
+``#IF/#ACT/#SAY/#ELSEACT/#ELSESAY`` 状态机、条件与动作命令子集，
+以及 ``[goods]`` 商店货物表。脚本文件为 GBK。
+"""
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from .gamedata import read_lines
+
+MAX_DEPTH = 64
+
+
+@dataclass(slots=True)
+class Cmd:
+    name: str = ""
+    param: str = ""
+    tag: str = ""
+    extra: str = ""
+
+    def int_at(self, which: str, default: int = 0) -> int:
+        try:
+            return int(getattr(self, which).strip())
+        except (ValueError, AttributeError):
+            return default
+
+
+@dataclass(slots=True)
+class TextStmt:
+    text: str = ""
+
+
+@dataclass(slots=True)
+class IfStmt:
+    conditions: list[Cmd] = field(default_factory=list)
+    actions: list[Cmd] = field(default_factory=list)
+    else_actions: list[Cmd] = field(default_factory=list)
+    say_text: str | None = None
+    else_say_text: str | None = None
+
+
+@dataclass(slots=True)
+class Section:
+    label: str
+    stmts: list[Any] = field(default_factory=list)
+
+
+def _split_quoted(line: str) -> list[str]:
+    out: list[str] = []
+    i, n = 0, len(line)
+    while i < n:
+        while i < n and line[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        if line[i] == '"':
+            end = line.find('"', i + 1)
+            if end < 0:
+                out.append(line[i:])
+                break
+            out.append(line[i + 1:end])
+            i = end + 1
+        else:
+            start = i
+            while i < n and not line[i].isspace():
+                i += 1
+            out.append(line[start:i])
+    return out
+
+
+def _decode(line: str) -> Cmd:
+    p = _split_quoted(line)
+    return Cmd(*(p + ["", "", "", ""])[:4])
+
+
+class NpcScript:
+    def __init__(self):
+        self.sections: dict[str, Section] = {}
+
+    def section(self, label: str) -> Section | None:
+        sec = self.sections.get(label)
+        if sec is not None:
+            return sec
+        low = label.lower()
+        return next((v for k, v in self.sections.items() if k.lower() == low), None)
+
+    def section_count(self) -> int:
+        return len(self.sections)
+
+    @classmethod
+    def parse(cls, lines: list[str]) -> "NpcScript":
+        script = cls()
+        cur: Section | None = None
+        state = "NONE"
+        cur_if: IfStmt | None = None
+        text_buf: list[str] = []
+
+        def flush():
+            nonlocal state, cur_if
+            text = "\n".join(text_buf)
+            text_buf.clear()
+            if not text or cur is None:
+                return
+            if cur_if is not None and state in ("IF_SAY", "ELSE_SAY"):
+                if state == "IF_SAY":
+                    cur_if.say_text = (cur_if.say_text + "\n" + text) if cur_if.say_text else text
+                else:
+                    cur_if.else_say_text = ((cur_if.else_say_text + "\n" + text)
+                                            if cur_if.else_say_text else text)
+            else:
+                cur.stmts.append(TextStmt(text))
+
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith(";"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                flush()
+                cur_if = None
+                label = line[2:-1].strip() if line.startswith("[@") else line[1:-1].strip()
+                cur = Section(label)
+                script.sections[label] = cur
+                state = "NONE"
+                continue
+            if cur is None:
+                continue
+            if line.startswith("#"):
+                upper = line.upper()
+                if upper.startswith("#IF"):
+                    flush()
+                    cur_if = IfStmt()
+                    cur.stmts.append(cur_if)
+                    state = "IF_COND"
+                elif upper.startswith("#ACT"):
+                    flush()
+                    if cur_if is None:
+                        cur_if = IfStmt()
+                        cur.stmts.append(cur_if)
+                    state = "IF_ACT"
+                elif upper.startswith("#SAY"):
+                    flush()
+                    if cur_if is None:
+                        cur_if = IfStmt()
+                        cur.stmts.append(cur_if)
+                    state = "IF_SAY"
+                elif upper.startswith("#ELSEACT"):
+                    flush()
+                    if cur_if is None:
+                        cur_if = IfStmt()
+                        cur.stmts.append(cur_if)
+                    state = "ELSE_ACT"
+                elif upper.startswith("#ELSESAY"):
+                    flush()
+                    if cur_if is None:
+                        cur_if = IfStmt()
+                        cur.stmts.append(cur_if)
+                    state = "ELSE_SAY"
+                continue
+            if state == "IF_COND" and cur_if is not None:
+                cur_if.conditions.append(_decode(line))
+            elif state == "IF_ACT" and cur_if is not None:
+                cur_if.actions.append(_decode(line))
+            elif state == "ELSE_ACT" and cur_if is not None:
+                cur_if.else_actions.append(_decode(line))
+            else:
+                text_buf.append(line)
+        flush()
+        return script
+
+    def goods_rows(self) -> list[list[str]]:
+        sec = self.section("goods")
+        if sec is None:
+            return []
+        rows: list[list[str]] = []
+        for stmt in sec.stmts:
+            if not isinstance(stmt, TextStmt):
+                continue
+            for line in stmt.text.split("\n"):
+                t = line.strip()
+                if t and not t.startswith(";"):
+                    rows.append(t.split())
+        return rows
+
+
+def load_script(directory: Path, name: str, map_id: str) -> NpcScript | None:
+    """与 NpcData.loadScript 一致：优先 ``name-map.txt``，再 ``name.txt``，大小写不敏感。"""
+    if not directory.is_dir():
+        return None
+    for candidate in (directory / f"{name}-{map_id}.txt", directory / f"{name}.txt"):
+        if candidate.is_file():
+            return NpcScript.parse(read_lines(candidate))
+    want = f"{name}-{map_id}.txt".lower()
+    for p in directory.iterdir():
+        if p.is_file() and p.name.lower() == want:
+            return NpcScript.parse(read_lines(p))
+    return None
+
+
+@dataclass(slots=True)
+class Result:
+    say_text: str = ""
+    options: list[dict] = field(default_factory=list)
+    closed: bool = False
+    moved: bool = False
+    moved_map: Any = None
+    moved_x: int = 0
+    moved_y: int = 0
+    shop_mode: str | None = None
+
+
+class NpcScriptEngine:
+    def __init__(self, world):
+        self.world = world
+
+    def execute(self, p, npc, start_label: str) -> Result:
+        return self.execute_script(p, npc, npc.script if npc else None, start_label)
+
+    def execute_script(self, p, npc, script, start_label: str) -> Result:
+        r = Result()
+        label = start_label or "main"
+        if label.startswith("@"):
+            label = label[1:]
+        depth = 0
+        while label is not None and depth < MAX_DEPTH:
+            depth += 1
+            sec = script.section(label) if script is not None else None
+            if sec is None:
+                break
+            ctrl = self._run_section(p, npc, sec, r)
+            if r.closed or r.moved:
+                break
+            if ctrl is not None and ctrl.startswith("@"):
+                label = ctrl[1:]
+            else:
+                break
+        return r
+
+    def _run_section(self, p, npc, sec: Section, r: Result) -> str | None:
+        for stmt in sec.stmts:
+            if isinstance(stmt, TextStmt):
+                self._append_say(r, stmt.text, p)
+            elif isinstance(stmt, IfStmt):
+                ok = all(self._eval_condition(p, npc, c) for c in stmt.conditions)
+                if ok:
+                    if stmt.say_text is not None:
+                        self._append_say(r, stmt.say_text, p)
+                    ctrl = self._run_actions(p, npc, stmt.actions, r)
+                else:
+                    if stmt.else_say_text is not None:
+                        self._append_say(r, stmt.else_say_text, p)
+                    ctrl = self._run_actions(p, npc, stmt.else_actions, r)
+                if ctrl is not None:
+                    return ctrl
+        return None
+
+    @staticmethod
+    def _append_say(r: Result, raw: str, p) -> None:
+        text = raw.replace("\\", "\n").replace("<$USERNAME>", p.name) \
+                  .replace("<$USERGOLD>", str(p.gold))
+        clean: list[str] = []
+        i = 0
+        while i < len(text):
+            lt = text.find("<", i)
+            if lt < 0:
+                clean.append(text[i:])
+                break
+            gt = text.find(">", lt)
+            if gt < 0:
+                clean.append(text[i:])
+                break
+            clean.append(text[i:lt])
+            inner = text[lt + 1:gt]
+            clean.append("<" + inner + ">" if "@" in inner else inner)
+            i = gt + 1
+        lines = [t.strip() for t in "".join(clean).split("\n") if t.strip()]
+        cleaned = "\n".join(lines)
+        if cleaned:
+            r.say_text = (r.say_text + "\n" + cleaned) if r.say_text else cleaned
+
+    def _quest_index(self, param: str) -> int:
+        s = (param or "").strip()
+        if s.startswith("[") and s.endswith("]"):
+            s = s[1:-1]
+        try:
+            n = int(s)
+            return n if 0 <= n < 1000 else 0
+        except ValueError:
+            return 0
+
+    def _quest_get(self, p, idx: int) -> int:
+        return p.quest_params.get(idx, 0)
+
+    def _eval_condition(self, p, npc, c: Cmd) -> bool:
+        n = c.name.lower()
+        if n == "checkgold":
+            return p.gold >= c.int_at("param")
+        if n == "checklevel":
+            return p.level >= c.int_at("param")
+        if n in ("checkitem", "checkitemw"):
+            return self.world.count_item(p, c.param) >= c.int_at("tag", 1)
+        if n == "checkpkpoint":
+            return getattr(p, "pk_point", 0) >= c.int_at("param")
+        if n == "checkjob":
+            s = c.param.lower()
+            if s.startswith("war"):
+                return p.job == 0
+            if s.startswith("wiz"):
+                return p.job == 1
+            if s.startswith("tao"):
+                return p.job == 2
+            return True
+        if n == "gender":
+            return p.sex == (0 if c.param.lower() == "man" else 1)
+        if n == "check":
+            return self._quest_get(p, self._quest_index(c.param)) >= c.int_at("tag")
+        if n == "equal":
+            return self._quest_get(p, self._quest_index(c.param)) == c.int_at("tag")
+        if n == "large":
+            return self._quest_get(p, self._quest_index(c.param)) > c.int_at("tag")
+        if n == "small":
+            return self._quest_get(p, self._quest_index(c.param)) < c.int_at("tag")
+        if n == "random":
+            k = c.int_at("param")
+            return k <= 0 or int(random.random() * k) == 0
+        return True
+
+    def _run_actions(self, p, npc, acts: list[Cmd], r: Result) -> str | None:
+        for c in acts:
+            ctrl = self._run_action(p, npc, c, r)
+            if ctrl is not None:
+                return ctrl
+        return None
+
+    def _run_action(self, p, npc, c: Cmd, r: Result) -> str | None:
+        n = c.name.lower()
+        if n in ("take", "takew"):
+            self.world.take_item(p, c.param, c.int_at("tag", 1))
+        elif n == "give":
+            self.world.give_item(p, c.param, c.int_at("tag", 1))
+        elif n == "set":
+            p.quest_params[self._quest_index(c.param)] = c.int_at("tag")
+        elif n == "reset":
+            p.quest_params[self._quest_index(c.param)] = 0
+        elif n == "inc":
+            k = self._quest_index(c.param)
+            p.quest_params[k] = p.quest_params.get(k, 0) + 1
+        elif n == "dec":
+            k = self._quest_index(c.param)
+            p.quest_params[k] = p.quest_params.get(k, 0) - 1
+        elif n in ("mapmove", "map"):
+            self._do_map_move(p, c, r)
+            return "BREAK"
+        elif n == "goto":
+            return c.param if c.param.startswith("@") else "@" + c.param
+        elif n == "break":
+            return "BREAK"
+        elif n == "close":
+            r.closed = True
+            return "BREAK"
+        elif n == "buy":
+            r.shop_mode = "buy"
+            return "BREAK"
+        elif n == "sell":
+            r.shop_mode = "sell"
+            return "BREAK"
+        return None
+
+    def _do_map_move(self, p, c: Cmd, r: Result) -> None:
+        map_id = c.param.strip()
+        target = self.world.get_or_load_map(map_id)
+        if target is None:
+            target = p.map
+        use_random = c.tag.strip() == "" or c.extra.strip() == ""
+        if use_random:
+            x, y = self.world.random_walk_pos(target)
+        else:
+            x, y = c.int_at("tag"), c.int_at("extra")
+        moved = self.world.change_map(p, map_id, x, y)
+        if moved is not None:
+            r.moved = True
+            r.moved_map = moved
+            r.moved_x, r.moved_y = x, y
+
+    def goods(self, npc) -> list[dict]:
+        """返回 ``[{"index","name","price","stock"}]``，与 Java GoodsEntry 一致。"""
+        out: list[dict] = []
+        if npc is None or npc.script is None:
+            return out
+        for parts in npc.script.goods_rows():
+            if len(parts) < 2:
+                continue
+            t = self.world.item_template_by_name(parts[0])
+            if t is None:
+                continue
+            try:
+                price = int(parts[1])
+            except ValueError:
+                price = 0
+            try:
+                stock = int(parts[2]) if len(parts) > 2 else 0
+            except ValueError:
+                stock = 0
+            out.append({"index": t.index, "name": t.name, "price": price, "stock": stock})
+        return out

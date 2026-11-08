@@ -1,9 +1,8 @@
 """游戏服务门面：WebSocket JSON 消息分派 + REST 管理接口。
 
-对应 Java 侧 ``GameService``。迁移采用「按消息类型分批」策略：
-``MIGRATED_TYPES`` 已在本服务实现，``PENDING_TYPES`` 与 Java 的 ``default:``
-分支保持一致（静默忽略），但会统计命中次数，可通过 ``/api/migration`` 查看，
-便于后续逐批推进与回归。
+对应 Java 侧 ``GameService``。Java switch 的 46 个分支已全部迁移，按领域拆分到
+``handlers_items / handlers_npc / handlers_combat / handlers_social`` 四个 mixin，
+本文件保留账号/角色/进图/移动/聊天/登出这些主干与统一分派。
 
 所有 handler 都在 asyncio 单事件循环内同步执行，等价于 Java 的
 ``synchronized (world.lock)``，无需额外加锁。
@@ -17,36 +16,23 @@ from typing import Any, Callable
 
 from .config import ServerConfig
 from .db import Database
+from .handlers_combat import COMBAT_TYPES, CombatHandlers
+from .handlers_items import ITEM_TYPES, ItemHandlers
+from .handlers_npc import NPC_TYPES, NpcHandlers
+from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .world import GameWorld, Player, SIGHT_RANGE, encode, now_ms
 
 MAX_CHARS_PER_ACCOUNT = 2
 
-# 阶段 1 已迁移：账号/角色 + 进图 + 移动 + 聊天 + 登出。
+# 46 个 Java switch 分支全部有对应实现。
 MIGRATED_TYPES = frozenset({
     "ping", "login", "register", "listCharacters", "createCharacter",
     "deleteCharacter", "enterGame", "noticeOk", "move", "say", "logout",
-})
+}) | ITEM_TYPES | NPC_TYPES | COMBAT_TYPES | SOCIAL_TYPES
 
-# 其余 Java switch 分支，按领域分组，后续逐批迁移。
-PENDING_TYPES = frozenset({
-    # 战斗与技能
-    "attack", "dirAttack", "castMagic", "magicKeyChange",
-    # 物品
-    "pickup", "useItem", "takeOnItem", "takeOffItem", "quickSlot", "drop", "moveItem",
-    # NPC / 商店
-    "npcTalk", "npcSelect", "buyItem", "sellItem",
-    # 行会 / 攻城
-    "createGuild", "joinGuild", "leaveGuild", "guildInfo", "guildChat",
-    "siege", "guildWar", "guildAlly",
-    # 组队 / 仓库 / 交易
-    "partyInvite", "partyLeave", "partyChat",
-    "storageOpen", "storageStore", "storageTake",
-    "tradeRequest", "tradeAccept", "tradeCancel", "tradeAddItem",
-    "tradeAddGold", "tradeConfirm",
-})
-
-ALL_TYPES = MIGRATED_TYPES | PENDING_TYPES
+PENDING_TYPES: frozenset[str] = frozenset()
+ALL_TYPES = MIGRATED_TYPES
 
 
 def _str(msg: dict, key: str) -> str | None:
@@ -94,7 +80,7 @@ def _load_skills(raw: str) -> dict[int, dict]:
     return out
 
 
-class GameService:
+class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     def __init__(self, config: ServerConfig, db: Database):
         self.config = config
         self.db = db
@@ -103,6 +89,7 @@ class GameService:
         self.pending_hits: Counter[str] = Counter()
         self._reported_pending: set[str] = set()
         self._handlers: dict[str, Callable[[Any, dict], None]] = {
+            # 账号 / 角色 / 场景主干
             "ping": self._ping,
             "login": self._login,
             "register": self._register,
@@ -114,7 +101,51 @@ class GameService:
             "move": self._move,
             "say": self._say,
             "logout": self._logout,
+            # 物品 / 背包 / 装备 / 快捷栏
+            "pickup": self._pickup,
+            "useItem": self._use_item,
+            "takeOnItem": self._take_on_item,
+            "takeOffItem": self._take_off_item,
+            "quickSlot": self._quick_slot,
+            "drop": self._drop,
+            "moveItem": self._move_item,
+            "magicKeyChange": self._magic_key_change,
+            # NPC / 商店
+            "npcTalk": self._npc_talk,
+            "npcSelect": self._npc_select,
+            "buyItem": self._buy_item,
+            "sellItem": self._sell_item,
+            # 战斗 / 技能
+            "attack": self._attack,
+            "dirAttack": self._dir_attack,
+            "castMagic": self._cast_magic,
+            # 行会 / 攻城
+            "createGuild": self._create_guild,
+            "joinGuild": self._join_guild,
+            "leaveGuild": self._leave_guild,
+            "guildInfo": self._guild_info,
+            "guildChat": self._guild_chat,
+            "siege": self._siege,
+            "guildWar": self._guild_war,
+            "guildAlly": self._guild_ally,
+            # 组队
+            "partyInvite": self._party_invite,
+            "partyLeave": self._party_leave,
+            "partyChat": self._party_chat,
+            # 仓库
+            "storageOpen": self._storage_open,
+            "storageStore": self._storage_store,
+            "storageTake": self._storage_take,
+            # 交易
+            "tradeRequest": self._trade_request,
+            "tradeAccept": self._trade_accept,
+            "tradeCancel": self._trade_cancel,
+            "tradeAddItem": self._trade_add_item,
+            "tradeAddGold": self._trade_add_gold,
+            "tradeConfirm": self._trade_confirm,
         }
+        if set(self._handlers) != set(MIGRATED_TYPES):
+            raise RuntimeError("消息分派表与 MIGRATED_TYPES 不一致")
         missing = MIGRATED_TYPES - self._handlers.keys()
         if missing:
             raise RuntimeError(f"MIGRATED_TYPES 中有未实现的 handler: {sorted(missing)}")
@@ -356,6 +387,21 @@ class GameService:
         self.on_disconnect(session)
         session.close()
 
+    def send_bag_update(self, p: Player) -> None:
+        """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。"""
+        if p.session is None:
+            return
+        w = self.world
+        p.session.send_json({
+            "type": "bagUpdate", "gold": p.gold,
+            "dress": p.dress_looks(w), "weapon": p.weapon_shape(w),
+            "wearWeight": p.wear_weight(w), "handWeight": p.hand_weight(w),
+            "maxWearWeight": p.max_wear_weight(), "maxHandWeight": p.max_hand_weight(),
+            "quickSlots": [p.quick_slots[i] if p.quick_slot_valid(i) else 0
+                           for i in range(len(p.quick_slots))],
+            "items": p.items_json(w),
+        })
+
     # ---- 持久化 ---------------------------------------------------------
 
     def persist(self, p: Player) -> None:
@@ -426,6 +472,8 @@ class GameService:
                 "migrated": sorted(MIGRATED_TYPES),
                 "migratedCount": len(MIGRATED_TYPES),
                 "pendingCount": len(PENDING_TYPES),
+                "pending": sorted(PENDING_TYPES),
                 "pendingHitCounts": dict(self.pending_hits),
+                "stage": "all-46-types",
             })
         return None

@@ -1,12 +1,41 @@
 services:
+  # 默认服务端：纯标准库 Python（与 Java 版共用同一套 WebSocket JSON 协议）
   jootm2:
     build: .
+    image: jootm2:python
     container_name: jootm2
     ports:
       - "8080:8080"
+    environment:
+      JOOTM2_HOST: 0.0.0.0
     volumes:
       - ./data:/app/data
-      # 传奇资源目录：把 Legend of Mir 的 Data/Map/Wav/resources.json 放到该目录，
-      # 或直接把挂载源改成你本机的资源路径。
+      # 传奇客户端资源目录：把 1.80 客户端的 Data/Map/Wav/resources.json
+      # 放到该目录，或直接把挂载源改成你本机的资源路径。
       - ./resources:/app/resources
+      # 服务端游戏数据：镜像内已内置一份；挂载出来是为了可热改 CSV / 补 .map。
+      - ./gamedata:/app/gamedata
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
+
+  # 旧 Java 服务端：只在 --profile java 时启动，用于双栈协议回归，宿主端口 8082。
+  #   docker compose --profile java up jootm2-java --build
+  jootm2-java:
+    profiles: ["java"]
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+    image: jootm2:java
+    container_name: jootm2-java
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./data:/app/data
+      - ./resources:/app/resources
+      - ./gamedata:/app/gamedata
+    restart: "no"
