@@ -254,6 +254,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 - 1.80 客户端资源布局与 `.map` 解析修复（此前「客户端资源缺失」这项边界**已解决**）
 - 浏览器不会下载 1.5 G：按需懒加载（`resources.json` 35 KB + 前端 `.mjs` 253 KB + WIX 索引几 KB + 覆盖所需图片的 512 KB Range 分片 + 进入某图时该图 `.map` 整文件），且全是 `localhost` 本机读取、不占公网带宽
 - 音效链路（§10）：723 个 WAV 全量转 MP3、714 个原版编号可用、7 首 BGM、事件→音效映射、开关/音量持久化；服务端与 WS 协议零改动，Java 版同样可用
+- 保真度补齐（§13）：命中帧时序对齐（伤害飘字/受击/命中特效延后到武器接触帧 ~170ms，消除「先爆后砍」）；静态 blend 加色对象解耦（火/光类静态贴图恢复 `lighter` 辉光）；经验表补全到 101 项（解除 65 级后经验需求被钳死的冻结）；动画帧裁剪与预取/回退统一为 32 帧
 
 ### 6.3 不算遗漏的项
 
@@ -501,3 +502,36 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 增量预取范围 ±(halfW+6) / ±(halfH+8)，每批 24 格并让出主线程，不会卡渲染；极端快速长距离传送仍可能看到边缘格子短暂黑色，但只会「黑 → 完整」一次，不会再「亮 → 暗」两次变色。
 - 树/建筑的**对象层**仍每帧按行绘制以保持遮挡关系，未缓存；动画对象帧切换（每 200 ms）是原版行为，观感上仍会有轻微明暗变化。
 - 真实带 GPU 浏览器的观感仍需用户确认；本轮全部是无头 Chromium 定量对比 + 截图像素比对。
+
+---
+
+## 13. 保真度补齐（2026-11-09 第四轮，追加）
+
+独立 Agent 对照原版 Delphi `GameOfMir/Client`（与 `GameSrv`，若含）做了系统性差异评估，结论是**高保真移植**：动画帧表/帧推进、调色板/透明/加色、地图三层渲染与深度排序、命中/伤害/暴击数值公式、音效编号与 BGM 均已对齐。本轮只修评估中标注为「中风险、观感/数值偏差」的 3 项（+1 个边界一致性），均为局部改动。
+
+### 13.1 三项修复
+
+| 项 | 根因（Delphi 对照） | 改动 | 文件 |
+|---|---|---|---|
+| **命中帧时序** | 原版在攻击动作第 2~3 帧（武器接触点，约 170ms，`HA.hit` 6 帧×85ms）才结算命中；此前 `attack` 消息一到达就触发目标受击/伤害飘字/命中特效，观感「先爆后砍」 | 新增 `HIT_FRAME_MS=170`；目标侧 `struck`+伤害飘字+命中特效改 `setTimeout(HIT_FRAME_MS)` 延迟触发（用 `cur=entities.get(targetId)` 取当前坐标，避免目标移动后落点错）；攻击者武器辉光 `_swordHitAt` 顺延 `+HIT_FRAME_MS` | `frontend/scene/PlayScene.mjs` |
+| **静态 blend 降级** | 原版 `DrawScrn` 对 `boBlend`（0x80 标志）一律 `lighter` 加色，**与是否动画无关**；此前 `blend` 仅在 `hasAni` 时赋值，导致非动画的火/光类静态贴图丢失辉光 | `const blend = !!t.blend` 与动画解耦；动画帧裁剪改为 `Math.max(1, Math.min(32, t.aniFrame))`，与 `_prefetchAround`/`_getObjFrame` 的 32 帧上限一致（消除 >32 帧对象循环到前 32 帧的缺帧闪烁） | `frontend/map/MapActor.mjs` |
+| **等级上限冻结** | `world.py` 早期只抄了 Java `ExperienceTable.NEED_EXPS` 前 65 项，`exp_for_level`/`level_for_exp` 被钳到表尾 → 65 级后经验需求冻结、满级≈65 | `NEED_EXPS` 补全到与 Java **逐值一致**的 101 项（index 0→等级1 … index 100→等级101，末值 2140000000）；`exp_for_level(101)` 校验值不变、升级阈值按原版推进到 101 级 | `pyserver/world.py` |
+
+### 13.2 验证
+
+- 经验表：`len(NEED_EXPS)=101`；`exp_for_level(1)=100 / (65)=1700000000 / (101)=2140000000 / (200)=2140000000`，与 Java `ExperienceTable` 逐值一致；`level_for_exp` 现循环 1..101 全表，不再停在 65。
+- 前端：`node --check` 两个改动文件均通过；Playwright 实烟（自动登录 `player/123456/TestHero` 进图）**无 console/page 错误**，画面非黑占比 92.9%，地图 700×700、271/276 纹理就绪 —— 证明 blend 解耦与命中帧改动不破坏渲染。
+- 回归全绿：`test_pyserver` 48 PASS / `test_all_messages` 18/18 / `test_tick_systems` 53/0 / `test_audio` 18/18 / `compileall` 通过 / `git diff --check` 通过。
+- 服务已重启（原 PID 29560 停用，新进程 `python -m pyserver` 已就绪，`/api/migration` 46/46，`onlinePlayers=0`），`world.py` 改动已生效。
+
+### 13.3 仍属「已知边界、未在本轮处理」（评估认定的低/中风险残留）
+
+- 战斗无「未命中 / 0 伤害」表现：服务端伤害恒 `max(1,…)`、不下发 miss，原版可显 MISS/0（需补协议/前端 miss 通道，中）。
+- 施法音为 `MAGIC_SFX` 近似映射（火系→137、雷/冰→8301/8302/8226，非逐技能）；受击/死亡固定男声（WS 未带性别）；缺怪物叫声（mp3 已备齐，差映射表）。
+- 网络层无单连接频率限流与 `maxPlayers`/地图人数硬上限（`net.py` 仅队列 512）；WIL 末张图 16 位位深用 `nextOff` 回退启发式（误判会整图花屏）；冲撞(rush)无专属身位动画；受击姿势比原版多保持 ~300ms。
+- 树/建筑的**对象层**仍每帧按行绘制（保遮挡）；动画对象帧切换（每 200ms）是原版行为，观感仍有轻微明暗变化。
+- 真实带 GPU 浏览器的命中帧观感、blend 辉光观感仍需用户确认；本轮是无头 Chromium 定量对比 + 截图像素比对。
+
+### 13.4 提交
+
+见 `git log --oneline -1`（最新一条 `feat(python-server): ` 提交，4 个文件：2 前端 + `world.py` + 本 handoff）。

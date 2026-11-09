@@ -24,6 +24,9 @@ const RUSH_INTERVAL = 360;   // 冲撞（野蛮冲撞）：对齐原版 ActRushL
 const ATTACK_ANIM_MS = 510;
 // 玩家施法动画时长（HA.spell：6 帧 × 60ms = 360ms，原版 ActSpell），与攻击动作区分
 const SPELL_ANIM_MS = 360;
+// 命中帧延迟：原版攻击动作（HA.hit，6 帧 × 85ms）在第 2 帧（约 170ms，武器接触点）才结算命中，
+// 故目标受击/伤害飘字/命中特效延后到此时触发，避免“先爆后砍”。
+const HIT_FRAME_MS = 170;
 
 // 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
 const MONSTER_MOVE_DUR = 720;
@@ -1034,20 +1037,27 @@ export class PlayScene extends Scene {
                     if (a.raceImg === 55) {
                         this._spawnFx({ kind: 'elfFire', dir: a.dir || 0, x: a.x, y: a.y });
                     }
-                    // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）
+                    // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）。
+                    // 延迟到命中帧（武器接触点）才点亮，避免“先爆后砍”。
                     if (msg.swordHit && SWORD_HIT_FX[msg.swordHit]) {
-                        a._swordHit = msg.swordHit; a._swordHitAt = Date.now();
+                        a._swordHit = msg.swordHit; a._swordHitAt = Date.now() + HIT_FRAME_MS;
                     }
                 }
                 const t = this.entities.get(msg.targetId);
                 if (t) {
-                    t._action = 'struck'; t._actionAt = Date.now();
-                    // 伤害飘字
-                    this._spawnDamageNumber(t.x, t.y, msg.damage, msg.magicId);
-                    // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
-                    if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
-                        this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: t.x, y: t.y });
-                    }
+                    // 命中帧对齐：原版在挥砍第 2~3 帧（武器接触点，约 170ms）才触发目标受击 /
+                    // 伤害飘字 / 命中特效，而非 attack 消息到达即触发，避免“先爆后砍”。
+                    setTimeout(() => {
+                        const cur = this.entities.get(msg.targetId);
+                        if (!cur) return;
+                        cur._action = 'struck'; cur._actionAt = Date.now();
+                        // 伤害飘字
+                        this._spawnDamageNumber(cur.x, cur.y, msg.damage, msg.magicId);
+                        // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
+                        if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
+                            this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: cur.x, y: cur.y });
+                        }
+                    }, HIT_FRAME_MS);
                 }
                 break;
             }

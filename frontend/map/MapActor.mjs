@@ -433,10 +433,12 @@ export class MapActor {
             for (let gx = left; gx <= right; gx++) {
                 const t = m.tiles[gx][gy];
                 if (t.obj < 0) continue;
-                let frame = 0, blend = false;
+                // 加色光效（blend，0x80 标志）与是否动画无关：静态火/光类贴图也必须用 lighter 混合，
+                // 否则会丢失辉光（原版 DrawScrn 对 boBlend 一律加色，不论 ani&0x80）。
+                let frame = 0;
+                const blend = !!t.blend;
                 if (t.hasAni) {
-                    frame = Math.floor(Date.now() / 200) % Math.max(1, t.aniFrame);
-                    blend = t.blend;
+                    frame = Math.floor(Date.now() / 200) % Math.max(1, Math.min(32, t.aniFrame));
                 }
                 // 当前动画帧未就绪时回退该对象已加载的最近帧，绝不整棵树/建筑消失
                 const got = this._getObjFrame(t, frame);
