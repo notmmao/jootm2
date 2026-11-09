@@ -36,6 +36,17 @@ export const SFX = Object.freeze({
     manStruck: 138, womanStruck: 139, manDie: 144, womanDie: 145,
 });
 
+/**
+ * 怪物叫声偏移（原版声音索引 = 怪物外观 Appr × 10 + 200 + 下列偏移）。
+ * 来源：传奇客户端 sound.lst 约定「外观×10+200」六态：
+ *   0 发现敌人 / 1 站立 / 2 攻击喊声 / 3 攻击武器声 / 4 挨打叫声 / 5 死亡。
+ * 多个独立资料（传奇论坛 / 博客园 / upx8 Wiki）一致确认，且本仓库 audio_map.json
+ * 已含对应索引（如鸡 appr=46 → 660 段，661/662/664/665 齐全）。
+ */
+const MON_SOUND_OFFSET = Object.freeze({
+    discover: 0, idle: 1, attack: 2, attackW: 3, hit: 4, die: 5,
+});
+
 /** 战士特攻编号（PlayScene.SWORD_HIT_FX 的 key）→ 原版音效。 */
 const SWORD_SFX = Object.freeze({
     7: SFX.hitLong,        // 攻杀剑术
@@ -119,6 +130,11 @@ class SoundManager {
         this.voices = new Set();    // 正在播放的短音效
         this.maxVoices = 24;
         this.lastAt = new Map();    // 编号 -> 上次播放时间（节流）
+
+        // 实体注册表：id -> 类型/appr，用于按原版公式播放怪物叫声（Appr×10+200+偏移）。
+        // 由 PlayScene 在实体出现/更新时填充；索引缺失的怪物自动静默（不报错）。
+        this._entAppr = new Map();
+        this._entType = new Map();
 
         this.bgmAudio = null;
         this.bgmKey = null;
@@ -405,6 +421,45 @@ class SoundManager {
         this.play(id, { gap: 100 });
     }
 
+    // ---- 实体注册（供怪物叫声按 Appr 公式定位）-----------------------
+
+    /** PlayScene 在实体出现 / 更新时调用：记录 id 的类型与外观 Appr。 */
+    registerEntity(id, type, appr) {
+        if (id == null) return;
+        if (type != null) this._entType.set(id, type);
+        if (appr != null) this._entAppr.set(id, appr);
+    }
+
+    /** 实体移除时清注册，避免内存泄漏与陈旧 Appr。 */
+    unregisterEntity(id) {
+        if (id == null) return;
+        this._entAppr.delete(id);
+        this._entType.delete(id);
+    }
+
+    /** 返回该 id 怪物的 Appr（非怪物返回 null，避免给玩家/NPC 误放怪叫）。 */
+    _apprOf(id) {
+        if (this._entType.get(id) === 'monster') {
+            const a = this._entAppr.get(id);
+            return (a == null) ? null : a;
+        }
+        return null;
+    }
+
+    /**
+     * 按原版公式播放怪物叫声：Appr×10+200+偏移。
+     * 索引不存在（本资源未收录该怪声音）则静默返回，不触发 404 噪声。
+     * state: 'attack' | 'hit' | 'die' | 'idle' | 'discover' | 'attackW'
+     */
+    _monSound(appr, state, opts = {}) {
+        if (appr == null) return;
+        const off = MON_SOUND_OFFSET[state];
+        if (off == null) return;
+        const id = appr * 10 + 200 + off;
+        if (this.fallback || !this.sounds[String(id)]) return;   // 资源无此音 → 静默
+        this.play(id, { ...opts, key: opts.key || `mon${appr}_${state}` });
+    }
+
     _onMessage(msg) {
         if (!msg || !msg.type) return;
         switch (msg.type) {
@@ -426,12 +481,24 @@ class SoundManager {
                 if (this.selfId !== null && msg.id === this.selfId) this._step(!!msg.run);
                 break;
             case 'attack': {
-                if (this.selfId !== null && msg.targetId === this.selfId) {
+                const tgt = msg.targetId, atk = msg.attackerId;
+                const tgtSelf = this.selfId !== null && tgt === this.selfId;
+                const atkSelf = this.selfId !== null && atk === this.selfId;
+                if (tgtSelf) {
                     this.play(msg.damage > 0 ? SFX.manStruck : SFX.struckSword, { gap: 140 });
-                } else if (this.selfId !== null && msg.attackerId === this.selfId) {
+                }
+                if (atkSelf) {
                     this.play(SWORD_SFX[msg.swordHit] || SFX.hitSword, { gap: 100 });
-                } else {
-                    this.play(SFX.hitShort, { gap: 180, volume: this.volume * 0.55 });
+                }
+                // 怪物叫声（原版 Appr×10+200+偏移）：攻击方是怪物且非纯受击事件 → 攻击喊声(+2)；
+                // 受击方是怪物 → 挨打叫声(+4)。索引缺失自动静默。
+                if (!atkSelf && atk != null && !msg.noAttackAnim) {
+                    const a = this._apprOf(atk);
+                    if (a != null) this._monSound(a, 'attack', { gap: 180, volume: this.volume * 0.5 });
+                }
+                if (!tgtSelf && tgt != null) {
+                    const t = this._apprOf(tgt);
+                    if (t != null) this._monSound(t, 'hit', { gap: 160, volume: this.volume * 0.55 });
                 }
                 break;
             }
@@ -440,7 +507,12 @@ class SoundManager {
                 else this.play(SFX.itemClick, { gap: 200, volume: this.volume * 0.45 });
                 break;
             case 'death':
-                if (this.selfId !== null && msg.id === this.selfId) this.play(SFX.manDie, { gap: 600 });
+                if (this.selfId !== null && msg.id === this.selfId) {
+                    this.play(SFX.manDie, { gap: 600 });
+                } else {
+                    const a = this._apprOf(msg.id);
+                    if (a != null) this._monSound(a, 'die', { gap: 300, volume: this.volume * 0.7 });
+                }
                 break;
             case 'stats':
                 if (msg.id == null || msg.id === this.selfId) {

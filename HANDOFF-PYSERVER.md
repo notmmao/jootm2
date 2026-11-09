@@ -389,7 +389,7 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 
 - 15 个缺失编号（291/292/294/295/943/1503/1922/2103/2141/2151/9224/9234/10110/10111/10521）静默跳过。
 - 玩家受击/死亡固定用男声 138/144：WS 消息没带性别，要女声改 139/145。
-- 怪物叫声、逐技能精细音效未做（全量 mp3 已备齐，缺的只是映射表）。
+- 怪物叫声已实现（按 `Appr×10+200+偏移` 公式，见 §13.1「怪物叫声 MonSound」）；逐技能精细施法音仍为 `MAGIC_SFX` 近似映射（WS 仅带 `magicId`，非逐技能 `m_nMagicStartSound`）。
 - **未做浏览器端真听 E2E**：本次验证是脚本自检 + Node mock + HTTP 实测，听感与场景切换由用户晚上自测确认。
 
 ---
@@ -518,6 +518,7 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 | **等级上限冻结** | `world.py` 早期只抄了 Java `ExperienceTable.NEED_EXPS` 前 65 项，`exp_for_level`/`level_for_exp` 被钳到表尾 → 65 级后经验需求冻结、满级≈65 | `NEED_EXPS` 补全到与 Java **逐值一致**的 101 项（index 0→等级1 … index 100→等级101，末值 2140000000）；`exp_for_level(101)` 校验值不变、升级阈值按原版推进到 101 级 | `pyserver/world.py` |
 | **未命中 MISS 表现** | 原版 `SM_STRUCK` 携带 miss 标志，目标位置飘 MISS、不扣血、不播受击；此前服务端 miss 时只给攻击者发系统提示、目标端完全无感（且攻击玩家分支无命中判定、永不 miss） | `_attack_monster` 未命中时额外 `broadcast_around(attack, miss=True)`（不扣血/不 kill/不 send_stats），主击与半月/刺杀第二击两处均补；前端 `attack` 处理：miss 时攻击者不点命中辉光、目标端飘红色 "MISS" 且不播 `struck`；`_spawnDamageNumber` 支持自定义颜色 | `pyserver/handlers_combat.py` + `frontend/scene/PlayScene.mjs` |
 | **WIL 末张图位深** | 末张图无 `nextOff`，原回退值 `fileOff+8+width*height` 永远判 8 位；若末张实为 16 位 RGB565 会只读半截而整图花屏 | 末张图 `nextOff` 改用真实 `this.fileSize` 判定位深（与非末张统一），8/16 位均正确 | `frontend/gfx/wil.mjs` |
+| **怪物叫声 MonSound** | 原版 `sound.lst` 约定怪物声音索引 = `Appr×10+200`，六态偏移 0 发现/1 站立/2 攻击喊/3 攻击武器/4 挨打/5 死亡；此前缺这份映射，怪物完全无声 | 采用网上多源一致的公式（传奇论坛/博客园/upx8 Wiki 均确认）；前端 `registerEntity` 把实体 `appr` 注册到 `SoundManager`，战斗 `attack`/`death` 消息按公式播放 **攻击(+2)/挨打(+4)/死亡(+5)**；索引不在 `audio_map.json` 的怪物自动静默（不 404、不报错）；玩家砍怪只播怪挨打声、怪咬玩家同时播玩家被击+怪攻击喊、怪咬怪双方各发声、冲撞顶怪只播怪挨打声 | `frontend/audio/SoundManager.mjs` + `frontend/scene/PlayScene.mjs` |
 
 ### 13.2 验证
 
@@ -526,15 +527,16 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 回归全绿：`test_pyserver` 48 PASS / `test_all_messages` 18/18 / `test_tick_systems` 53/0 / `test_audio` 18/18 / `compileall` 通过 / `git diff --check` 通过。
 - 服务已重启（原 PID 29560 停用，新进程 `python -m pyserver` 已就绪，`/api/migration` 46/46，`onlinePlayers=0`），`world.py` 改动已生效。
 - MISS 通道 + WIL 末张图：live 回归 18/18 通过（攻击怪物循环重试命中，miss 广播不破坏「造成伤害」断言）；`node --check` 全部前端改动文件通过；WIL 末张图位深改用真实 `fileSize` 判定，8/16 位均正确。
+- 怪物叫声：用真实 `Monster.csv`(273 种) + `audio_map.json` 量化，`Appr×10+200+{2,4,5}` 覆盖 → **191 种三音齐全、20 种部分、62 种资源无索引自动静默**；node 直接 import `SoundManager` 跑路由单测 6/6 通过（玩家砍怪/怪咬玩家/怪咬无音怪/怪死亡/无音怪死亡/冲撞顶怪）。
 
 ### 13.3 仍属「已知边界、未在本轮处理」（评估认定的低/中风险残留）
 
 - 战斗「0 伤害」仍保留 `max(1,…)`（与 Java 版对齐的简化；原版防御>攻击可显 0 伤害，需另补 0 伤害通道）；**攻击玩家分支仍无独立命中判定（PvP 永不 miss）**——与攻击怪物分支不一致，属 PvP 行为级改动，本轮未动，待用户确认是否对齐原版。MISS 通道已补齐（见 §13.1 第二项）。
-- 施法音为 `MAGIC_SFX` 近似映射（火系→137、雷/冰→8301/8302/8226，非逐技能）；受击/死亡固定男声（WS 未带性别）；缺怪物叫声（mp3 已备齐，差映射表）。
+- 施法音为 `MAGIC_SFX` 近似映射（火系→137、雷/冰→8301/8302/8226，非逐技能）；受击/死亡固定男声（WS 未带性别）。**怪物叫声已实现**（见 §13.1「怪物叫声 MonSound」），逐技能精细施法音仍近似。
 - 网络层无单连接频率限流与 `maxPlayers`/地图人数硬上限（`net.py` 仅队列 512）；冲撞(rush)无专属身位动画；受击姿势比原版多保持 ~300ms。
 - 树/建筑的**对象层**仍每帧按行绘制（保遮挡）；动画对象帧切换（每 200ms）是原版行为，观感仍有轻微明暗变化。
 - 真实带 GPU 浏览器的命中帧观感、blend 辉光观感、MISS 飘字观感仍需用户确认；本轮是无头 Chromium 定量对比 + 截图像素比对。
 
 ### 13.4 提交
 
-见 `git log --oneline -1`（最新一条 `feat(python-server): ` 提交，4 个文件：2 前端 + `world.py` + 本 handoff）。
+见 `git log --oneline -1`（最新一条 `feat(python-server): ` 提交，4 个文件：2 前端 + `world.py` + 本 handoff；怪物叫声轮为 2 前端 + 本 handoff，服务端零改动）。

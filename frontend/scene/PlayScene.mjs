@@ -211,7 +211,8 @@ export class PlayScene extends Scene {
         this.self = player;
         this.entities.clear();
         this.entities.set(player.id, player);
-        for (const e of nearby || []) this.entities.set(e.id, e);
+        this._registerSound(player);
+        for (const e of nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
         this.groundItems.clear();
         for (const g of groundItems || []) this.groundItems.set(g.id, g);
 
@@ -949,6 +950,11 @@ export class PlayScene extends Scene {
         return null;
     }
 
+    /** 把实体登记到音频模块，用于按 Appr×10+200 公式播放怪物叫声（攻击/挨打/死亡）。 */
+    _registerSound(e) {
+        if (e && e.id != null) sound.registerEntity(e.id, e.type, e.appr);
+    }
+
     onMessage(type, msg) {
         switch (type) {
             case 'entityAdd':
@@ -956,10 +962,12 @@ export class PlayScene extends Scene {
                 // 不能被 toBriefJson 的简化实体覆盖，否则 self 与 entities[id] 引用分离。
                 if (msg.entity && this.self && msg.entity.id !== this.self.id) {
                     this.entities.set(msg.entity.id, msg.entity);
+                    this._registerSound(msg.entity);
                 }
                 break;
             case 'entityRemove':
                 this.entities.delete(msg.id);
+                sound.unregisterEntity(msg.id);
                 break;
             case 'move': {
                 const e = this.entities.get(msg.id);
@@ -1013,6 +1021,7 @@ export class PlayScene extends Scene {
                     if (msg.nameColor !== undefined) e.nameColor = msg.nameColor;   // 宠物名字颜色随等级
                     if (msg.raceImg !== undefined) e.raceImg = msg.raceImg;         // 神兽变身（raceImg 54↔55，换动作表）
                     if (msg.appr !== undefined) e.appr = msg.appr;                  // 神兽变身（appr 170↔171，换图库偏移段）
+                    if (msg.appr !== undefined) this._registerSound(e);             // 同步怪物叫声 Appr（神兽变身换音）
                     if (msg.paralyzed !== undefined) {
                         if (msg.paralyzed && !e._paralyzed) e._paralyzedAt = Date.now();   // 麻痹开始时间（钉住动画用）
                         e._paralyzed = msg.paralyzed;
@@ -1203,8 +1212,8 @@ export class PlayScene extends Scene {
                 this.castTarget = null;
                 this.chaseTargetId = null;   // 换图取消锁定
                 this._clearPicked();   // 换图丢弃手中拿起的物品状态
-                if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
-                for (const e of msg.nearby || []) this.entities.set(e.id, e);
+                if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); this._registerSound(msg.player); }
+                for (const e of msg.nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
                 if (msg.map) {
                     const p = this.self || { x: 0, y: 0 };
