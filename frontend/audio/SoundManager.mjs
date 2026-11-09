@@ -47,6 +47,17 @@ const MON_SOUND_OFFSET = Object.freeze({
     discover: 0, idle: 1, attack: 2, attackW: 3, hit: 4, die: 5,
 });
 
+/**
+ * 原版游戏主场景 BGM（PlayScn.pas::TPlayScene.SoundOnTimer）：
+ *   PlaySound(s_main_theme)，而 SoundUtil.pas 里 s_main_theme = 102，
+ *   对应 sound.lst 的 `102: wav\102.wav`（实测 43.9 秒，与源码注释「长度：43秒」吻合）。
+ * 定时器首次触发后 `Interval := 46 * 1000`，即每 46 秒重播一次、曲间留约 2.1 秒静音，
+ * 并非无缝 loop。bmg_field（Field2.wav，191 秒）在原版客户端中没有任何 PlayBGM 调用点，
+ * 是后期版本附加的长曲，仍保留为可选键但不作进游戏默认曲。
+ */
+const BGM_PLAY_ID = 102;
+const BGM_PLAY_GAP_MS = 2100;   // 46s 周期 - 43.9s 曲长 ≈ 2.1s
+
 /** 战士特攻编号（PlayScene.SWORD_HIT_FX 的 key）→ 原版音效。 */
 const SWORD_SFX = Object.freeze({
     7: SFX.hitLong,        // 攻杀剑术
@@ -139,6 +150,7 @@ class SoundManager {
         this.bgmAudio = null;
         this.bgmKey = null;
         this._bgmUrl = null;
+        this._bgmReplayTimer = null;    // 原版 46 秒周期重播主场景音乐
         this.selfId = null;
         this.stepFlip = false;
         this.prevGold = null;
@@ -177,6 +189,11 @@ class SoundManager {
             this.audioDir = data.audioDir || 'Audio/';
             this.sounds = data.sounds || {};
             this.bgm = data.bgm || {};
+            // 原版主场景音乐是 sound.lst 的编号 102，不在 bgm 表里；从编号表派生，
+            // 无需改动 convert_audio.py 与已提交的索引文件。
+            if (!this.bgm.play && this.sounds[String(BGM_PLAY_ID)]) {
+                this.bgm.play = this.sounds[String(BGM_PLAY_ID)];
+            }
             this.missing = data.missing || [];
             this.stats = data.stats || null;
             console.info(`[sound] 索引已加载：${Object.keys(this.sounds).length} 个编号 / `
@@ -284,7 +301,10 @@ class SoundManager {
 
     // ---- BGM ------------------------------------------------------------
 
-    /** 切换循环 BGM：intro / select / field / gameover / theme / heroLogin / heroLogout。 */
+    /**
+     * 切换 BGM：intro / select / play / field / gameover / theme / heroLogin / heroLogout。
+     * `play` = 原版游戏主场景音乐（编号 102），`field` = 后期附加的 Field2 长曲（可手动切回试听）。
+     */
     setBgm(key) {
         if (!key) return false;
         this.bgmKey = key;
@@ -301,9 +321,23 @@ class SoundManager {
         const url = this.base + this.audioDir + entry.mp3;
         if (!this.bgmAudio) {
             this.bgmAudio = new Audio();
-            this.bgmAudio.loop = true;
             this.bgmAudio.preload = 'auto';
         }
+        // 主场景音乐按原版 46 秒定时器重播（曲间留 BGM_PLAY_GAP_MS 静音），
+        // 其余场景（登录/选角/长曲）走 HTML5 loop 无缝循环。
+        const timed = (key === 'play');
+        clearTimeout(this._bgmReplayTimer);
+        this._bgmReplayTimer = null;
+        this.bgmAudio.loop = !timed;
+        this.bgmAudio.onended = timed ? () => {
+            if (this.bgmKey !== 'play' || !this.enabled || !this.unlocked) return;
+            this._bgmReplayTimer = setTimeout(() => {
+                if (this.bgmKey === 'play' && this.enabled && this.unlocked && this.bgmAudio) {
+                    this.bgmAudio.currentTime = 0;
+                    this.bgmAudio.play().catch(() => {});
+                }
+            }, BGM_PLAY_GAP_MS);
+        } : null;
         this.bgmAudio.onerror = () => {
             const cur = this.bgm[this.bgmKey];
             if (!cur || !this.bgmAudio || this._bgmFellBackFor === this._bgmUrl) return;
@@ -329,6 +363,8 @@ class SoundManager {
         this.enabled = !this.enabled;
         lsSet(LS_ENABLED, this.enabled ? '1' : '0');
         if (!this.enabled) {
+            clearTimeout(this._bgmReplayTimer);
+            this._bgmReplayTimer = null;
             if (this.bgmAudio) this.bgmAudio.pause();
             for (const v of this.voices) { try { v.pause(); } catch { /* ignore */ } }
             this.voices.clear();
@@ -471,7 +507,9 @@ class SoundManager {
                 break;
             case 'enterGame':
                 if (msg.player && msg.player.id != null) this.selfId = msg.player.id;
-                this.setBgm('field');
+                // 原版 PlayScn.pas::TPlayScene.SoundOnTimer → PlaySound(s_main_theme=102)，
+                // 不是 bmg_field（Field2 长曲在原版无调用点）。
+                this.setBgm('play');
                 break;
             case 'changeMap':
                 if (msg.player && msg.player.id != null) this.selfId = msg.player.id;

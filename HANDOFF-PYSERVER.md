@@ -346,7 +346,7 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 
 - `main.mjs` 里 `sound.install(conn)`：注册 `'*'` 监听、全局 capture 点击、`pointerdown`/`keydown` 首次手势解锁、异步加载索引；`window.__sound` 是调试入口。
 - `play(id, {gap, key, volume})`：编号 → `/resources/Audio/<id>.mp3`；`<audio>` 元素池 + `cloneNode()` 并发，同类 80ms 节流、脚步统一 key 250ms 节流、并发语音 ≤ 24；mp3 404/解码失败自动回退 `Wav/<原文件>`，索引 404 时退化到 `resource.mjs::wavUrl(id)`。
-- BGM 独立 `<audio loop>`，随 `loginResult`/`characterList` → select、`enterGame` → field、连接关闭 → intro 切换；`gameover/theme/heroLogin/heroLogout` 可用 `__sound.setBgm(key)` 手动切。
+- BGM 独立 `<audio>`：登录界面 intro、登录后/选角 select、**进游戏 play（原版 `s_main_theme` = 编号 102，43.9 s，每 46 s 重播、曲间静音 2.1 s，非无缝 loop）**、连接关闭 → intro；其余键（`field`/`gameover`/`theme`/`heroLogin`/`heroLogout`）用 `__sound.setBgm(key)` 手动切。原版依据与本次修正见 §15。
 - 开关与音量存 `localStorage`（`mir2.sound.enabled/volume/bgmVolume`，默认开 / 0.8 / 0.45）；右上角「声音」按钮 `_toggleSound()` 已接 `sound.toggle()`。
 - 全局点击命中 `data-sfx` 属性或 `cursor:pointer` 热区就播按钮音；背包格 / 装备格按 `stdMode` 带 `data-sfx`，快捷栏格带 108，喝药播 107。
 
@@ -380,7 +380,7 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 2. F12 Console 应出现 `[sound] 索引已加载：714 个编号 / 7 首 BGM / 15 条缺失`。
 3. 首次点击/按键后应出现 `[sound] 浏览器音频已解锁`，并听到登录 BGM（`Log-in-long2`）。
 4. 控制台直接验证：`__sound.status()`、`__sound.play(103)`（按钮）、`__sound.play(106)`（金币）、`__sound.setBgm('field')`。
-5. 登录成功 → 选角 BGM；进游戏 → `Field2`；走两步、打一下怪、喝药、捡金币、点背包，逐项听声。
+5. 登录成功 → 选角 BGM；进游戏 → 编号 102 主场景主题曲（约 44 秒一轮、曲间停约 2 秒，原版行为）；走两步、打一下怪、喝药、捡金币、点背包，逐项听声。可用 `__sound.setBgm('field')` 切回 191 秒的 `Field2` 长曲做 A/B 对比，各曲对照表见 §15.5。
 6. 右上角「声音」按钮是**开关**：默认开启，所以**第一次点击是关闭**，再点一次恢复；日志会提示。音量用 `__sound.setVolume(0.5)` / `__sound.setBgmVolume(0.2)`。
 7. 回退链路：临时移走 `resources/Audio/103.mp3`，点按钮应自动改播 `Wav/103.wav`；把 `frontend/audio/audio_map.json` 移走则退化到 `resources.json` 的 `wavUrl()`（非数字文件名音效会缺）。测完记得恢复。
 8. HTTP 自查：`/audio/audio_map.json` → 200 `application/json`；`/resources/Audio/103.mp3` → 200 `audio/mpeg`；带 `Range: bytes=0-99` → 206 + `Content-Range`。
@@ -568,3 +568,51 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 
 ### 14.5 运行环境约定（重要）
 服务端实际解释器是 **`D:/Python310/python.exe`（3.10.11）**，直接 `python -m pyserver` 即用它。**所有复现、回归、live 测试必须同样用 3.10 跑**；只用 3.13 会掩盖 3.10 专属的语言/标准库差异（本次即因此漏检）。
+
+---
+
+## 15. 进游戏 BGM 对齐原版 Delphi（2026-11-09 夜，用户反馈「登录游戏的音乐貌似也不对」）
+
+### 15.1 原版权威依据（GameOfMir/MirClient Delphi 源码）
+
+| 源码位置 | 原版行为 | 对应资源 |
+| --- | --- | --- |
+| `SoundUtil.pas` 常量 | `bmg_intro='wav\log-in-long2.wav'`、`bmg_select='wav\sellect-loop2.wav'`、`bmg_field='wav\Field2.wav'`、`bmg_gameover='wav\game over2.wav'`；`s_main_theme=102` | — |
+| `IntroScn.pas::TLoginScene.OpenScene` | `PlayBGM(bmg_intro)` | `Log-in-long2.wav`（34.3 s） |
+| `IntroScn.pas::TSelectChrScene.SoundOnTimer` | `PlayBGM(bmg_select)` | `sellect-loop2.wav`（43.9 s） |
+| `PlayScn.pas::TPlayScene.SoundOnTimer` | **`PlaySound(s_main_theme)`**，源码注释「游戏主场景的背景音乐（长度：43秒）」，首次播放后 `m_MainSoundTimer.Interval := 46*1000` → 每 46 秒重播一次 | **`sound.lst` 第 102 项 `wav\102.wav`（43.9 s，单声道 44.1 kHz）** |
+| `DrawScrn.pas::ChangeScene` | 切场景先 `CloseScene`（`SelectChrScene`/`PlayScene` 均 `SilenceSound`）再 `OpenScene` | — |
+
+关键结论：在 `IntroScn.pas` / `PlayScn.pas` / `DrawScrn.pas` / `clEvent.pas` / `ClMain.pas` 中**均没有 `PlayBGM(bmg_field)` 调用点**；`Field2.wav`（191.5 s / 32.2 MB，社区资料称之为「SD 后来放进去的」）不是原版进游戏默认曲。原版主场景音乐是**编号 102 的 43 秒主题曲**，且不是无缝循环，而是 46 秒定时器重播（曲间约 2 秒静音）。
+
+### 15.2 修正前的问题
+
+`SoundManager._onMessage` 的 `enterGame` 分支是 `setBgm('field')` → 播 `Field2.mp3`（191.5 s 无缝 loop）。登录/选角两首是对的，只有**进游戏这一首错**：曲子长 4 倍、旋律不同、且没有原版的曲间停顿。上一轮 §14 修好 `noticeOk` 后用户第一次真正进到游戏，才听到这首曲子并反馈「不对」。
+
+### 15.3 改动（仅 `frontend/audio/SoundManager.mjs`，服务端/协议/索引文件零改动）
+
+- 新增常量 `BGM_PLAY_ID = 102`、`BGM_PLAY_GAP_MS = 2100`（46 s − 43.9 s）。
+- `_loadMap()` 从 `sounds['102']` 派生 `bgm.play`（原版主场景音乐本来就是 `sound.lst` 编号，不在 BGM 表里；避免改 `convert_audio.py` 与已提交的 `audio_map.json`）。派生后 BGM 键为 8 个。
+- `_startBgm()`：`play` 键不设 `loop`，改用 `onended` + `setTimeout(2100)` 从头重播，复刻原版 46 秒周期；其它键仍是 HTML5 无缝 loop。切歌/关闭声音时清理重播定时器。
+- `enterGame` → `setBgm('play')`；`field` 保留为可手动切换的键。
+
+### 15.4 验证
+
+- `node` 直接 import `SoundManager` + mock `Audio`/`fetch` 的真实路由单测 **12/12 通过**：索引派生 `play→102.mp3`、`loginResult`/`characterList`→select、`enterGame`→play 且 `loop=false`、曲终排 2100 ms 重播并从头播放、`setBgm('field')`→Field2 无缝 loop、`toggle()` 清定时器。
+- `/resources/Audio/102.mp3` 实测 **HTTP 200 / audio/mpeg / 527300 bytes**（`field2.mp3` 同样 200）。mp3 与原 wav 时长逐一比对一致（`102`: 43.9 s、`Field2`: 191.5 s、`Log-in-long2`: 34.3 s、`sellect-loop2`: 43.9 s），排除转码错文件/变调。
+- 按 §14.5 约定用 **Python 3.10** 跑：`test_pyserver` 48/48、`test_tick_systems` 53/0、`test_all_messages --live 8080` 18/18；8080 服务无需重启（纯前端改动）。
+
+### 15.5 曲目对照（供自测 A/B 试听，控制台 `__sound.setBgm('<key>')`）
+
+| key | 文件 | 时长 | 用途 |
+| --- | --- | --- | --- |
+| `intro` | `log-in-long2.mp3` | 34.3 s | 登录界面（默认）；与 `Game-over2.wav` **MD5 完全相同** |
+| `select` | `sellect-loop2.mp3` | 43.9 s | 选角界面（默认） |
+| `play` | `102.mp3` | 43.9 s | **游戏内（本次新默认）**，原版 `s_main_theme`，46 秒周期 |
+| `field` | `field2.mp3` | 191.5 s | 后期附加长曲（修正前的默认值） |
+| `theme` | `main_theme.mp3` | 36.0 s | 社区「经典选角曲」候选 |
+| `gameover` | `game_over2.mp3` | 68.6 s | 社区「经典登录曲」候选 |
+
+### 15.6 仍待用户确认（**未硬改**）
+
+若「不对」指的是**登录/选角那两首不是记忆中的经典旋律**：那是资源包内容问题，不是代码映射错误。博客园/17173 的玩家改名方案是把 `Game over2.wav` 当 `Log-in-long2.wav`、`main_theme.wav` 当 `sellect-loop2.wav` 使用（即上表 `gameover` / `theme` 两键）。本轮**不擅自替换默认曲**，因为无原版源码依据；用户可用上表命令试听后指定，再把对应键设为默认即可。
