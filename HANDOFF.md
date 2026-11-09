@@ -3,9 +3,6 @@
 > 项目根目录：`/Volumes/未命名/jootm2/`
 > ★ 原版 Delphi 源码：`/Volumes/未命名/fire/Source/`（客户端 `Client/`、服务端 `M2Server/`）——改特效/技能/渲染/协议前先查这里，特效帧号一律查表（`Client/magiceff.pas` `EffectBase`/`HitEffectBase`、`Client/clEvent.pas` `FIREBURNBASE`、`Client/PlayScn.pas` 各 EffectType 分支的 `MagExplosionBase`），勿靠 WIL 文件猜帧号。
 > 这是一份「已做 / 未做」的移交说明，含精确路径、技术要点与坑。接手后先读这里。
->
-> ★ **服务端已迁移到 Python（分支 `feat/python-server`）**：`pyserver/` 是纯标准库 asyncio 实现，与 Java 版共用同一套 WebSocket JSON 协议 / SQLite schema / `config/server.properties`，46 种消息全部迁移完成（`/api/migration` 可查）。下面各节描述的是 **Java 版实现细节，仍可作为玩法数值与协议语义的权威参考**；默认部署已改为 `python -m pyserver`（见 `Dockerfile` / `docker-compose.yml`），Java 版保留为 `Dockerfile.java` 与 `docker compose --profile java`，用于双栈回归。回归脚本在 `scripts/`：`test_pyserver.py` / `smoke_ws.py` / `test_all_messages.py` / `test_tick_systems.py` / `compare_stacks.py`（含 `scripts/golden/` 基线）。
-> `world.tick` 已按 Java 侧全量子系统补齐：自然回血 / 治愈术持续回血 / buff 过期 / 红绿毒 / 火墙伤害 / 远程怪延迟飞矢 / 守卫与隐身仇恨 / 随机游走 / 神兽变身 / 宠物升级 / 魔法盾与护身减伤 / 死亡走 `killPlayer` / 怪物重生；`Player.recompute` 也已完整移植 StdMode 分派、套装、幸运与装备特攻；`MapQuest.txt` + `MapQuest_Def/` 任务触发已接通。**下面正文里若出现「阶段 1 / 待精确移植」之类描述，以本段为准。**
 
 ## 1. 项目是什么
 
@@ -70,7 +67,7 @@ jootm2/
 
 1. **单进程 Netty 后端**：HTTP 静态 + REST + WebSocket + CORS，全部 8080。
 2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、**勿参考**。
-3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。**目录必须是 `resources/` 下直属的 `Data/Map/Wav`**（多套一层客户端安装目录会导致索引生成失败、前端 404）；`gamedata/Mir200/Map` 可直接联接到 `resources/Map`，前后端共用同一批 `.map`。1.80 客户端有 66 张活动模板图在 tile 后带附加数据块，`pyserver/gamedata.py::map_tile_stride` 与 `frontend/map/Maps.mjs` 统一按 12 字节读前 `w*h` 个 tile（旧逻辑误判 14 会整图错位）。用 `python scripts/verify_resources.py resources` 体检。
+3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。
 4. **游戏模板 CSV 导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.csv`（UTF-8，带表头，可直接编辑）→ SQLite，启动首次自动流式导入（`INSERT OR REPLACE` 去重）。CSV 由 `scripts/paradox_to_csv.py` 从旧 Delphi Paradox `.DB` 一次性导出（`.DB` 已删除，不再保留二进制格式）。
    - 结果：物品 535、怪物 267、技能 33（原库有重复行，已去重）。
 5. **登录/注册/角色**：账号、角色持久化（SQLite FDB 替代）。
