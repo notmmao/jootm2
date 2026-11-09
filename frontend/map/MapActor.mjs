@@ -22,6 +22,11 @@ export class MapActor {
         this._texCache = new Map();   // key -> { canvas, px, py }
         this._tintCache = new Map();  // 原始 canvas -> (color -> 染色后 canvas)，中毒变色用
         this._texVersion = 0;        // 纹理就绪计数（供地面层缓存判失效，预留）
+        // 地面层（tiles + smtiles）离屏滚动缓存：按世界格原子生成，
+        // 移动时滚动复用，避免新格子的「先画亮地砖、后叠暗阴影」两次变色。
+        this._floor = null;
+        this._prefetchAt = { x: -99999, y: -99999 };
+        this._prefetching = false;
         // render 时缓存（供 screenX/screenY 使用）
         this._cx = 0;
         this._cy = 0;
@@ -38,6 +43,8 @@ export class MapActor {
         if (mapId === this.mapId && this.map) return;
         this.mapId = mapId;
         this.map = null;              // 加载期间 PlayScene.render 保留上一帧
+        this._floor = null;          // 换图必须丢弃旧地面缓存
+        this._prefetchAt = { x: -99999, y: -99999 };
         const m = await loadMap(mapId);
         try {
             await this._prefetchVisible(m, cx, cy, onProgress);
@@ -136,24 +143,218 @@ export class MapActor {
         }
         this._texCache.set(k, { canvas: null, px: 0, py: 0 });
         const lib = getLib(key);
-        if (lib) {
-            lib.getTexture(index).then(tex => {
-                const e = this._texCache.get(k);
-                if (!e) return;
-                if (tex) {
-                    e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
-                    this._texVersion++;
-                } else { e.failed = true; e.failedAt = Date.now(); }
-            }).catch(() => {
-                const e = this._texCache.get(k);
-                if (e) { e.failed = true; e.failedAt = Date.now(); }
-            });
+        if (!lib) {
+            // 图库不存在：明确标记失败，避免占位永远空着又不重试（每帧白查一次）
+            const e = this._texCache.get(k);
+            if (e) { e.failed = true; e.failedAt = Date.now(); }
+            return null;
         }
+        lib.getTexture(index).then(tex => {
+            const e = this._texCache.get(k);
+            if (!e) return;
+            if (tex) {
+                e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
+                this._texVersion++;
+            } else { e.failed = true; e.failedAt = Date.now(); }
+        }).catch(() => {
+            const e = this._texCache.get(k);
+            if (e) { e.failed = true; e.failedAt = Date.now(); }
+        });
         return null;
     }
 
     _libKey(base, fileIdx) {
         return fileIdx ? base + fileIdx : base;
+    }
+
+    // ---- 地面层滚动缓存（tiles + smtiles） ---------------------------------
+    // 缓存画布以「世界格窗口」为坐标系，画布 (0,0) = 世界格 (wx0,wy0) 左上角。
+    // 每格只在 bng（所属 2×2 大图的对应象限）与 mid 全部就绪时一次性画入，
+    // 之后 cells[i]=1 永久复用；视口滚动时把旧内容按格差平移搬运，只补新露出的行列。
+    // 这样屏幕上永远看不到「地砖先亮、阴影后叠暗」的中间态（移动时阴影颜色跳变主因）。
+
+    _ensureFloor(cx, cy) {
+        // 冗余必须让窗口左上角落在屏幕外（DX/DY ≤ 0），否则屏幕左/上缘会露出黑底。
+        // ox = floor((800-48)/2) = 376 → 左侧至少 8 格；oy = floor((445-32)/2) = 206 → 上侧至少 7 格。
+        const PX = 10, PY = 8;
+        const CW = this.viewW + PX * 2 * TILE_W;
+        const CH = this.viewH + PY * 2 * TILE_H;
+        const gw = Math.ceil(CW / TILE_W) + 1;
+        const gh = Math.ceil(CH / TILE_H) + 1;
+        // 对齐偶数格：tiles 是 96×64 的 2×2 大图，象限划分必须随窗口稳定
+        const wx0 = (cx - PX - 2) & ~1;
+        const wy0 = (cy - PY - 2) & ~1;
+        const f = this._floor;
+        if (f && f.gw === gw && f.gh === gh && f.wx0 === wx0 && f.wy0 === wy0) return f;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = CW;
+        canvas.height = CH;
+        const fctx = canvas.getContext('2d', { alpha: false });
+        fctx.fillStyle = '#000';
+        fctx.fillRect(0, 0, CW, CH);
+        const cells = new Uint8Array(gw * gh);
+        if (f && f.gw === gw && f.gh === gh) {
+            const dgx = f.wx0 - wx0, dgy = f.wy0 - wy0;
+            fctx.drawImage(f.canvas, dgx * TILE_W, dgy * TILE_H);
+            for (let iy = 0; iy < f.gh; iy++) {
+                for (let ix = 0; ix < f.gw; ix++) {
+                    const nx = ix + dgx, ny = iy + dgy;
+                    if (nx >= 0 && ny >= 0 && nx < gw && ny < gh) {
+                        cells[ny * gw + nx] = f.cells[iy * f.gw + ix];
+                    }
+                }
+            }
+        }
+        this._floor = { canvas, ctx: fctx, wx0, wy0, gw, gh, cells };
+        return this._floor;
+    }
+
+    /** 单张地面纹理的就绪状态；未就绪时按需触发加载（空图/failed 视为不需要）。 */
+    _floorTex(key, index) {
+        if (index == null || index < 0) return { ready: true, tex: null };
+        const hit = this._texCache.get(key + '/' + index);
+        if (hit && hit.canvas) return { ready: true, tex: hit };
+        if (hit && hit.failed) return { ready: true, tex: null };
+        if (!hit) this._getTex(key, index);
+        return { ready: false, tex: null };   // 加载中：整格等待，不画半成品
+    }
+
+    _paintFloorCells(m, f) {
+        for (let iy = 0; iy < f.gh; iy++) {
+            for (let ix = 0; ix < f.gw; ix++) {
+                const idx = iy * f.gw + ix;
+                if (f.cells[idx]) continue;
+                const gx = f.wx0 + ix, gy = f.wy0 + iy;
+                if (gx < 0 || gy < 0 || gx >= m.width || gy >= m.height) {
+                    f.cells[idx] = 1;    // 地图外，保持黑色
+                    continue;
+                }
+                const t = m.tiles[gx][gy];
+                const bgx = gx & ~1, bgy = gy & ~1;
+                const bt = m.tiles[bgx] && m.tiles[bgx][bgy];
+                const bng = this._floorTex(this._libKey('tiles', bt ? bt.bngFile : 0),
+                                           bt ? bt.bng : -1);
+                const mid = this._floorTex(this._libKey('smtiles', t.midFile), t.mid);
+                if (!bng.ready || !mid.ready) continue;   // 原子：整格一起出现
+
+                const px = ix * TILE_W, py = iy * TILE_H;
+                if (bng.tex) {
+                    const src = bng.tex.canvas;
+                    const qx = (gx % 2) * TILE_W, qy = (gy % 2) * TILE_H;
+                    if (src.width > qx && src.height > qy) {
+                        f.ctx.drawImage(src, qx, qy,
+                            Math.min(TILE_W, src.width - qx), Math.min(TILE_H, src.height - qy),
+                            px, py, TILE_W, TILE_H);
+                    }
+                }
+                if (mid.tex) f.ctx.drawImage(mid.tex.canvas, px, py);
+                f.cells[idx] = 1;
+            }
+        }
+    }
+
+    _syncFloor(ctx, m, cx, cy, shiftX, shiftY) {
+        const f = this._ensureFloor(cx, cy);
+        this._paintFloorCells(m, f);
+        const ox = Math.floor((this.viewW - TILE_W) / 2);
+        const oy = Math.floor((this.viewH - TILE_H) / 2);
+        ctx.drawImage(f.canvas,
+            ox + (f.wx0 - cx) * TILE_W - shiftX,
+            oy + (f.wy0 - cy) * TILE_H - shiftY);
+    }
+
+    // ---- 移动时增量预取（按格原子提交） ------------------------------------
+
+    _maybePrefetch(m, cx, cy) {
+        if (this._prefetching) return;
+        if (Math.abs(cx - this._prefetchAt.x) < 4 && Math.abs(cy - this._prefetchAt.y) < 4) return;
+        this._prefetchAt = { x: cx, y: cy };
+        this._prefetching = true;
+        this._prefetchAround(m, cx, cy)
+            .catch(e => console.warn('[map] 增量预取失败', e))
+            .finally(() => { this._prefetching = false; });
+    }
+
+    /** 预取视口外冗余一圈的全部纹理；一格的 bng/mid/obj 帧一次性写入缓存。
+     *  分批执行 + 每批让出主线程，避免上千个 Range 请求/解包把渲染卡住。 */
+    async _prefetchAround(m, cx, cy) {
+        const halfW = Math.ceil(this.viewW / 2 / TILE_W) + 6;
+        const halfH = Math.ceil(this.viewH / 2 / TILE_H) + 8;
+        const r = {
+            left: Math.max(0, Math.floor(cx - halfW)),
+            top: Math.max(0, Math.floor(cy - halfH)),
+            right: Math.min(m.width - 1, Math.ceil(cx + halfW)),
+            bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 12)),
+        };
+        const cells = [];
+        for (let gx = r.left; gx <= r.right; gx++) {
+            for (let gy = r.top; gy <= r.bottom; gy++) {
+                const t = m.tiles[gx] && m.tiles[gx][gy];
+                if (!t) continue;
+                const loads = [];
+                const add = (base, fileIdx, index) => {
+                    if (index == null || index < 0) return;
+                    const key = this._libKey(base, fileIdx);
+                    const k = key + '/' + index;
+                    const hit = this._texCache.get(k);
+                    if (hit && (hit.canvas || hit.failed)) return;
+                    const lib = getLib(key);
+                    if (!lib) return;
+                    // 先占位：渲染侧看到「加载中」会整格等待，而不是逐层冒出
+                    if (!hit) this._texCache.set(k, { canvas: null, px: 0, py: 0 });
+                    loads.push({ k, lib, index });
+                };
+                if (t.bng >= 0 && gx % 2 === 0 && gy % 2 === 0) add('tiles', t.bngFile, t.bng);
+                if (t.mid >= 0) add('smtiles', t.midFile, t.mid);
+                if (t.obj >= 0) {
+                    const frames = t.hasAni ? Math.max(1, Math.min(32, t.aniFrame)) : 1;
+                    for (let f = 0; f < frames; f++) add('objects', t.objFile, t.obj + f);
+                }
+                if (loads.length) cells.push(loads);
+            }
+        }
+        for (let i = 0; i < cells.length; i += 24) {
+            await Promise.all(cells.slice(i, i + 24).map(loads =>
+                Promise.all(loads.map(({ k, lib, index }) => {
+                    const p = lib.getTexture(index).then(tex => ({ k, tex }))
+                        .catch(() => ({ k, tex: null }));
+                    // 单个请求 8 秒兜底，避免某个挂住的 fetch 阻塞整批 / 后续批次
+                    return Promise.race([
+                        p,
+                        new Promise(res => setTimeout(() => res({ k, tex: null }), 8000)),
+                    ]);
+                })).then(results => {
+                    // 按格原子提交：该格所有层都返回后才一次性写入
+                    for (const { k, tex } of results) {
+                        const e = this._texCache.get(k);
+                        if (!e) continue;
+                        if (tex) {
+                            e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
+                            this._texVersion++;
+                        } else {
+                            e.failed = true; e.failedAt = Date.now();
+                        }
+                    }
+                })
+            ));
+            // 让出一帧给渲染，避免解包 512K chunk 时长时间占着主线程
+            await new Promise(res => setTimeout(res, 0));
+        }
+    }
+
+    /** 动画对象当前帧未就绪时回退到该对象已加载的最近帧，避免整棵树/建筑消失一帧。 */
+    _getObjFrame(t, frame) {
+        const key = this._libKey('objects', t.objFile);
+        const want = this._getTex(key, t.obj + frame);
+        if (want) return { tex: want, blend: t.blend };
+        if (!t.hasAni || t.aniFrame <= 1) return null;
+        const n = Math.max(1, Math.min(32, t.aniFrame));
+        for (let d = 1; d < n; d++) {
+            const e = this._texCache.get(key + '/' + (t.obj + ((frame - d + n) % n)));
+            if (e && e.canvas) return { tex: e, blend: t.blend };
+        }
+        return null;
     }
 
     /** 中毒变色：在 sprite 自己的离屏画布上叠加颜色（source-atop 的 destination 只有 sprite 像素，
@@ -215,26 +416,11 @@ export class MapActor {
         const right = Math.min(m.width - 1, Math.ceil(cx + halfW));
         const bottom = Math.min(m.height - 1, Math.ceil(cy + halfH + 30));
 
-        // 1. 大地砖 tiles（bng 是 2×2 大图，只在偶数坐标画）
-        for (let gx = left; gx <= right; gx++) {
-            for (let gy = top; gy <= bottom; gy++) {
-                const t = m.tiles[gx][gy];
-                if (t.bng < 0) continue;
-                if (gx % 2 !== 0 || gy % 2 !== 0) continue;
-                const tex = this._getTex(this._libKey('tiles', t.bngFile), t.bng);
-                if (tex) ctx.drawImage(tex.canvas, sx(gx), sy(gy));
-            }
-        }
-
-        // 2. 小地砖 smtiles
-        for (let gx = left; gx <= right; gx++) {
-            for (let gy = top; gy <= bottom; gy++) {
-                const t = m.tiles[gx][gy];
-                if (t.mid < 0) continue;
-                const tex = this._getTex(this._libKey('smtiles', t.midFile), t.mid);
-                if (tex) ctx.drawImage(tex.canvas, sx(gx), sy(gy));
-            }
-        }
+        // 1+2. 地面层（tiles + smtiles）：离屏滚动缓存，整帧一次贴图。
+        // 每格按世界坐标原子生成，移动时复用旧内容，杜绝逐层异步到位造成的颜色跳变。
+        this._syncFloor(ctx, m, cx, cy, shiftX, shiftY);
+        // 视口移出首屏预取范围前，提前把前方格子的全部纹理按格原子载入
+        this._maybePrefetch(m, cx, cy);
 
         // 3. 实体 + 对象层按行交错（y 越大越靠屏幕下方，遮挡在前）
         const byRow = new Map();
@@ -247,14 +433,14 @@ export class MapActor {
             for (let gx = left; gx <= right; gx++) {
                 const t = m.tiles[gx][gy];
                 if (t.obj < 0) continue;
-                let objIdx = t.obj;
-                let blend = false;
+                let frame = 0, blend = false;
                 if (t.hasAni) {
-                    const frame = Math.floor(Date.now() / 200) % t.aniFrame;
-                    objIdx = t.obj + frame;
+                    frame = Math.floor(Date.now() / 200) % Math.max(1, t.aniFrame);
                     blend = t.blend;
                 }
-                const tex = this._getTex(this._libKey('objects', t.objFile), objIdx);
+                // 当前动画帧未就绪时回退该对象已加载的最近帧，绝不整棵树/建筑消失
+                const got = this._getObjFrame(t, frame);
+                const tex = got ? got.tex : null;
                 if (tex) {
                     let px, py;
                     if (blend) {
@@ -265,9 +451,11 @@ export class MapActor {
                         py = sy(gy) + TILE_H - tex.canvas.height;
                     }
                     if (blend) {
+                        // save/restore 保证 lighter 不泄漏到后续实体/HUD 绘制
+                        ctx.save();
                         ctx.globalCompositeOperation = 'lighter';
                         ctx.drawImage(tex.canvas, px, py);
-                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.restore();
                     } else {
                         ctx.drawImage(tex.canvas, px, py);
                     }

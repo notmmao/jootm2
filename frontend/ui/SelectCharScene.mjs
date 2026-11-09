@@ -30,8 +30,14 @@ export class SelectCharScene extends Scene {
         this.prg = getLib('prguse');
         this.chr = getLib('chrsel');
         this._prgCache = new Map();  // Prguse 图 → img URL
-        this._chrCache = new Map();  // ChrSel 图 → {canvas}
+        this._chrCache = new Map();  // ChrSel 图 → {canvas, failed?, failedAt?}
         this._bgTex = null;
+        this._bgReady = false;       // 背景首次加载结束（失败也放行，避免永久黑屏）
+        this._bgTriedAt = 0;
+        this._wanted = new Set();    // 当前角色需要的全部立绘帧编号
+        this._pendingPortraits = new Set();
+        this._portraitsReady = false;
+        this._lastTex = [null, null]; // 每个槽最近成功的一帧（帧回退，绝不整人消失）
         this.chars = [null, null];   // 两个角色槽（照 ChrArr[0..1]）
         this.selected = 0;
         this.createMode = false;
@@ -49,6 +55,9 @@ export class SelectCharScene extends Scene {
         this.root.style.cssText = 'position:absolute;inset:0;pointer-events:auto;';
         gui.appendChild(this.root);
         this._buildButtons();
+        // 背景与立绘统一预取：预取完成前不推进动画帧、不清屏重画半成品，
+        // 避免 10 帧站立动画逐帧懒加载时人物一帧帧消失（选角界面闪屏主因）。
+        this._preload();
         this.conn.send('listCharacters');
     }
 
@@ -59,24 +68,117 @@ export class SelectCharScene extends Scene {
 
     // ---- 纹理加载 ---------------------------------------------------------
 
-    // Prguse 图 → img URL（缓存）
+    // Prguse 图 → img URL（缓存 + 并发去重，避免同一张图重复 PNG 编码卡主线程）
     async _prgUrl(idx) {
         if (this._prgCache.has(idx)) return this._prgCache.get(idx);
-        const tex = await this.prg.getTexture(idx);
-        if (!tex) return null;
-        const url = tex.canvas.toDataURL
-            ? tex.canvas.toDataURL('image/png')
-            : URL.createObjectURL(await tex.canvas.convertToBlob());
-        this._prgCache.set(idx, url);
-        return url;
+        if (!this._prgPending) this._prgPending = new Map();
+        if (this._prgPending.has(idx)) return this._prgPending.get(idx);
+        const p = (async () => {
+            const tex = await this.prg.getTexture(idx);
+            if (!tex) return null;
+            const url = tex.canvas.toDataURL
+                ? tex.canvas.toDataURL('image/png')
+                : URL.createObjectURL(await tex.canvas.convertToBlob());
+            this._prgCache.set(idx, url);
+            return url;
+        })().finally(() => { this._prgPending.delete(idx); });
+        this._prgPending.set(idx, p);
+        return p;
     }
 
-    // ChrSel 图 → canvas 纹理（懒加载，未加载返回 null 并异步触发）
-    _chrTex(idx) {
-        if (this._chrCache.has(idx)) return this._chrCache.get(idx).canvas || null;
+    /** 首屏预取：背景 + 一组默认立绘；characterList 到达后按实际角色补齐。 */
+    async _preload() {
+        try {
+            const t = await this.prg.getTexture(65);
+            this._bgTex = t ? t.canvas : null;
+        } catch (e) {
+            console.warn('[select] 背景纹理加载失败', e);
+        } finally {
+            this._bgReady = true;
+            this._bgTriedAt = Date.now();
+        }
+        this._ensurePortraits();
+    }
+
+    /** 按当前角色槽算出需要的立绘帧（站立 10 帧 + 冻结帧），一次性并发预取。 */
+    _ensurePortraits() {
+        const ids = new Set();
+        for (const c of this.chars) {
+            if (!c) continue;
+            const job = Math.max(0, Math.min(2, c.job | 0));
+            const sex = c.sex ? 1 : 0;
+            const base = 40 + job * 40 + sex * 120;
+            for (let f = 0; f < STAND_FRAME_COUNT; f++) ids.add(base + f);
+            ids.add(60 + job * 40 + sex * 120);
+        }
+        // 还没有角色时先预取武士男/女两组，避免建角后首圈等待
+        if (!ids.size) {
+            for (const sex of [0, 1]) {
+                const base = 40 + sex * 120;
+                for (let f = 0; f < STAND_FRAME_COUNT; f++) ids.add(base + f);
+                ids.add(60 + sex * 120);
+            }
+        }
+        this._wanted = ids;
+        for (const id of ids) this._loadPortrait(id);
+        this._checkPortraits();
+    }
+
+    _loadPortrait(idx) {
+        if (this._pendingPortraits.has(idx)) return;
+        const e = this._chrCache.get(idx);
+        if (e && (e.canvas || (e.failed && Date.now() - (e.failedAt || 0) < 5000))) return;
+        this._pendingPortraits.add(idx);
         this._chrCache.set(idx, { canvas: null });
-        this.chr.getTexture(idx).then((t) => { this._chrCache.get(idx).canvas = t ? t.canvas : null; });
-        return null;
+        this.chr.getTexture(idx).then((t) => {
+            const cur = this._chrCache.get(idx);
+            if (cur) {
+                cur.canvas = t ? t.canvas : null;
+                if (!t) { cur.failed = true; cur.failedAt = Date.now(); }
+            }
+            this._pendingPortraits.delete(idx);
+            this._checkPortraits();
+        }).catch(() => {
+            const cur = this._chrCache.get(idx);
+            if (cur) { cur.failed = true; cur.failedAt = Date.now(); }
+            this._pendingPortraits.delete(idx);
+            this._checkPortraits();
+        });
+    }
+
+    _checkPortraits() {
+        const ids = this._wanted;
+        if (!ids || !ids.size) { this._portraitsReady = false; return; }
+        let ready = true;
+        for (const id of ids) {
+            const e = this._chrCache.get(id);
+            // 空图 / 失败也视为就绪（由帧回退兜底），避免永久停在加载态
+            if (!e || (!e.canvas && !e.failed)) { ready = false; break; }
+        }
+        this._portraitsReady = ready;
+    }
+
+    /**
+     * 取立绘纹理。当前帧未就绪时回退该槽最近成功的一帧，
+     * 绝不返回空让人物整帧消失（选角界面「闪」的直接原因）。
+     */
+    _chrTex(idx, slot) {
+        const e = this._chrCache.get(idx);
+        if (!e) {
+            this._loadPortrait(idx);
+            return this._lastTex[slot] || null;
+        }
+        if (e.canvas) {
+            this._lastTex[slot] = e.canvas;
+            return e.canvas;
+        }
+        if (e.failed && Date.now() - (e.failedAt || 0) > 5000) {
+            this._chrCache.delete(idx);
+            this._loadPortrait(idx);
+        } else if (!this._pendingPortraits.has(idx)) {
+            this._loadPortrait(idx);
+        }
+        return this._lastTex[slot] || null;
     }
 
     // ---- DOM 构建 ---------------------------------------------------------
@@ -259,6 +361,8 @@ export class SelectCharScene extends Scene {
             if (!this.chars[this.selected]) {
                 this.selected = this.chars[0] ? 0 : (this.chars[1] ? 1 : 0);
             }
+            // 角色职业/性别可能变化，补齐对应立绘帧（含建角 / 删角后的刷新）
+            this._ensurePortraits();
         } else if (type === 'createCharacterResult') {
             if (!msg.ok) this._msg(msg.error || '创建失败。');
             this.conn.send('listCharacters');
@@ -286,20 +390,36 @@ export class SelectCharScene extends Scene {
     }
 
     render(ctx) {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-
-        // 背景 Prguse[65]
-        if (this._bgTex) {
-            ctx.drawImage(this._bgTex, 0, 0);
-        } else if (!this._bgLoading) {
-            this._bgLoading = true;
-            this.prg.getTexture(65).then((t) => { this._bgTex = t ? t.canvas : null; });
+        // 背景首次加载期间不清屏、保留上一帧（back buffer 里是登录界面完整一帧），
+        // 避免每帧「清黑 → 背景/立绘一块块冒出来」造成的整屏闪。
+        if (!this._bgReady) {
+            ctx.save();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 250, 26);
+            ctx.fillStyle = '#ffd76a';
+            ctx.font = '14px SimSun,serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('正在加载角色选择界面…', 10, 18);
+            ctx.restore();
+            return;
         }
 
-        // 站立帧推进（照 PlayScene：每 300ms aniIndex+1 循环）
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (this._bgTex) {
+            ctx.drawImage(this._bgTex, 0, 0);
+        } else if (Date.now() - this._bgTriedAt > 3000) {
+            // 背景加载失败时低频重试，不每帧发请求
+            this._bgTriedAt = Date.now();
+            this.prg.getTexture(65).then((t) => {
+                if (t) this._bgTex = t.canvas;
+            }).catch(() => {});
+        }
+
+        // 立绘全部就绪后才推进动画帧；否则保持当前帧 + 帧回退，
+        // 不让 10 帧站立动画在首圈逐帧懒加载时一帧帧消失。
         const now = performance.now();
-        if (now - this._frameAt >= FRAME_MS) {
+        if (this._portraitsReady && now - this._frameAt >= FRAME_MS) {
             this._frameAt = now;
             this._frame = (this._frame + 1) % STAND_FRAME_COUNT;
         }
@@ -324,7 +444,7 @@ export class SelectCharScene extends Scene {
                 x = pos.bx + off.bx;
                 y = pos.by + off.by;
             }
-            const tex = this._chrTex(img);
+            const tex = this._chrTex(img, n);
             if (tex) ctx.drawImage(tex, x, y);
 
             // 名字/等级/职业（照 BoldTextOut 位置）

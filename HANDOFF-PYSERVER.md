@@ -12,7 +12,7 @@
 
 ## 0. 一句话状态
 
-Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种 WebSocket 消息全部有对应 handler，与 Java 版共用同一套协议 / SQLite schema / 配置文件；默认部署已切到 Python，Java 版仅作为双栈回归对照保留。**代码层面的转换已完成**，剩余的都是「边界项」与「优化项」，见第 6 节。前端另完成音频链路（§10）与渲染防闪烁（§11）两轮优化，均为纯前端改动。
+Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种 WebSocket 消息全部有对应 handler，与 Java 版共用同一套协议 / SQLite schema / 配置文件；默认部署已切到 Python，Java 版仅作为双栈回归对照保留。**代码层面的转换已完成**，剩余的都是「边界项」与「优化项」，见第 6 节。前端另完成音频链路（§10）、渲染防闪烁（§11）、选角闪烁与移动阴影跳变（§12）三轮优化，均为纯前端改动。
 
 ---
 
@@ -25,7 +25,7 @@ Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种
 | `ae0b59d` | `feat(pyserver): 补齐 tick 全子系统、装备属性与 MapQuest 任务`（7 文件 / +1093 行） |
 | `d294744` | `fix(resources): 对齐 1.80 客户端资源布局与 .map tile 步进推断`（7 文件） |
 
-迁移主体共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。之后又各有一次独立提交：§10 音频链路（`feat(audio): …`）、§11 渲染防闪烁（`fix(frontend): …`，4 个前端文件）。两者都只动前端与脚本，**不改 `pyserver/**`，也不改 `src/main/java/**`**。最新提交 hash 用 `git log --oneline -3` 查。
+迁移主体共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。之后各有独立提交：§10 音频链路（`feat(audio): …`）、§11 渲染防闪烁（`fix(frontend): …`）、§12 选角/地面缓存（`fix(frontend): …`，2 个前端文件）。这些都只动前端与脚本，**不改 `pyserver/**`，也不改 `src/main/java/**`**。最新提交 hash 用 `git log --oneline -3` 查。
 
 `git log --oneline 217e125..HEAD` 可随时复核。
 
@@ -152,8 +152,9 @@ node --check frontend/audio/SoundManager.mjs
 | `frontend/map/Maps.mjs` | 8 行：`.map` tile 步进改用整数推断（见 §5.3），修 DataView 抛错 | 上游若改地图加载会冲突 |
 | `frontend/main.mjs` | §10 音频接线 3 行 + §11 离屏双缓冲（back buffer 每帧一次 blit） | 上游若改入口初始化会冲突 |
 | `frontend/scene/PlayScene.mjs` | §10 声音按钮 / `data-sfx` / 喝药 7 行 + §11 加载期保留上一帧、HUD 同步化、坐标拆出重绘 key（见 §11） | 上游若改 HUD/背包/渲染循环会冲突 |
-| `frontend/map/MapActor.mjs` | §11 首屏纹理预取、`_getTex` 失败 5 秒重试、`_texVersion`（见 §11） | 上游若改地图加载会冲突 |
+| `frontend/map/MapActor.mjs` | §11 首屏纹理预取、`_getTex` 失败 5 秒重试、`_texVersion`；§12 地面层离屏滚动缓存、移动增量预取、对象层帧回退（见 §11/§12） | 上游若改地图加载/渲染会冲突 |
 | `frontend/actor/ActorSprite.mjs` | §11 动画帧回退 `_lastByLib` + 连续帧预热（见 §11） | 上游若改角色动画会冲突 |
+| `frontend/ui/SelectCharScene.mjs` | §12 背景/立绘预取、动画帧门控、逐槽帧回退、加载期保留上一帧（见 §12） | 上游若改选角界面会冲突 |
 | `config/server.properties` | **未改**，两个服务端共用 | 无 |
 
 ### 4.3 新增文件（不会与上游冲突）
@@ -268,7 +269,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 - 当前 `origin/main` = `217e125` = 本分支基点，**此刻合并没有新内容**。上游前进后再合并时：
   - `HANDOFF.md`：本分支零改动 → **必然不冲突**（本文已把说明全部搬走）。
   - 全部新增文件（`pyserver/**`、`HANDOFF-PYSERVER.md`、`Dockerfile.java`、新增 scripts）：除非上游恰好建同名文件，否则不冲突。
-  - ⚠️ **可能冲突的 10 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`frontend/main.mjs`、`frontend/scene/PlayScene.mjs`、`frontend/map/MapActor.mjs`、`frontend/actor/ActorSprite.mjs`、`.gitignore`、`.dockerignore`（4 个前端文件是 §10 音频接线 + §11 防闪烁）。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
+  - ⚠️ **可能冲突的 11 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`frontend/main.mjs`、`frontend/scene/PlayScene.mjs`、`frontend/map/MapActor.mjs`、`frontend/actor/ActorSprite.mjs`、`frontend/ui/SelectCharScene.mjs`、`.gitignore`、`.dockerignore`（5 个前端交互文件来自 §10 音频接线 + §11/§12 渲染优化）。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
   - 若希望连 `README.md` 也零冲突，可单独把该文件还原到 `217e125`（代价是 README 会重新写成 Maven/Java 运行方式，运行说明需以本文为准）。**此操作尚未执行，等用户决定。**
 - 本地软链数据 `resources/`、`gamedata/Mir200/Map`、`client_original/` 均在 `.gitignore` 中，不要提交；删除 junction 前先看 §5.3 的警告。
 
@@ -301,6 +302,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 | 浏览器实测传输 | 首次 2.654 MB / 二次 2.650 MB（33 请求，登录界面） |
 | 音频（§10） | 723 wav → 723 mp3；189.1 MB → 13.57 MB（13.9×）；714 编号 / 7 BGM / 15 缺失；索引 70.6 KB |
 | 渲染（§11） | 4 个前端文件；离屏双缓冲 800×600；首屏纹理 231/231；进游戏亮度跳变 2 → 1（仅加载完成）、动画缺帧 10/470 → 0/288、移动期 HUD 清空 8 → 0 |
+| 渲染（§12） | 2 个前端文件；地面缓存 1760×957（38×31=1178 格）；地面 drawImage 200+ → 1 次/帧；选角立绘缺失 6 → 0；强制平移 12 格往返像素差 0.23%；对齐残差静止 0.00 / 平滑卷动 avg 1.59 |
 
 ---
 
@@ -442,5 +444,60 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 浏览器必须 **Ctrl+F5 硬刷新** 才能加载新的 ES module。
 - 预取让进游戏多约 0.3~0.5 s（显示加载进度，不再是黑屏）；6 s 超时兜底，超时未就绪的格子交给 `_getTex` 按需重试。
 - 双缓冲每帧多一次 800×600 blit，GPU 开销略增，换的是「无中间态」。
-- **未做**静态地面层离屏缓存：地面仍每帧逐块画 200+ 次 `drawImage`。若高刷屏仍掉帧，下一步可把 tiles/smtiles 缓存到一张比屏幕大的离屏画布，每帧只贴一次（注意不要破坏对象层与实体的按行遮挡）。
+- 静态地面层离屏缓存当时**未做**（每帧逐块画 200+ 次 `drawImage`）——**已在 §12 完成**，改为按世界格原子的离屏滚动缓存，每帧只贴一次。
 - 真实带 GPU 浏览器的观感 E2E 仍需用户确认；本次是无头 Chromium 的定量对比。
+
+---
+
+## 12. 选角闪烁与移动阴影跳变（2026-11-09 第三轮，追加）
+
+### 12.1 用户反馈与实测定位
+
+用户反馈：「好一些，不过人物选择还是闪烁厉害；树和建筑的阴影部分移动时颜色还是会跳变」。用 4 个新诊断脚本定位（都在 `data/`，`.gitignore` 忽略）：`flicker_probe3.py`（选角 110 帧 + 地图 idle/moving 140 帧）、`shadow_probe.py`（追踪固定世界格 RGB + bng/mid/obj 三层就绪状态）、`floor_scroll_check.py`（强制平移 12 格 + 往返像素对比）、`aligned_residual_check.py`（补偿位移后的逐帧残差）。
+
+- 选角界面首圈 110 帧里 `_chrTex` 返回 null **6 次**：10 帧站立动画每 300 ms 换一帧，首圈每帧都要重新发 Range 请求，未就绪就跳过 `drawImage` → 人物一帧帧消失。全部就绪后稳定（`chrNull=0`）。
+- 地图静止时固定世界格颜色 **0 跳变**、三层 `readyChanges=0`，说明已加载的格子没问题；问题在**新进入视野的格子**：修复前移动期 `_getTex` 返回 null 59 次，`tiles/957`、`objects/8105`、`objects6/1110` 等都是「首次加载缺失」。
+- 原绘制是「先所有 `bng` 大地砖、再所有 `smtiles` 小地砖」两遍循环、各自 `_getTex` 各自就绪就画 → 同一格会先显示**亮地砖**、随后突然叠上**暗阴影 / 树影**，这就是「阴影颜色跳变」；走出首屏预取范围（±10 格）后必现。
+- 补充排除：8 位调色板 alpha 只有 0 / 255（无半透明阴影色），所以跳变不是 alpha 混合，而是**整块贴图延迟出现/缺失**；`shiftX/shiftY` 已 `Math.round` 整数化，瓦片绘制坐标也是整数，不是亚像素插值。
+
+### 12.2 根因
+
+1. **选角**：`SelectCharScene._chrTex` 懒加载且无帧回退；背景 `Prguse[65]` 也在 `render` 里首次触发异步加载，加载期每帧清黑。
+2. **地面逐层异步到位**：`tiles`（96×64 的 2×2 大图）与 `smtiles`（48×32 阴影/装饰）分两遍循环，没有「按格原子提交」概念。
+3. **不做移动增量预取**：`_prefetchVisible` 只在 `enter()` 跑一次，走远后新格子全靠 render 内按需加载。
+4. **对象层同理**：动画对象当前帧未就绪时整棵树/建筑消失一帧；`lighter` 混合用全局赋值再还原，异常路径可能泄漏；`getLib()` 返回空时占位永远不标记失败（如 `objects6/1040`）。
+5. 视野内只有 1 个动画对象（`(307,637)`，`blend=true`，10 帧），且在屏幕外；动画帧切换不是本次跳变主因。
+
+### 12.3 改动（2 个前端文件，服务端 / WS 协议零改动）
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/ui/SelectCharScene.mjs` | `_preload()` 预取背景 + `_ensurePortraits()` 按实际角色 job/sex 一次并发预取 10 站立帧 + 冻结帧（无角色时预取武士男/女两组）；`_wanted` / `_checkPortraits()` 门控动画帧推进；`_chrTex(idx, slot)` 逐槽回退最近成功帧、失败 5 s 重试；背景未就绪时**不清屏、保留上一帧 + 加载提示**；`_prgUrl` 加并发去重，避免同一张图重复 PNG 编码 |
+| `frontend/map/MapActor.mjs` | 新增**地面层离屏滚动缓存** `_ensureFloor` / `_floorTex` / `_paintFloorCells` / `_syncFloor`：1760×957 画布以世界格窗口为坐标，`cells[]` 标记每格已完整绘制；每格只在 bng 象限 + mid **全部就绪**时一次性画入，视口滚动时把旧内容按格差平移复用、只补新行列；每帧只 `drawImage` 一次（原 200+ 次）。新增 `_maybePrefetch` / `_prefetchAround`：中心移动 ≥4 格时按格原子预取 ±(halfW+6) / ±(halfH+8)，24 格一批、批间让出主线程、单请求 8 s 兜底。新增 `_getObjFrame`：动画对象当前帧未就绪回退该对象已加载的最近帧；`lighter` 改 `ctx.save()/restore()`；`getLib` 为空时明确标记 failed |
+
+窗口冗余 `PX=10, PY=8` 是必须的：`ox = floor((800-48)/2) = 376`、`oy = floor((445-32)/2) = 206`；若 `DX/DY > 0`，屏幕左/上缘会露黑底。实测 `PX=4` 时 `DX=+88`，截图出现黑色竖条；改 10 后 `DX=-200 / DY=-146 / right=1560 / bottom=811`，完整覆盖 800×600。
+
+### 12.4 修复后验证
+
+- **像素级等价**：静止截图 `map_after2.png` 与修复前 `map_idle.png` **MD5 完全相同**，证明 bng 象限裁剪 + 滚动缓存没有改变正常画面。
+- 选角：`chrNull 6 → 0`；立绘缓存 22/22 全就绪；`SELECT full` 亮度跳变 0、hard diff max 0.0005。
+- 移动期 `top null keys` 从「多个首次加载缺失」变成只剩 `objects6/1040`、`objects6/1055` 两个**永久空图**（1.80 客户端 WIL 里就是空索引），不再有新格子的临时缺失。
+- 强制平移 **12 格**：`painted 1178/1178`、无黑块/错位、截图目视正常；往返 12 格后与初始画面像素差 **0.23%**（滚动复用无累积误差）。
+- 双缓冲仍生效：强制平移后可见 canvas **61.6%** 像素变化；静止帧差 0；`flicker_probe2` 加载期跳变 1、settled/moving 0、动画缺帧 0/188。
+- 对齐平移残差：静止 **0.00**；连续平滑卷动 avg **1.59**、8 个尖峰（25~33）周期约 0.4 s，来自角色/动画对象**正常帧切换**，不是纹理加载突变。
+- 回归全绿：全部 `frontend/**/*.mjs` 语法检查、`test_audio.mjs` 18/18、`test_pyserver` 48 PASS、`test_all_messages` 18/18、`test_tick_systems` 53/0、`verify_resources --self-test` 10/10、`convert_audio --check --probe 20` 723/723 + 20/20 解码、`git diff --check` 通过。
+
+### 12.5 复测命令与边界
+
+```bash
+"F:/funasr/.venv/Scripts/python.exe" data/flicker_probe3.py         # 选角 + 地图 idle/moving 抓帧
+"F:/funasr/.venv/Scripts/python.exe" data/shadow_probe.py            # 固定世界格 RGB / 三层就绪状态
+"F:/funasr/.venv/Scripts/python.exe" data/floor_scroll_check.py      # 强制平移 12 格 + 往返像素对比
+"F:/funasr/.venv/Scripts/python.exe" data/aligned_residual_check.py  # 对齐平移残差
+```
+
+- 浏览器必须 **Ctrl+F5 硬刷新**（ES module 有缓存）。探针用 `player` / `123456` / `TestHero` 自动登录；该角色当前在 `(312,605)`，向东是墙，所以平移验证脚本用**强制改 `_viewX`** 而不是发 `move` 消息。
+- 地面缓存画布 1760×957 ≈ 6.7 MB，`cells` 38×31=1178 格；换图时整个丢弃重建。
+- 增量预取范围 ±(halfW+6) / ±(halfH+8)，每批 24 格并让出主线程，不会卡渲染；极端快速长距离传送仍可能看到边缘格子短暂黑色，但只会「黑 → 完整」一次，不会再「亮 → 暗」两次变色。
+- 树/建筑的**对象层**仍每帧按行绘制以保持遮挡关系，未缓存；动画对象帧切换（每 200 ms）是原版行为，观感上仍会有轻微明暗变化。
+- 真实带 GPU 浏览器的观感仍需用户确认；本轮全部是无头 Chromium 定量对比 + 截图像素比对。
