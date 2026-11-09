@@ -81,6 +81,7 @@ python scripts/verify_resources.py --self-test          # 资源体检脚本自�
 python scripts/test_pyserver.py --live 8081             # pyserver 单元 + 实时自检
 python scripts/smoke_ws.py --port 8081                  # WebSocket 8 步冒烟
 python scripts/test_all_messages.py --live 8081         # 46 种消息 + 33 个技能分支
+python scripts/test_tick_systems.py                    # tick 子系统 / 装备属性 / MapQuest
 python scripts/compare_stacks.py --java-port 8080 --py-port 8081 --full
 ```
 

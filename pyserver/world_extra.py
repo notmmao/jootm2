@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .gamedata import read_lines
+from .gamedata import parse_map_quest, read_lines
 from .util import (
     BAG_SIZE, GROUND_ITEM_TTL_MS, SIGHT_RANGE, U_WEAPON, encode, java_div,
     now_ms,
@@ -286,10 +286,44 @@ class WorldExtra:
         self.npcs: dict[int, Npc] = {}
         self.npcs_by_map: dict[str, list[Npc]] = {}
         self.script_cache: dict[str, Any] = {}
-        self.map_quests: list[dict] = []
+        self.map_quests = parse_map_quest(envir / "MapQuest.txt")
+        self.quest_scripts: dict[str, Any] = {}
+        self._load_map_quests()
         self._load_npcs()
         print(f"[world] loaded {len(self.drop_tables)} drop tables, "
-              f"{len(self.npcs)} npcs, castle={self.castle.name}/{self.castle.map_id}")
+              f"{len(self.npcs)} npcs, castle={self.castle.name}/{self.castle.map_id}, "
+              f"quests={len(self.map_quests)}/{len(self.quest_scripts)}")
+
+    def _load_map_quests(self) -> None:
+        """加载 ``MapQuest_Def/*.txt``，与 Java ``GameWorld.loadMapQuests`` 一致。"""
+        from .npc_script import load_script
+
+        quest_dir = self.config.envir_dir / "MapQuest_Def"
+        for q in self.map_quests:
+            if q.qfile not in self.quest_scripts:
+                self.quest_scripts[q.qfile] = load_script(quest_dir, q.qfile, "")
+
+    def trigger_map_quest(self, p, m) -> None:
+        """杀怪触发地图任务脚本（``GameWorld.triggerMapQuest``）。"""
+        if not self.map_quests or m.map is None or p is None:
+            return
+        from .npc_script import NpcScriptEngine
+
+        for q in self.map_quests:
+            if q.map_id != m.map.name or not q.mon_name or q.mon_name != m.name:
+                continue
+            if p.quest_params.get(q.set_number, 0) != q.value:
+                continue
+            script = self.quest_scripts.get(q.qfile)
+            if script is None:
+                continue
+            try:
+                r = NpcScriptEngine(self).execute_script(p, None, script, "main")
+            except Exception as e:      # 单个坏脚本不能打断世界 tick
+                print(f"[quest] {q.qfile} failed: {type(e).__name__}: {e}")
+                continue
+            if r.say_text:
+                self.send_system(p, r.say_text)
 
     # ---- NPC ------------------------------------------------------------
 
@@ -476,6 +510,8 @@ class WorldExtra:
         m.hp = 0
         m.target_id = -1
         self.drop_loot(m)
+        if killer is not None:
+            self.trigger_map_quest(killer, m)
         self.broadcast_around(m.map, {"type": "death", "id": m.id},
                               m.x, m.y, SIGHT_RANGE)
 
@@ -491,21 +527,37 @@ class WorldExtra:
         return 101
 
     def add_exp(self, p, exp: int) -> None:
+        """对齐 ``GameWorld.grantExpTo``（经验提示配色也照原版）。"""
         p.exp += exp
+        if exp > 0:
+            self.send_system(p, f"获得经验 {exp} 点。", "#ffffff", "#b00000")
         old_level = p.level
         new_level = self.level_for_exp(p.exp)
         if new_level > old_level:
             p.level = new_level
             p.recompute(self)
             p.hp, p.mp = p.max_hp, p.max_mp
-            self.send_system(p, f"恭喜！你升到了 {new_level} 级。")
+            self.send_system(p, f"恭喜！你升到了 {new_level} 级。",
+                             "#ffff00", "#b00000")
         self.send_stats(p)
 
     # ---- 玩家死亡 / 冲撞 / 火墙 / 召唤 --------------------------------
 
+    def _remove_equipped_by_shape(self, p, shape: int) -> None:
+        """移除身上第一件指定 Shape 的装备（对齐 ``removeEquippedByShape``）。"""
+        for slot, it in enumerate(p.equipment):
+            if it is None:
+                continue
+            t = self.item_templates.get(int(it.get("index", 0)))
+            if t is not None and t.shape == shape:
+                p.equipment[slot] = None
+                return
+
     def kill_player(self, p) -> None:
         if p.revival_ring:
-            p.revival_ring = False
+            # 复活戒指免死一次后损毁：不移除的话下次 recompute 又会变回可用。
+            self._remove_equipped_by_shape(p, 114)
+            p.recompute(self)
             p.hp, p.mp = p.max_hp // 2, p.max_mp
             self.send_system(p, "复活戒指生效，你免于一死！")
             self.send_stats(p)
@@ -541,7 +593,7 @@ class WorldExtra:
             if not self.can_fire_fly(p.map, cx, cy):
                 continue
             walls.append({"map": p.map, "x": cx, "y": cy, "expire": expire,
-                          "damage": damage, "owner": p.id})
+                          "damage": damage, "owner": p.id, "last_tick": 0})
             made += 1
             self.broadcast_around(p.map, {"type": "fireWall", "x": cx, "y": cy,
                                           "duration": duration_sec}, cx, cy)
@@ -562,12 +614,17 @@ class WorldExtra:
                     spawn_x=pos[0], spawn_y=pos[1], master_id=owner.id)
         m.exp = t.exp
         self.add_actor(m, owner.map)
+        self.combat_state.setdefault("pets", {})[m.id] = owner.id
         self.broadcast_entity_add(m)
         return m
 
     def remove_summon(self, m) -> None:
         m.alive = False
         m.pending_respawn = False
+        master = self.actor(m.master_id) if m.master_id >= 0 else None
+        if master is not None and getattr(master, "summon_id", -1) == m.id:
+            master.summon_id = -1
+        self.combat_state.get("pets", {}).pop(m.id, None)
         self.remove_actor(m.id)
         self.broadcast_around(m.map, {"type": "death", "id": m.id}, m.x, m.y)
 

@@ -74,6 +74,19 @@ class MapInfo:
     gates: list[Gate] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class MapQuest:
+    """``WorldData.MapQuestEntry``：一行 MapQuest.txt 的触发条件。"""
+
+    map_id: str
+    set_number: int
+    value: int
+    mon_name: str = ""      # 非空 = 杀怪触发
+    item_name: str = ""     # 非空 = 拾取触发
+    qfile: str = ""
+    enable_group: bool = False
+
+
 def parse_start_point(path: Path) -> StartPoint:
     for line in _rows(path):
         parts = line.split()
@@ -128,6 +141,60 @@ def parse_mini_map(path: Path) -> dict[str, int]:
 
 def parse_notice(path: Path) -> list[str]:
     return [line.strip() for line in read_lines(path) if line.strip()]
+
+
+def _split_quoted(line: str) -> list[str]:
+    """对齐 ``WorldData.splitQuoted``：空白分词，但双引号内允许空格。"""
+    out: list[str] = []
+    i, n = 0, len(line)
+    while i < n:
+        while i < n and line[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        if line[i] == '"':
+            end = line.find('"', i + 1)
+            if end < 0:
+                out.append(line[i:])
+                break
+            out.append(line[i + 1:end])
+            i = end + 1
+        else:
+            start = i
+            while i < n and not line[i].isspace():
+                i += 1
+            out.append(line[start:i])
+    return out
+
+
+def _star(s: str) -> str:
+    t = s.strip()
+    return "" if t in ("", "*") else t
+
+
+def parse_map_quest(path: Path) -> list[MapQuest]:
+    """``mapId [setNumber] value monName itemName qfile [GROUP]``（GBK）。
+
+    ``*`` / 空 = 该触发条件不使用；旗标号可达 400+，对应 Player.questParams。
+    """
+    out: list[MapQuest] = []
+    for line in _rows(path):
+        p = _split_quoted(line)
+        if len(p) < 6:
+            continue
+        bracket = p[1].strip()
+        if bracket.startswith("[") and bracket.endswith("]"):
+            bracket = bracket[1:-1]
+        set_number = _int(bracket)   # 与 Java parseInt 一致：非法值归 0
+        qfile = p[5].strip()
+        if not p[0] or set_number < 0 or not qfile:
+            continue
+        out.append(MapQuest(
+            map_id=p[0], set_number=set_number, value=_int(p[2]),
+            mon_name=_star(p[3]), item_name=_star(p[4]), qfile=qfile,
+            enable_group=len(p) > 6 and p[6].upper().startswith("GROUP"),
+        ))
+    return out
 
 
 # ---------------------------------------------------------------- .map

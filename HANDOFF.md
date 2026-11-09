@@ -4,7 +4,8 @@
 > ★ 原版 Delphi 源码：`/Volumes/未命名/fire/Source/`（客户端 `Client/`、服务端 `M2Server/`）——改特效/技能/渲染/协议前先查这里，特效帧号一律查表（`Client/magiceff.pas` `EffectBase`/`HitEffectBase`、`Client/clEvent.pas` `FIREBURNBASE`、`Client/PlayScn.pas` 各 EffectType 分支的 `MagExplosionBase`），勿靠 WIL 文件猜帧号。
 > 这是一份「已做 / 未做」的移交说明，含精确路径、技术要点与坑。接手后先读这里。
 >
-> ★ **服务端已迁移到 Python（分支 `feat/python-server`）**：`pyserver/` 是纯标准库 asyncio 实现，与 Java 版共用同一套 WebSocket JSON 协议 / SQLite schema / `config/server.properties`，46 种消息全部迁移完成（`/api/migration` 可查）。下面各节描述的是 **Java 版实现细节，仍可作为玩法数值与协议语义的权威参考**；默认部署已改为 `python -m pyserver`（见 `Dockerfile` / `docker-compose.yml`），Java 版保留为 `Dockerfile.java` 与 `docker compose --profile java`，用于双栈回归。回归脚本在 `scripts/`：`test_pyserver.py` / `smoke_ws.py` / `test_all_messages.py` / `compare_stacks.py`（含 `scripts/golden/` 基线）。
+> ★ **服务端已迁移到 Python（分支 `feat/python-server`）**：`pyserver/` 是纯标准库 asyncio 实现，与 Java 版共用同一套 WebSocket JSON 协议 / SQLite schema / `config/server.properties`，46 种消息全部迁移完成（`/api/migration` 可查）。下面各节描述的是 **Java 版实现细节，仍可作为玩法数值与协议语义的权威参考**；默认部署已改为 `python -m pyserver`（见 `Dockerfile` / `docker-compose.yml`），Java 版保留为 `Dockerfile.java` 与 `docker compose --profile java`，用于双栈回归。回归脚本在 `scripts/`：`test_pyserver.py` / `smoke_ws.py` / `test_all_messages.py` / `test_tick_systems.py` / `compare_stacks.py`（含 `scripts/golden/` 基线）。
+> `world.tick` 已按 Java 侧全量子系统补齐：自然回血 / 治愈术持续回血 / buff 过期 / 红绿毒 / 火墙伤害 / 远程怪延迟飞矢 / 守卫与隐身仇恨 / 随机游走 / 神兽变身 / 宠物升级 / 魔法盾与护身减伤 / 死亡走 `killPlayer` / 怪物重生；`Player.recompute` 也已完整移植 StdMode 分派、套装、幸运与装备特攻；`MapQuest.txt` + `MapQuest_Def/` 任务触发已接通。**下面正文里若出现「阶段 1 / 待精确移植」之类描述，以本段为准。**
 
 ## 1. 项目是什么
 
