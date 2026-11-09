@@ -516,6 +516,8 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 | **命中帧时序** | 原版在攻击动作第 2~3 帧（武器接触点，约 170ms，`HA.hit` 6 帧×85ms）才结算命中；此前 `attack` 消息一到达就触发目标受击/伤害飘字/命中特效，观感「先爆后砍」 | 新增 `HIT_FRAME_MS=170`；目标侧 `struck`+伤害飘字+命中特效改 `setTimeout(HIT_FRAME_MS)` 延迟触发（用 `cur=entities.get(targetId)` 取当前坐标，避免目标移动后落点错）；攻击者武器辉光 `_swordHitAt` 顺延 `+HIT_FRAME_MS` | `frontend/scene/PlayScene.mjs` |
 | **静态 blend 降级** | 原版 `DrawScrn` 对 `boBlend`（0x80 标志）一律 `lighter` 加色，**与是否动画无关**；此前 `blend` 仅在 `hasAni` 时赋值，导致非动画的火/光类静态贴图丢失辉光 | `const blend = !!t.blend` 与动画解耦；动画帧裁剪改为 `Math.max(1, Math.min(32, t.aniFrame))`，与 `_prefetchAround`/`_getObjFrame` 的 32 帧上限一致（消除 >32 帧对象循环到前 32 帧的缺帧闪烁） | `frontend/map/MapActor.mjs` |
 | **等级上限冻结** | `world.py` 早期只抄了 Java `ExperienceTable.NEED_EXPS` 前 65 项，`exp_for_level`/`level_for_exp` 被钳到表尾 → 65 级后经验需求冻结、满级≈65 | `NEED_EXPS` 补全到与 Java **逐值一致**的 101 项（index 0→等级1 … index 100→等级101，末值 2140000000）；`exp_for_level(101)` 校验值不变、升级阈值按原版推进到 101 级 | `pyserver/world.py` |
+| **未命中 MISS 表现** | 原版 `SM_STRUCK` 携带 miss 标志，目标位置飘 MISS、不扣血、不播受击；此前服务端 miss 时只给攻击者发系统提示、目标端完全无感（且攻击玩家分支无命中判定、永不 miss） | `_attack_monster` 未命中时额外 `broadcast_around(attack, miss=True)`（不扣血/不 kill/不 send_stats），主击与半月/刺杀第二击两处均补；前端 `attack` 处理：miss 时攻击者不点命中辉光、目标端飘红色 "MISS" 且不播 `struck`；`_spawnDamageNumber` 支持自定义颜色 | `pyserver/handlers_combat.py` + `frontend/scene/PlayScene.mjs` |
+| **WIL 末张图位深** | 末张图无 `nextOff`，原回退值 `fileOff+8+width*height` 永远判 8 位；若末张实为 16 位 RGB565 会只读半截而整图花屏 | 末张图 `nextOff` 改用真实 `this.fileSize` 判定位深（与非末张统一），8/16 位均正确 | `frontend/gfx/wil.mjs` |
 
 ### 13.2 验证
 
@@ -523,14 +525,15 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 前端：`node --check` 两个改动文件均通过；Playwright 实烟（自动登录 `player/123456/TestHero` 进图）**无 console/page 错误**，画面非黑占比 92.9%，地图 700×700、271/276 纹理就绪 —— 证明 blend 解耦与命中帧改动不破坏渲染。
 - 回归全绿：`test_pyserver` 48 PASS / `test_all_messages` 18/18 / `test_tick_systems` 53/0 / `test_audio` 18/18 / `compileall` 通过 / `git diff --check` 通过。
 - 服务已重启（原 PID 29560 停用，新进程 `python -m pyserver` 已就绪，`/api/migration` 46/46，`onlinePlayers=0`），`world.py` 改动已生效。
+- MISS 通道 + WIL 末张图：live 回归 18/18 通过（攻击怪物循环重试命中，miss 广播不破坏「造成伤害」断言）；`node --check` 全部前端改动文件通过；WIL 末张图位深改用真实 `fileSize` 判定，8/16 位均正确。
 
 ### 13.3 仍属「已知边界、未在本轮处理」（评估认定的低/中风险残留）
 
-- 战斗无「未命中 / 0 伤害」表现：服务端伤害恒 `max(1,…)`、不下发 miss，原版可显 MISS/0（需补协议/前端 miss 通道，中）。
+- 战斗「0 伤害」仍保留 `max(1,…)`（与 Java 版对齐的简化；原版防御>攻击可显 0 伤害，需另补 0 伤害通道）；**攻击玩家分支仍无独立命中判定（PvP 永不 miss）**——与攻击怪物分支不一致，属 PvP 行为级改动，本轮未动，待用户确认是否对齐原版。MISS 通道已补齐（见 §13.1 第二项）。
 - 施法音为 `MAGIC_SFX` 近似映射（火系→137、雷/冰→8301/8302/8226，非逐技能）；受击/死亡固定男声（WS 未带性别）；缺怪物叫声（mp3 已备齐，差映射表）。
-- 网络层无单连接频率限流与 `maxPlayers`/地图人数硬上限（`net.py` 仅队列 512）；WIL 末张图 16 位位深用 `nextOff` 回退启发式（误判会整图花屏）；冲撞(rush)无专属身位动画；受击姿势比原版多保持 ~300ms。
+- 网络层无单连接频率限流与 `maxPlayers`/地图人数硬上限（`net.py` 仅队列 512）；冲撞(rush)无专属身位动画；受击姿势比原版多保持 ~300ms。
 - 树/建筑的**对象层**仍每帧按行绘制（保遮挡）；动画对象帧切换（每 200ms）是原版行为，观感仍有轻微明暗变化。
-- 真实带 GPU 浏览器的命中帧观感、blend 辉光观感仍需用户确认；本轮是无头 Chromium 定量对比 + 截图像素比对。
+- 真实带 GPU 浏览器的命中帧观感、blend 辉光观感、MISS 飘字观感仍需用户确认；本轮是无头 Chromium 定量对比 + 截图像素比对。
 
 ### 13.4 提交
 

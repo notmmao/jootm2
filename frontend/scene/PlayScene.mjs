@@ -1039,7 +1039,7 @@ export class PlayScene extends Scene {
                     }
                     // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）。
                     // 延迟到命中帧（武器接触点）才点亮，避免“先爆后砍”。
-                    if (msg.swordHit && SWORD_HIT_FX[msg.swordHit]) {
+                    if (msg.swordHit && !msg.miss && SWORD_HIT_FX[msg.swordHit]) {
                         a._swordHit = msg.swordHit; a._swordHitAt = Date.now() + HIT_FRAME_MS;
                     }
                 }
@@ -1050,6 +1050,11 @@ export class PlayScene extends Scene {
                     setTimeout(() => {
                         const cur = this.entities.get(msg.targetId);
                         if (!cur) return;
+                        if (msg.miss) {
+                            // 未命中：原版在目标位置飘 MISS，目标不播受击动作（没被打中）
+                            this._spawnDamageNumber(cur.x, cur.y, 'MISS', 0, '#ff5050');
+                            return;
+                        }
                         cur._action = 'struck'; cur._actionAt = Date.now();
                         // 伤害飘字
                         this._spawnDamageNumber(cur.x, cur.y, msg.damage, msg.magicId);
@@ -2748,13 +2753,13 @@ export class PlayScene extends Scene {
         this.effects.push(fx);
     }
 
-    _spawnDamageNumber(x, y, damage, magicId) {
+    _spawnDamageNumber(x, y, damage, magicId, color) {
         const sx = this.mapActor.screenX(x);
         const sy = this.mapActor.screenY(y);
         this.damageNumbers.push({
             x: sx + 24, y: sy,
             text: String(damage),
-            color: magicId ? '#5ad2ff' : '#ffffff',   // 魔法伤害蓝、物理白
+            color: color || (magicId ? '#5ad2ff' : '#ffffff'),   // 魔法伤害蓝、物理白；MISS 红由调用方传入
             startAt: Date.now(),
         });
     }

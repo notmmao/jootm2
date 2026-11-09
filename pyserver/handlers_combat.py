@@ -217,6 +217,11 @@ class CombatHandlers:
             hit_bonus += skill_level(p, 7)
         if not hit_check(p, m, hit_bonus):
             w.send_system(p, "攻击未命中。")
+            # 保真：未命中也广播 attack(miss)，让目标端在原版位置飘 MISS 飘字
+            # （原版 SM_STRUCK 携带 miss 标志，目标不扣血、不播受击动作，但能看到落空）
+            w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
+                             "targetId": m.id, "miss": True, "x": m.x, "y": m.y},
+                              m.x, m.y, SIGHT_RANGE)
             return
         dam = roll_dc_with_luck(p)
         sword_hit, bonus = self._sword_flag(p, dam, False)
@@ -328,6 +333,11 @@ class CombatHandlers:
         m.last_hiter_id = p.id
         if not hit_check(p, m, hit_bonus):
             w.send_system(p, "攻击未命中。")
+            # 保真：未命中也广播 attack(miss)，让目标端在原版位置飘 MISS 飘字
+            # （原版 SM_STRUCK 携带 miss 标志，目标不扣血、不播受击动作，但能看到落空）
+            w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
+                             "targetId": m.id, "miss": True, "x": m.x, "y": m.y},
+                              m.x, m.y, SIGHT_RANGE)
             return
         second = sword_second_dam(p, dam, 12, 5)
         m.hp = max(0, m.hp - second)

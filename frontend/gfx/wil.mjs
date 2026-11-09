@@ -137,7 +137,10 @@ export class WIL {
 
         // 位深：下一图偏移 - 本图偏移 判定（8 位或 16 位 RGB565）
         const fileOff = this.offsetList[index];
-        const nextOff = this.offsetList[index + 1] || (fileOff + 8 + width * height);
+        // 末张图无 nextOff，必须用文件真实剩余字节（this.fileSize）判定位深；
+        // 若退回 "fileOff + 8 + width*height" 会永远判 8 位，末张若是 16 位 RGB565 将只读半截而花屏。
+        const nextOff = this.offsetList[index + 1] ||
+            (this.fileSize > 0 ? this.fileSize : fileOff + 8 + width * height);
         const bitCount = (nextOff - fileOff >= 8 + width * height * 2) ? 16 : 8;
 
         // 数据不足则跳过
