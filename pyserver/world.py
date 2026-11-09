@@ -275,7 +275,10 @@ class Player(Actor):
         return total
 
     def brief_json(self) -> dict:
-        o = super().brief_json()
+        # 显式基类调用，不用零参数 super()：本类是 @dataclass(slots=True)，
+        # 3.10~3.12 重建类时不会修正 __class__ cell，零参数 super() 会报
+        # "super(type, obj): obj must be an instance or subtype of type"。
+        o = Actor.brief_json(self)
         o.update(sex=self.sex, hair=self.hair, job=self.job,
                  dress=self.dress_looks(self.world_ref),
                  weapon=self.weapon_shape(self.world_ref))
@@ -562,7 +565,8 @@ class Monster(Actor):
         return lo + int(random.random() * (hi - lo + 1))
 
     def brief_json(self) -> dict:
-        o = super().brief_json()
+        # 同 Player：slots dataclass 在 3.10~3.12 下禁用零参数 super()。
+        o = Actor.brief_json(self)
         if self.master_id >= 0 and 0 <= self.slave_exp_level < len(SLAVE_COLORS):
             o["nameColor"] = SLAVE_COLORS[self.slave_exp_level]
         return o

@@ -540,3 +540,31 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 ### 13.4 提交
 
 见 `git log --oneline -1`（最新一条 `feat(python-server): ` 提交，4 个文件：2 前端 + `world.py` + 本 handoff；怪物叫声轮为 2 前端 + 本 handoff，服务端零改动）。
+
+---
+
+## 14. 进游戏阻断修复：Python 3.10 + slots dataclass + 零参数 super()（2026-11-09 夜，实测反馈）
+
+### 14.1 症状
+选择角色 → 弹出公告(notice) → 点「确定」后卡住、进不了游戏；服务端日志：
+`[ws] handler noticeOk failed: TypeError: super(type, obj): obj must be an instance or subtype of type`
+（`service.py:170` 的 handler 兜底吞掉异常、只打一行摘要，客户端表现为「没反应」）
+
+### 14.2 根因
+- **8080 服务实际运行于 `D:/Python310/python.exe`（Python 3.10.11）**；此前所有复现/回归都用 `C:/Users/Mao/.workbuddy/binaries/python/versions/3.13.12/python.exe`，因此一直没复现，历史 live 回归也全绿。
+- `world.py` 的 `Actor`/`Player`/`Monster` 都是 `@dataclass(slots=True)`。`slots=True` 会**重建类对象**；Python 3.10~3.12 不修正零参数 `super()` 捕获的 `__class__` cell（仍指向重建前的旧类），3.13 才修好。
+- 实测 3.10：`Player.brief_json.__closure__[0].cell_contents is Player` → **False**；于是 `super().brief_json()` 等价于 `super(旧Player, 新Player实例)` → 抛上述 TypeError。`Player.brief_json`（原 278 行）与 `Monster.brief_json`（原 565 行）两处均中招。
+- `_notice_ok → _do_enter → map_snapshot / broadcast_entity_add` 都会调 `brief_json()`，异常被吞 → `enterGame` 快照发不出去 → 卡在公告弹窗。
+
+### 14.3 修复
+两处零参数 `super().brief_json()` 改为显式 `Actor.brief_json(self)`（跨 3.10~3.13 语义一致，不依赖 `__class__` cell）。仅改 `pyserver/world.py`，协议/前端零改动。
+已排查：全库 `super(` 调用只这两处；所有 `@dataclass(slots=True)` 中只有 `Player`/`Monster` 带继承，无其他同类隐患。
+
+### 14.4 验证
+- 3.10 直接调 `Player.brief_json()` / `Monster.brief_json()` 均正常；离线 `noticeOk` 全链路发出 `enterGameResult`/`enterGame`/`stats`/广播。
+- 双解释器回归：`test_pyserver` 48/48、`test_tick_systems` 53/0（3.10 与 3.13 各跑一遍）。
+- 服务用 3.10 重启（`/api/status` 正常、`/api/migration` 46/46），`test_all_messages --live 8080` 18/18。
+- **真实 WS 端到端**（账号 `player/123456/TestHero`）：`login → listCharacters → enterGame(→notice) → noticeOk`，收到 `enterGameResult`/`enterGame`/`stats`/`entityAdd`/`move`；`enterGame` 快照含 `player=TestHero`、`nearby=4`、`map=0`，服务端日志无 handler 异常。
+
+### 14.5 运行环境约定（重要）
+服务端实际解释器是 **`D:/Python310/python.exe`（3.10.11）**，直接 `python -m pyserver` 即用它。**所有复现、回归、live 测试必须同样用 3.10 跑**；只用 3.13 会掩盖 3.10 专属的语言/标准库差异（本次即因此漏检）。
