@@ -186,7 +186,10 @@ def verify(client_dir: Path, mapinfo: Path) -> dict:
         ext = p.suffix.lower()
         if ext not in (".wil", ".wix", ".wzl", ".wzx"):
             continue
-        by_base.setdefault(p.stem.lower(), {})[ext] = p
+        # 与服务端 generate_resources_index 的分词一致：取第一个点之前的名字。
+        # 1.80 客户端里 Deco..wix / Deco.wil 多了一个点，用 Path.stem 会拆成
+        # "deco." 与 "deco" 两组，少算一对图库。
+        by_base.setdefault(p.name.split(".", 1)[0].lower(), {})[ext] = p
 
     legacy = {b: v for b, v in by_base.items() if ".wix" in v and ".wil" in v}
     modern = {b: v for b, v in by_base.items() if ".wzx" in v and ".wzl" in v}
@@ -287,12 +290,28 @@ def verify(client_dir: Path, mapinfo: Path) -> dict:
                      if p.is_file() and p.suffix.lower() == ".map"}
     expected_ids = parse_mapinfo(mapinfo)
     missing_maps = [m for m in expected_ids if m.lower() not in map_files] if expected_ids else []
+    # 顺带统计 tile 步进：1.80 客户端有一批活动模板图在 tile 之后带附加数据块
+    # （文件长不整除 w*h），服务端/前端都会按 12 字节读取前 w*h 个 tile。
+    stride_counts = {"12": 0, "14": 0, "other": 0}
+    for p in map_files.values():
+        try:
+            with p.open("rb") as f:
+                head = f.read(4)
+            w, h = struct.unpack("<HH", head)
+            if not (w and h):
+                stride_counts["other"] += 1
+                continue
+            raw = (p.stat().st_size - 52) / (w * h)
+            stride_counts["12" if raw == 12 else "14" if raw == 14 else "other"] += 1
+        except (OSError, struct.error):
+            stride_counts["other"] += 1
     report["maps"] = {
         "found": len(map_files),
         "expected": len(expected_ids),
         "missing_count": len(missing_maps),
         "missing_sample": missing_maps[:20],
         "mapinfo": str(mapinfo) if mapinfo.is_file() else None,
+        "tile_strides": stride_counts,
     }
     if not map_files:
         report["errors"].append("Map/ 下没有 .map 文件，服务端 MapFileReader 无法加载任何地图")
@@ -351,6 +370,10 @@ def print_report(r: dict) -> None:
     mp = r.get("maps", {})
     print(f"地图   : 找到 {mp.get('found', 0)} 个 .map / MapInfo 登记 {mp.get('expected', 0)}，"
           f"缺 {mp.get('missing_count', 0)}")
+    st = mp.get("tile_strides", {})
+    if st:
+        print(f"         tile 步进：12B×{st.get('12', 0)} / 14B×{st.get('14', 0)} / "
+              f"带附加数据（按 12B 读）×{st.get('other', 0)}")
     if mp.get("missing_sample"):
         print("         缺失样例：" + ", ".join(mp["missing_sample"][:10]))
     print(f"音效   : {r.get('wavs', {}).get('found', 0)} 个 wav（参考值 "

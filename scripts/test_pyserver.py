@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pyserver import config as config_mod  # noqa: E402
 from pyserver.db import Database, hash_password, new_salt  # noqa: E402
 from pyserver.gamedata import (  # noqa: E402
-    _TILE_12, _TILE_14, generate_resources_index, parse_map_info,
-    parse_mini_map, parse_mon_gen, parse_start_point, read_map,
+    _TILE_12, _TILE_14, generate_resources_index, map_tile_stride,
+    parse_map_info, parse_mini_map, parse_mon_gen, parse_start_point, read_map,
 )
 from pyserver.net import cache_control, content_type, parse_range, ws_frame  # noqa: E402
 from pyserver.templates import ItemTemplate, MagicTemplate, MonsterTemplate  # noqa: E402
@@ -127,6 +127,18 @@ def test_map_binary() -> None:
         _write_map(d / "b.map", 3, 2, _TILE_14, cells)
         g14 = read_map("b", d)
         check("14 字节变体自适应", g14.is_high_wall(1, 0) and g14.can_walk(0, 1))
+        # 1.80 客户端有 66 张图在 tile 数据后带附加数据块，长度不整除 w*h。
+        check("步进推断 12/14/扩展/padding",
+              (map_tile_stride(6 * 12, 6), map_tile_stride(6 * 14, 6),
+               map_tile_stride(6 * 19, 6), map_tile_stride(6 * 12 + 20, 6))
+              == (12, 14, 19, 12))
+        padded = (d / "a.map").read_bytes() + bytes(20)
+        (d / "c.map").write_bytes(padded)
+        gc = read_map("c", d)
+        check("带附加数据的地图按 12B 读不错位",
+              not gc.can_walk(0, 0) and gc.is_high_wall(1, 0)
+              and gc.doors.get((2, 0)) == 1 and gc.can_walk(0, 1),
+              f"body={len(padded) - 52}B")
         missing = read_map("zzz", d)
         check("缺失地图回退 256x256 全通行",
               missing.width == 256 and missing.can_walk(10, 10) and not missing.from_file)

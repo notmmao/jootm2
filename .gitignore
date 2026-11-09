@@ -9,6 +9,7 @@ gamedata/Mir200/Envir/GuildBase/
 # --- symlinked data (not versioned) ---
 resources
 gamedata/Mir200/Map
+client_original/
 
 # --- Python (pyserver) ---
 __pycache__/

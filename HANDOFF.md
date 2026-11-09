@@ -70,7 +70,7 @@ jootm2/
 
 1. **单进程 Netty 后端**：HTTP 静态 + REST + WebSocket + CORS，全部 8080。
 2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、**勿参考**。
-3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。
+3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。**目录必须是 `resources/` 下直属的 `Data/Map/Wav`**（多套一层客户端安装目录会导致索引生成失败、前端 404）；`gamedata/Mir200/Map` 可直接联接到 `resources/Map`，前后端共用同一批 `.map`。1.80 客户端有 66 张活动模板图在 tile 后带附加数据块，`pyserver/gamedata.py::map_tile_stride` 与 `frontend/map/Maps.mjs` 统一按 12 字节读前 `w*h` 个 tile（旧逻辑误判 14 会整图错位）。用 `python scripts/verify_resources.py resources` 体检。
 4. **游戏模板 CSV 导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.csv`（UTF-8，带表头，可直接编辑）→ SQLite，启动首次自动流式导入（`INSERT OR REPLACE` 去重）。CSV 由 `scripts/paradox_to_csv.py` 从旧 Delphi Paradox `.DB` 一次性导出（`.DB` 已删除，不再保留二进制格式）。
    - 结果：物品 535、怪物 267、技能 33（原库有重复行，已去重）。
 5. **登录/注册/角色**：账号、角色持久化（SQLite FDB 替代）。

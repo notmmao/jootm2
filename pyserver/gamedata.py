@@ -221,11 +221,32 @@ class MapGrid:
         return self.flag(x, y) == 2
 
 
+def map_tile_stride(body_len: int, cells: int) -> int:
+    """推断 .map 的 tile 步进（正常 12 / 14，扩展格式可更大）。
+
+    1.80 客户端里有一批 30x35 / 30x30 的活动模板图（T118、EM001……），
+    tile 数据之后还带一段附加数据块：文件长 20692，而 ``52+w*h*12``
+    只有 12652，长度并不整除格子数。旧逻辑用 ``len(body) >= w*h*14``
+    就会把它们误判成 14 字节 tile，导致整张图的阻挡信息错位。
+    """
+    if cells <= 0:
+        return 12
+    if body_len == cells * 12:
+        return 12
+    if body_len == cells * 14:
+        return 14
+    if body_len >= cells * 12 and body_len % cells == 0:
+        stride = body_len // cells
+        if stride >= 12:
+            return stride
+    return 12  # 尾部附加数据 / padding：按 12 字节读前 cells 个 tile
+
+
 def read_map(map_id: str, map_dir: Path) -> MapGrid:
     """读 52 字节头 + tile 栅格；tile 按「列优先」(x 外层、y 内层) 存储。
 
-    前端按 ``(文件长-52)/w/h`` 自适应 12/14 字节，这里同样自适应，
-    避免 14 字节地图包在服务端被错格解析（Java 侧写死 12）。
+    tile 步进与前端 ``Maps.mjs`` 采用同一套推断（见 ``map_tile_stride``），
+    Java 侧 ``MapFileReader`` 写死 12 字节，遇到 14 字节或带附加数据的地图会错位。
     """
     path = next((p for p in (map_dir / f"{map_id}.map", map_dir / f"{map_id}.MAP")
                  if p.is_file()), None)
@@ -241,8 +262,12 @@ def read_map(map_id: str, map_dir: Path) -> MapGrid:
         if width <= 0 or height <= 0:
             raise ValueError(f"invalid map size {width}x{height}")
         body = memoryview(data)[52:]
-        tile_size = 14 if len(body) >= width * height * 14 else 12
-        tile = _TILE_14 if tile_size == 14 else _TILE_12
+        cells = width * height
+        stride = map_tile_stride(len(body), cells)
+        # 前 7 字节固定 bng/mid/obj/doorIndex，其余用 padding 跳过；
+        # iter_unpack 因此能按真实 stride 步进，仍是一次 C 层批量解包。
+        tile = {12: _TILE_12, 14: _TILE_14}.get(stride) or struct.Struct(
+            f"<HHHB{stride - 7}x")
         usable = (len(body) // tile.size) * tile.size
         grid = MapGrid(map_id, width, height, bytearray(width * height), from_file=True)
         flags = grid.flags

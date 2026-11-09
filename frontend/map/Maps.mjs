@@ -17,7 +17,13 @@ export async function loadMap(mapId) {
 
     const width = view.getUint16(0, true);
     const height = view.getUint16(2, true);
-    const tileByteSize = (buf.byteLength - 52) / width / height;
+    const rawTileSize = (buf.byteLength - 52) / width / height;
+    // 标准 tile 只有 12 / 14 字节。1.80 客户端部分活动模板图（T118/EM001…）
+    // 在 tile 数据后还带附加数据块，长度不整除 w*h；此时按 12 字节读前
+    // w*h 个 tile，与服务端 read_map 的推断一致，避免非整数步进让 DataView 抛错。
+    const tileByteSize =
+        (rawTileSize === 14 || (rawTileSize > 14 && Number.isInteger(rawTileSize)))
+            ? rawTileSize : 12;
 
     let off = 52;
     const tiles = [];

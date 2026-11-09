@@ -93,19 +93,24 @@ python scripts/compare_stacks.py --java-port 8080 --py-port 8081 --full
 
 ### 1. 客户端渲染资源（`resources/`）
 
-需要 `Data/`（WIL 图片库）、`Map/`、`Wav/`（音效）。自行下载 **热血传奇 1.80 客户端**，安装后把其目录软链到 `resources/`：
+把 **热血传奇 1.80 老客户端**（2003–2005 的 WIL/WIX 版本）里的 `Data/`、`Map/`、`Wav/` 三个目录**直接**放到 `resources/` 下，不要多套一层客户端安装目录：服务端把 `/resources/` 映射到这个根，并只在该根下找 `Data/Map/Wav` 来生成 `resources.json`。12 周年以后的客户端是 WZL/WZX 加密格式，前端 `gfx/wil.mjs` 解不了。
 
 ```bash
-ln -s "/你的热血传奇客户端安装目录" resources
+ln -s "/你的客户端/Data" resources/Data      # Windows 可用目录联接 mklink /J
+ln -s "/你的客户端/Map"  resources/Map
+ln -s "/你的客户端/Wav"  resources/Wav
+python scripts/verify_resources.py resources # 体检：格式 / 必需库 / 关键帧 / 地图与音效覆盖
 ```
 
 ### 2. 地图栅格（`gamedata/Mir200/Map/`）
 
-需要 `.map` 可行走栅格文件，同样可从热血传奇 1.80 客户端安装目录的 `Map` 目录获得：
+服务端读 52 字节头 + tile 来判断阻挡与门，可以直接联接到上面那份 `Map/`（同一批 `.map` 前后端共用）：
 
 ```bash
-ln -s "/你的热血传奇客户端安装目录/Map" gamedata/Mir200/Map
+ln -s "$PWD/resources/Map" gamedata/Mir200/Map   # Windows: mklink /J
 ```
+
+> 1.80 客户端里有 66 张活动模板图（T118、EM001…）在 tile 数据之后带附加数据块，文件长不整除 `w*h`。`pyserver/gamedata.py::map_tile_stride` 与 `frontend/map/Maps.mjs` 用同一套推断按 12 字节读前 `w*h` 个 tile，避免错位；Java 版 `MapFileReader` 写死 12 字节，遇到 14 字节地图仍会错格。
 
 ### 已随仓库分发（来源于网络流传的传奇服务端，非原创素材）
 
