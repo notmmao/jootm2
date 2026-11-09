@@ -21,6 +21,7 @@ export class MapActor {
         this.mapId = null;
         this._texCache = new Map();   // key -> { canvas, px, py }
         this._tintCache = new Map();  // 原始 canvas -> (color -> 染色后 canvas)，中毒变色用
+        this._texVersion = 0;        // 纹理就绪计数（供地面层缓存判失效，预留）
         // render 时缓存（供 screenX/screenY 使用）
         this._cx = 0;
         this._cy = 0;
@@ -28,23 +29,124 @@ export class MapActor {
         this._shiftY = 0;
     }
 
-    async enter(mapId) {
-        if (mapId === this.mapId) return;
+    /**
+     * 载入地图。先把首屏可见区域需要的纹理一次性预取完成，再挂上 this.map，
+     * 这样玩家看到的是「完整一帧」，而不是每帧清屏后瓦片一块块冒出来（严重闪屏）。
+     * @param cx/cy 玩家所在格（决定预取范围）；onProgress(done,total) 加载进度回调
+     */
+    async enter(mapId, cx = 0, cy = 0, onProgress = null) {
+        if (mapId === this.mapId && this.map) return;
         this.mapId = mapId;
-        this.map = await loadMap(mapId);
+        this.map = null;              // 加载期间 PlayScene.render 保留上一帧
+        const m = await loadMap(mapId);
+        try {
+            await this._prefetchVisible(m, cx, cy, onProgress);
+        } catch (e) {
+            console.warn('[map] 首屏纹理预取失败，直接显示地图', e);
+        } finally {
+            this.map = m;            // 无论预取成败都必须放行，避免卡在加载界面
+        }
+    }
+
+    /** 与 render 完全一致的可见格范围。 */
+    _visibleRange(m, cx, cy) {
+        const halfW = Math.ceil(this.viewW / 2 / TILE_W) + 2;
+        const halfH = Math.ceil(this.viewH / 2 / TILE_H) + 2;
+        return {
+            left: Math.max(0, Math.floor(cx - halfW)),
+            top: Math.max(0, Math.floor(cy - halfH)),
+            right: Math.min(m.width - 1, Math.ceil(cx + halfW)),
+            bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 30)),
+        };
+    }
+
+    /** 预取首屏地面 / 对象（含动画对象的全部帧）纹理；6 秒超时兜底。 */
+    async _prefetchVisible(m, cx, cy, onProgress) {
+        const r = this._visibleRange(m, cx, cy);
+        const jobs = [];
+        const seen = new Set();
+        const add = (base, fileIdx, index) => {
+            if (index == null || index < 0) return;
+            const key = this._libKey(base, fileIdx);
+            const k = key + '/' + index;
+            if (seen.has(k) || this._texCache.has(k)) return;
+            seen.add(k);
+            const lib = getLib(key);
+            if (!lib) return;
+            this._texCache.set(k, { canvas: null, px: 0, py: 0 });  // 占位，避免 render 重复发起
+            jobs.push(lib.getTexture(index).then(tex => {
+                const e = this._texCache.get(k);
+                if (e && tex) {
+                    e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
+                    this._texVersion++;
+                } else if (e) {
+                    e.failed = true; e.failedAt = Date.now();
+                }
+            }).catch(() => {
+                const e = this._texCache.get(k);
+                if (e) { e.failed = true; e.failedAt = Date.now(); }
+            }));
+        };
+
+        for (let gx = r.left; gx <= r.right; gx++) {
+            for (let gy = r.top; gy <= r.bottom; gy++) {
+                const t = m.tiles[gx] && m.tiles[gx][gy];
+                if (!t) continue;
+                if (t.bng >= 0 && gx % 2 === 0 && gy % 2 === 0) add('tiles', t.bngFile, t.bng);
+                if (t.mid >= 0) add('smtiles', t.midFile, t.mid);
+                if (t.obj >= 0) {
+                    const frames = t.hasAni ? Math.max(1, Math.min(32, t.aniFrame)) : 1;
+                    for (let f = 0; f < frames; f++) add('objects', t.objFile, t.obj + f);
+                }
+            }
+        }
+
+        const total = jobs.length;
+        if (!total) return;
+        let done = 0;
+        const tracked = jobs.map(p => p.then(
+            () => { if (onProgress && (++done % 8 === 0 || done === total)) onProgress(done, total); },
+            () => { if (onProgress && (++done % 8 === 0 || done === total)) onProgress(done, total); },
+        ));
+        const result = await Promise.race([
+            Promise.allSettled(tracked).then(() => 'done'),
+            new Promise(resolve => setTimeout(() => resolve('timeout'), 6000)),
+        ]);
+        if (result === 'timeout') {
+            // 超时的占位不能一直空着（否则 render 永远不会重画这一格）：
+            // 标记成过期失败，交给 _getTex 的 5 秒重试机制按需补加载。
+            for (const k of seen) {
+                const e = this._texCache.get(k);
+                if (e && !e.canvas) { e.failed = true; e.failedAt = Date.now() - 6000; }
+            }
+        }
     }
 
     // 取纹理（含 px/py；未加载返回 null，并触发异步加载）
     _getTex(key, index) {
         const k = key + '/' + index;
         const hit = this._texCache.get(k);
-        if (hit) return hit.canvas ? hit : null;   // 加载中返回 null
+        if (hit) {
+            // 上次失败（空图 / Range 出错）5 秒后允许重试，避免该格永久黑块
+            if (hit.failed && Date.now() - (hit.failedAt || 0) > 5000) {
+                this._texCache.delete(k);
+            } else {
+                return hit.canvas ? hit : null;   // 加载中返回 null
+            }
+        }
         this._texCache.set(k, { canvas: null, px: 0, py: 0 });
         const lib = getLib(key);
         if (lib) {
             lib.getTexture(index).then(tex => {
                 const e = this._texCache.get(k);
-                if (tex) { e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py; }
+                if (!e) return;
+                if (tex) {
+                    e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
+                    this._texVersion++;
+                } else { e.failed = true; e.failedAt = Date.now(); }
+            }).catch(() => {
+                const e = this._texCache.get(k);
+                if (e) { e.failed = true; e.failedAt = Date.now(); }
             });
         }
         return null;

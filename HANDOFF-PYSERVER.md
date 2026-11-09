@@ -12,7 +12,7 @@
 
 ## 0. 一句话状态
 
-Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种 WebSocket 消息全部有对应 handler，与 Java 版共用同一套协议 / SQLite schema / 配置文件；默认部署已切到 Python，Java 版仅作为双栈回归对照保留。**代码层面的转换已完成**，剩余的都是「边界项」与「优化项」，见第 6 节。
+Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种 WebSocket 消息全部有对应 handler，与 Java 版共用同一套协议 / SQLite schema / 配置文件；默认部署已切到 Python，Java 版仅作为双栈回归对照保留。**代码层面的转换已完成**，剩余的都是「边界项」与「优化项」，见第 6 节。前端另完成音频链路（§10）与渲染防闪烁（§11）两轮优化，均为纯前端改动。
 
 ---
 
@@ -25,7 +25,7 @@ Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种
 | `ae0b59d` | `feat(pyserver): 补齐 tick 全子系统、装备属性与 MapQuest 任务`（7 文件 / +1093 行） |
 | `d294744` | `fix(resources): 对齐 1.80 客户端资源布局与 .map tile 步进推断`（7 文件） |
 
-迁移主体共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。§10 的音频链路是之后独立的一次提交（`feat(audio): …`），只动前端与脚本，**不改 `pyserver/**`，也不改 `src/main/java/**`**。
+迁移主体共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。之后又各有一次独立提交：§10 音频链路（`feat(audio): …`）、§11 渲染防闪烁（`fix(frontend): …`，4 个前端文件）。两者都只动前端与脚本，**不改 `pyserver/**`，也不改 `src/main/java/**`**。最新提交 hash 用 `git log --oneline -3` 查。
 
 `git log --oneline 217e125..HEAD` 可随时复核。
 
@@ -118,9 +118,13 @@ python scripts/convert_audio.py --explain 103         # 查某编号对应的 mp
 python scripts/convert_audio.py --self-test           # 12/12，临时目录自检
 node scripts/test_audio.mjs                          # 音频前端链路 18/18
 node --check frontend/audio/SoundManager.mjs
+# 渲染防闪烁抓帧（需本机 Playwright，脚本在 data/，不提交）：
+"F:/funasr/.venv/Scripts/python.exe" data/flicker_probe.py
+"F:/funasr/.venv/Scripts/python.exe" data/flicker_probe2.py
+"F:/funasr/.venv/Scripts/python.exe" data/doublebuffer_check.py
 ```
 
-最后一次全量验证结果（全绿）：`48 PASS`（离线 `test_pyserver.py`，含 2 条地图用例）/ `53 PASS`（live）/ `18/18` 成功路径 / `53/0` tick 断言 / `8/8` WS 冒烟 / `10/10` 体检自检 / `--full` 46 步响应类型全一致、字段结构零差异 / golden 回放零差异 / `node --check frontend/map/Maps.mjs` 通过；音频链路追加：`12/12` 转换自检、`18/18` 前端回归、`723/723` mp3 产出、`20/20` ffprobe 可解码、HTTP 200/206 与 MIME 实测通过。
+最后一次全量验证结果（全绿）：`48 PASS`（离线 `test_pyserver.py`，含 2 条地图用例）/ `53 PASS`（live）/ `18/18` 成功路径 / `53/0` tick 断言 / `8/8` WS 冒烟 / `10/10` 体检自检 / `--full` 46 步响应类型全一致、字段结构零差异 / golden 回放零差异 / `node --check frontend/map/Maps.mjs` 通过；音频链路追加：`12/12` 转换自检、`18/18` 前端回归、`723/723` mp3 产出、`20/20` ffprobe 可解码、HTTP 200/206 与 MIME 实测通过；§11 追加：全部 `frontend/**/*.mjs` 语法检查通过、无 console/page error、首屏地图纹理 231/231、强制走路动画 288 次取帧 0 次缺失（详见 §11.4）。
 
 ---
 
@@ -146,8 +150,10 @@ node --check frontend/audio/SoundManager.mjs
 | `.gitignore` | 补 `client_original/`、Python 缓存、`.workbuddy/` | 同上 |
 | `.dockerignore` | 排除缓存 / DB / `.workbuddy/`；原 Java 版未 COPY `gamedata/` 的坑在 `Dockerfile.java` 里补上 | 同上 |
 | `frontend/map/Maps.mjs` | 8 行：`.map` tile 步进改用整数推断（见 §5.3），修 DataView 抛错 | 上游若改地图加载会冲突 |
-| `frontend/main.mjs` | 3 行：`import { sound }` + `sound.install(conn)` + `window.__sound`（见 §10） | 上游若改入口初始化会冲突 |
-| `frontend/scene/PlayScene.mjs` | 7 行：声音按钮接 `sound.toggle()`、背包/装备/快捷栏 `data-sfx`、喝药 `sound.play(107)`（见 §10） | 上游若改 HUD/背包会冲突 |
+| `frontend/main.mjs` | §10 音频接线 3 行 + §11 离屏双缓冲（back buffer 每帧一次 blit） | 上游若改入口初始化会冲突 |
+| `frontend/scene/PlayScene.mjs` | §10 声音按钮 / `data-sfx` / 喝药 7 行 + §11 加载期保留上一帧、HUD 同步化、坐标拆出重绘 key（见 §11） | 上游若改 HUD/背包/渲染循环会冲突 |
+| `frontend/map/MapActor.mjs` | §11 首屏纹理预取、`_getTex` 失败 5 秒重试、`_texVersion`（见 §11） | 上游若改地图加载会冲突 |
+| `frontend/actor/ActorSprite.mjs` | §11 动画帧回退 `_lastByLib` + 连续帧预热（见 §11） | 上游若改角色动画会冲突 |
 | `config/server.properties` | **未改**，两个服务端共用 | 无 |
 
 ### 4.3 新增文件（不会与上游冲突）
@@ -262,7 +268,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 - 当前 `origin/main` = `217e125` = 本分支基点，**此刻合并没有新内容**。上游前进后再合并时：
   - `HANDOFF.md`：本分支零改动 → **必然不冲突**（本文已把说明全部搬走）。
   - 全部新增文件（`pyserver/**`、`HANDOFF-PYSERVER.md`、`Dockerfile.java`、新增 scripts）：除非上游恰好建同名文件，否则不冲突。
-  - ⚠️ **可能冲突的 8 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`frontend/main.mjs`、`frontend/scene/PlayScene.mjs`、`.gitignore`、`.dockerignore`（后两个前端文件是 §10 音频接线）。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
+  - ⚠️ **可能冲突的 10 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`frontend/main.mjs`、`frontend/scene/PlayScene.mjs`、`frontend/map/MapActor.mjs`、`frontend/actor/ActorSprite.mjs`、`.gitignore`、`.dockerignore`（4 个前端文件是 §10 音频接线 + §11 防闪烁）。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
   - 若希望连 `README.md` 也零冲突，可单独把该文件还原到 `217e125`（代价是 README 会重新写成 Maven/Java 运行方式，运行说明需以本文为准）。**此操作尚未执行，等用户决定。**
 - 本地软链数据 `resources/`、`gamedata/Mir200/Map`、`client_original/` 均在 `.gitignore` 中，不要提交；删除 junction 前先看 §5.3 的警告。
 
@@ -294,6 +300,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 | 理论必需 / 可裁 | ~835.7 MB / ~722.9 MB |
 | 浏览器实测传输 | 首次 2.654 MB / 二次 2.650 MB（33 请求，登录界面） |
 | 音频（§10） | 723 wav → 723 mp3；189.1 MB → 13.57 MB（13.9×）；714 编号 / 7 BGM / 15 缺失；索引 70.6 KB |
+| 渲染（§11） | 4 个前端文件；离屏双缓冲 800×600；首屏纹理 231/231；进游戏亮度跳变 2 → 1（仅加载完成）、动画缺帧 10/470 → 0/288、移动期 HUD 清空 8 → 0 |
 
 ---
 
@@ -381,3 +388,59 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 玩家受击/死亡固定用男声 138/144：WS 消息没带性别，要女声改 139/145。
 - 怪物叫声、逐技能精细音效未做（全量 mp3 已备齐，缺的只是映射表）。
 - **未做浏览器端真听 E2E**：本次验证是脚本自检 + Node mock + HTTP 实测，听感与场景切换由用户晚上自测确认。
+
+---
+
+## 11. 渲染防闪烁（2026-11-09 追加）
+
+### 11.1 现象与实测
+
+用户反馈「动画刷新时闪屏严重」。用 Playwright 无头 Chromium 连续抓帧（把 800×600 下采样成 100×75 / 200×150，逐帧比较平均亮度、黑像素比例、相邻帧像素差）复现，修复前：
+
+| 阶段 | 平均亮度 | 亮度跳变 | 中心区最大差异 | 动画帧缺失 | HUD `clearRect` |
+|---|---|---|---|---|---|
+| 刚进游戏 1.5 s | 0.4 → 144.9 | 2 次（+90.4 / +54.1） | 0.894（89% 像素变） | 72/480 | 1 |
+| 稳定静止 1.5 s | 110.2 恒定 | 0 | 0.004 | 0/460 | 0 |
+| 移动 1.5 s | 103.4 → 110.3 | 0 | 0.169 | 10/470 | 8 |
+
+结论：静止画面本身不闪，闪集中在 **加载期整屏由黑变亮且瓦片逐块冒出**、**动画切帧时纹理未就绪**、**移动时 HUD 每帧被清空重画** 三个时机。
+
+### 11.2 四个根因
+
+1. **直接在可见 canvas 上「清屏 → 逐块重绘」**：`PlayScene.render` 每帧 `fillRect(0,0,800,600)` 黑底，再画 200+ 瓦片与实体；GPU 合成可能把「清屏后尚未画完」的中间态呈现出来。
+2. **纹理全按需懒加载**：`MapActor._getTex` / `ActorSprite._texture` 未就绪返回 `null` 就不画，首屏瓦片一块块出现、动画换帧时角色整人消失一帧；且失败占位永不重试，某些格子会永久黑块。
+3. **异步加载期间仍每帧清黑**：`PlayScene.onEnter` 是 `async`，`mapActor.enter()` 完成前 `map` 为 null，`render` 依旧每帧清黑屏。
+4. **HUD 的 async 清空空窗**：`_renderVitals()` / `_renderLevelNumber()` 先同步 `clearRect`，再 `await lib.getTexture(...)`；`_hudKey` 含 `x/y`，移动时每帧变化 → 每帧清空两个 DOM canvas，纹理未缓存时留下空白帧。
+
+### 11.3 改动（4 个前端文件，服务端 / WS 协议零改动）
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/main.mjs` | 新增 `backCanvas`（800×600，`alpha:false`）；主循环 `render(backCtx)` → `ctx.drawImage(backCanvas,0,0)` 一次性 blit，浏览器永远只看到完整帧 |
+| `frontend/map/MapActor.mjs` | `enter(mapId, cx, cy, onProgress)` 先 `map=null`，`loadMap` 后 `_prefetchVisible()` 一次性预取首屏地面/小地砖/对象（含动画对象全帧），全部就绪或 6 s 超时才挂 `map`；`_getTex` 失败占位 5 s 后可重试；新增 `_texVersion` |
+| `frontend/actor/ActorSprite.mjs` | `getLayers` 逐层回退 `_lastByLib`（最近成功纹理），全缺时回退 `_lastLayers`，绝不整人消失；`_texture` 顺带预取同一图库后续 6 帧（动画帧连续编号） |
+| `frontend/scene/PlayScene.mjs` | 加载期不清屏、保留上一帧并叠「正在加载地图资源 x/y…」提示；HUD 提前构建与地图预取并行；`_hudKey` 去掉 `x/y`（地图名/坐标改纯 DOM 文本、仅在变化时写）；`_buildHud` 预取 prguse 4/5/6/30..39 后置 `_hudTexReady`，`_renderVitals` / `_renderLevelNumber` 改**同步**读 `WIL.textures`，清空与重画在同一调用栈完成 |
+
+### 11.4 修复后验证（同一套抓帧脚本）
+
+- 加载期：黑屏带进度提示 → **一次性**切换到完整地图（仅 1 次亮度跳变，约第 21 帧 / 0.35 s），不再逐块冒出。
+- 稳定 / 移动：亮度跳变 **0**；强制走路动画 288 次 `getLayers` → **0 次 null**（修复前 10/470）；HUD `clearRect` 在移动期间 **0 次**（修复前 8 次）。
+- 首屏地图纹理 **231/231 全就绪**；血球 canvas 8740 个非透明像素、等级数字有内容；无 console / page error。
+- 双缓冲未冻结画面：强制平移视口 2 格后可见 canvas **62% 像素变化**；帧间隔稳定 16.7 ms。
+- 回归全绿：全部 `frontend/**/*.mjs` 语法检查、`test_audio.mjs` 18/18、`test_pyserver` 48 PASS、`test_all_messages` 18/18、`test_tick_systems` 53/0、`verify_resources --self-test` 10/10、`convert_audio --check --probe 20` 723/723 + 20/20 可解码、`git diff --check` 通过。
+
+### 11.5 复测命令与边界
+
+诊断脚本放在 `data/`（`.gitignore` 忽略，不提交），依赖本机 `F:\funasr\.venv\Scripts\python.exe` 的 Playwright 与系统 Chrome，用 `player` / `123456` / `TestHero` 自动登录抓帧：
+
+```bash
+"F:/funasr/.venv/Scripts/python.exe" data/flicker_probe.py        # 亮度/差异 + idle.png / walk.png
+"F:/funasr/.venv/Scripts/python.exe" data/flicker_probe2.py       # 高分辨率 + 动画帧缺失 / HUD 清空计数
+"F:/funasr/.venv/Scripts/python.exe" data/doublebuffer_check.py   # 验证 blit 每帧生效
+```
+
+- 浏览器必须 **Ctrl+F5 硬刷新** 才能加载新的 ES module。
+- 预取让进游戏多约 0.3~0.5 s（显示加载进度，不再是黑屏）；6 s 超时兜底，超时未就绪的格子交给 `_getTex` 按需重试。
+- 双缓冲每帧多一次 800×600 blit，GPU 开销略增，换的是「无中间态」。
+- **未做**静态地面层离屏缓存：地面仍每帧逐块画 200+ 次 `drawImage`。若高刷屏仍掉帧，下一步可把 tiles/smtiles 缓存到一张比屏幕大的离屏画布，每帧只贴一次（注意不要破坏对象层与实体的按行遮挡）。
+- 真实带 GPU 浏览器的观感 E2E 仍需用户确认；本次是无头 Chromium 的定量对比。

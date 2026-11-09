@@ -17,6 +17,14 @@ canvas.width = SCREEN_WIDTH;
 canvas.height = SCREEN_HEIGHT;
 const ctx = canvas.getContext('2d');
 
+// 离屏双缓冲：整帧先画在 back buffer 上，全部完成后一次性贴到可见 canvas。
+// 直接在可见 canvas 上「清屏 → 逐块重绘」时，GPU 合成可能把中间态呈现出来，
+// 表现为整屏发黑/抖动（尤其在每帧要画 200+ 瓦片 + 动画帧的游戏场景）。
+const backCanvas = document.createElement('canvas');
+backCanvas.width = SCREEN_WIDTH;
+backCanvas.height = SCREEN_HEIGHT;
+const backCtx = backCanvas.getContext('2d', { alpha: false });
+
 // 全局屏蔽浏览器右键菜单（右键用于游戏跑动，任何界面包括 NPC 对话框都不弹菜单）
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 // 全局禁用文本/元素框选与图片拖拽（按住移动时避免误选内容）
@@ -46,12 +54,14 @@ async function init() {
     }
     console.log('[init] WebSocket 已连接');
 
-    const sceneManager = new SceneManager(conn, ctx, winManager);
+    const sceneManager = new SceneManager(conn, backCtx, winManager);
     sceneManager.switchTo(new LoginScene(sceneManager));
 
     const loop = new Loop(() => {
         sceneManager.update(performance.now());
-        sceneManager.render(ctx);
+        sceneManager.render(backCtx);
+        // 一次 blit = 一帧，浏览器永远只看到完整画面
+        ctx.drawImage(backCanvas, 0, 0);
     });
     loop.start();
 

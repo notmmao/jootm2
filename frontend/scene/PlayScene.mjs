@@ -212,13 +212,20 @@ export class PlayScene extends Scene {
         this.groundItems.clear();
         for (const g of groundItems || []) this.groundItems.set(g.id, g);
 
+        // HUD 先搭起来：其 DOM 图片与地图预取并行加载，地图一就绪就是完整画面，
+        // 不会「地图先出现、HUD 图标再一块块冒出来」。
+        this._buildHud();
+
+        this._mapLoadingText = '正在加载地图…';
         try {
-            await this.mapActor.enter(map.name);
+            await this.mapActor.enter(map.name, player.x || 0, player.y || 0,
+                (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; });
         } catch (e) {
             console.error('[play]', e);
+        } finally {
+            this._mapLoadingText = null;
         }
 
-        this._buildHud();
         this._miniMapIndex = this.snapshot.miniMapIndex;
         this._loadMiniMapTexture(this._miniMapIndex);   // 小地图底图（mmap.wil）
         this._setDayBright(this.snapshot.dayBright);   // 昼夜时段图标
@@ -421,6 +428,23 @@ export class PlayScene extends Scene {
         }
 
         this._hudKey = null;
+        this._hudTexReady = false;
+        // 预取 HUD 位图（血球 / 等级数字）。之前这两个 canvas 是 async 函数，
+        // 每帧「clearRect → await 取图 → 重画」，纹理未就绪时会留下空白帧（闪）。
+        // 现在统一预取，之后全部同步绘制，清空与重画之间不可能被浏览器合成。
+        const hudLib = getLib('prguse');
+        if (hudLib) {
+            const wanted = [4, 5, 6, ...Array.from({ length: 10 }, (_, i) => 30 + i)];
+            Promise.all(wanted.map(i => hudLib.getTexture(i).catch(() => null)))
+                .then(() => {
+                    if (!this.vitalsCanvas || !this.vitalsCanvas.isConnected) return;
+                    this._hudTexReady = true;
+                    this._hudKey = null;
+                    this._renderHud();
+                });
+        } else {
+            this._hudTexReady = true;   // 无图库：按空纹理走，不阻塞 HUD
+        }
         this._refreshQuickSlots();
         this._renderHud();
 
@@ -1168,9 +1192,16 @@ export class PlayScene extends Scene {
                 for (const e of msg.nearby || []) this.entities.set(e.id, e);
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
                 if (msg.map) {
-                    this.mapActor.enter(msg.map.name)
-                        .then(() => { this._miniMapIndex = msg.miniMapIndex; this._loadMiniMapTexture(this._miniMapIndex); })
-                        .catch(console.error);
+                    const p = this.self || { x: 0, y: 0 };
+                    this._mapLoadingText = '正在加载地图…';
+                    this.mapActor.enter(msg.map.name, p.x, p.y,
+                        (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; })
+                        .then(() => {
+                            this._miniMapIndex = msg.miniMapIndex;
+                            this._loadMiniMapTexture(this._miniMapIndex);
+                        })
+                        .catch(console.error)
+                        .finally(() => { this._mapLoadingText = null; });
                 }
                 break;
             }
@@ -2549,6 +2580,19 @@ export class PlayScene extends Scene {
 
     render(ctx) {
         if (!this.self) return;
+        if (!this.mapActor.map) {
+            // 地图 / 首屏纹理仍在加载：不清屏，保留上一帧（back buffer 里还是上一帧），
+            // 只叠一条不透明提示。避免「每帧全黑清屏 → 纹理一块块冒出来」的闪屏。
+            ctx.save();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 260, 26);
+            ctx.fillStyle = '#ffd76a';
+            ctx.font = '14px SimSun,serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(this._mapLoadingText || '正在加载地图…', 10, 18);
+            ctx.restore();
+            return;
+        }
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
@@ -2987,8 +3031,16 @@ export class PlayScene extends Scene {
     _renderHud() {
         if (!this.hudEl || !this.self) return;
         const p = this.self;
-        // 只在数值变化时重绘（每帧重画 canvas 浪费）
-        const key = `${p.hp}/${p.maxHp}/${p.mp}/${p.maxMp}/${p.level}/${p.exp}/${p.maxExp}/${p.weight}/${p.maxWeight}/${p.x}/${p.y}`;
+        // 地图名/坐标是纯 DOM 文本，单独更新，不参与 canvas 重绘判重
+        // （以前把 x/y 放进 key，移动时每帧都会重绘血球 + 等级 → 反复清空 canvas）。
+        if (this.mapNameEl) {
+            const map = this.snapshot && this.snapshot.map ? this.snapshot.map : null;
+            const title = (map && (map.title || map.name)) || '';
+            const text = `${title} ${p.x}:${p.y}`.trim();
+            if (this.mapNameEl.textContent !== text) this.mapNameEl.textContent = text;
+        }
+        // 只在数值变化时重绘 canvas
+        const key = `${p.hp}/${p.maxHp}/${p.mp}/${p.maxMp}/${p.level}/${p.exp}/${p.maxExp}/${p.weight}/${p.maxWeight}`;
         if (this._hudKey === key) return;
         this._hudKey = key;
         this._renderVitals();
@@ -3000,72 +3052,60 @@ export class PlayScene extends Scene {
         if (this.loadBarEl && p.maxWeight > 0) {
             this.loadBarEl.style.width = Math.max(0, Math.min(76, Math.round(76 * (p.weight || 0) / p.maxWeight))) + 'px';
         }
-        // 地图名 + 坐标（原版 DrawScrn.pas:462，屏幕底部）
-        if (this.mapNameEl) {
-            const map = this.snapshot && this.snapshot.map ? this.snapshot.map : null;
-            const title = (map && (map.title || map.name)) || '';
-            this.mapNameEl.textContent = `${title} ${p.x}:${p.y}`.trim();
-        }
     }
 
     /** 血球/魔法球：Prguse[4]（HP 左半 + MP 右半，各按比例纵向裁切）；
-     *  武士且 lv<26 用 Prguse[5] 容器 + Prguse[6] 红色液体（对齐 FState.pas:3249-3280）。 */
-    async _renderVitals() {
+     *  武士且 lv<26 用 Prguse[5] 容器 + Prguse[6] 红色液体（对齐 FState.pas:3249-3280）。
+     *  纹理已在 _buildHud 预取到 WIL.textures，这里全程同步：clearRect 与 drawImage
+     *  在同一个调用栈完成，浏览器不可能把「清空后的空白」单独呈现出来。 */
+    _renderVitals() {
         const p = this.self;
-        if (!p || !this.vitalsCanvas) return;
+        if (!p || !this.vitalsCanvas || !this._hudTexReady) return;
         const lib = getLib('prguse');
         if (!lib) return;
         const ctx = this.vitalsCanvas.getContext('2d');
         ctx.clearRect(0, 0, this.vitalsCanvas.width, this.vitalsCanvas.height);
-        try {
-            if (p.job === 0 && p.level < 26) {
-                const base = await lib.getTexture(5);
-                const liquid = await lib.getTexture(6);
-                if (base) ctx.drawImage(base.canvas, 0, 0);
-                if (liquid) {
-                    const h = liquid.canvas.height;
-                    const top = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
-                    if (top < h) {
-                        ctx.drawImage(liquid.canvas, 0, top, liquid.canvas.width, h - top, 0, top, liquid.canvas.width, h - top);
-                    }
-                }
-            } else {
-                const d = await lib.getTexture(4);
-                if (d) {
-                    const w = d.canvas.width;
-                    const h = d.canvas.height;
-                    const half = w >> 1;
-                    const hpTop = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
-                    if (hpTop < h) ctx.drawImage(d.canvas, 0, hpTop, half - 1, h - hpTop, 0, hpTop, half - 1, h - hpTop);
-                    const mpTop = Math.round(h / Math.max(1, p.maxMp) * (p.maxMp - p.mp));
-                    if (mpTop < h) {
-                        ctx.drawImage(d.canvas, half + 1, mpTop, w - half - 1, h - mpTop, half + 1, mpTop, w - half - 1, h - mpTop);
-                    }
+        if (p.job === 0 && p.level < 26) {
+            const base = lib.textures.get(5);
+            const liquid = lib.textures.get(6);
+            if (base) ctx.drawImage(base.canvas, 0, 0);
+            if (liquid) {
+                const h = liquid.canvas.height;
+                const top = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
+                if (top < h) {
+                    ctx.drawImage(liquid.canvas, 0, top, liquid.canvas.width, h - top, 0, top, liquid.canvas.width, h - top);
                 }
             }
-        } catch (e) {
-            /* 纹理未就绪时忽略 */
+        } else {
+            const d = lib.textures.get(4);
+            if (d) {
+                const w = d.canvas.width;
+                const h = d.canvas.height;
+                const half = w >> 1;
+                const hpTop = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
+                if (hpTop < h) ctx.drawImage(d.canvas, 0, hpTop, half - 1, h - hpTop, 0, hpTop, half - 1, h - hpTop);
+                const mpTop = Math.round(h / Math.max(1, p.maxMp) * (p.maxMp - p.mp));
+                if (mpTop < h) {
+                    ctx.drawImage(d.canvas, half + 1, mpTop, w - half - 1, h - mpTop, half + 1, mpTop, w - half - 1, h - mpTop);
+                }
+            }
         }
     }
 
     /** 等级：位图数字 Prguse[30..39]（8px/位，首位前空 8px，对齐 PomiTextOut）。 */
-    async _renderLevelNumber() {
+    _renderLevelNumber() {
         const p = this.self;
-        if (!p || !this.levelCanvas) return;
+        if (!p || !this.levelCanvas || !this._hudTexReady) return;
         const lib = getLib('prguse');
         if (!lib) return;
         const ctx = this.levelCanvas.getContext('2d');
         ctx.clearRect(0, 0, this.levelCanvas.width, this.levelCanvas.height);
         const s = String(p.level);
-        try {
-            for (let i = 0; i < s.length; i++) {
-                const digit = s.charCodeAt(i) - 48;
-                if (digit < 0 || digit > 9) continue;
-                const tex = await lib.getTexture(30 + digit);
-                if (tex) ctx.drawImage(tex.canvas, (i + 1) * 8, 0);
-            }
-        } catch (e) {
-            /* ignore */
+        for (let i = 0; i < s.length; i++) {
+            const digit = s.charCodeAt(i) - 48;
+            if (digit < 0 || digit > 9) continue;
+            const tex = lib.textures.get(30 + digit);
+            if (tex) ctx.drawImage(tex.canvas, (i + 1) * 8, 0);
         }
     }
 

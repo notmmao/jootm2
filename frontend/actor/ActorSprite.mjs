@@ -18,18 +18,22 @@ export class ActorSprite {
         this._phase = ((entity.id || 0) % 1000) * 37;
         this._tex = new Map();      // 'lib/index' -> {canvas,px,py} 或 null
         this._loading = new Set();  // 已触发加载的 key（防重复）
+        this._lastByLib = new Map();  // lib -> 最近成功纹理（当前帧未就绪时回退，避免人物消失一帧）
+        this._lastLayers = null;      // 上一帧完整图层，纹理全缺时整体回退
     }
 
-    /** 返回当前帧的绘制层 [{canvas,px,py}]；未加载返回 null。 */
+    /** 返回当前帧的绘制层 [{canvas,px,py}]；未加载的层用上一帧纹理回退，绝不整人消失。 */
     getLayers(now) {
         const spec = this._frameSpec(now);
-        if (!spec) return null;
+        if (!spec) return this._lastLayers;
         const out = [];
         for (const f of spec) {
-            const tex = this._texture(f.lib, f.index);
+            const tex = this._texture(f.lib, f.index) || this._lastByLib.get(f.lib);
             if (tex) out.push({ canvas: tex.canvas, px: tex.px, py: tex.py });
         }
-        return out.length ? out : null;
+        if (!out.length) return this._lastLayers;
+        this._lastLayers = out;
+        return out;
     }
 
     // 计算当前帧（各层 {lib,index}），按绘制顺序
@@ -105,20 +109,29 @@ export class ActorSprite {
         return [{ lib, index: offset + cf }];
     }
 
-    // 取纹理（同步返回已加载，未加载触发异步并返回 null）
+    // 取纹理（同步返回已加载，未加载触发异步并返回 null）。
+    // 动画帧在本 WIL 里是连续编号，顺带预取后续 6 帧，避免每切换一帧才发一次
+    // Range 请求、期间该层空白（人物时隐时现 = 肉眼可见的闪）。
     _texture(lib, index) {
         const key = lib + '/' + index;
         if (this._tex.has(key)) return this._tex.get(key);
         const wlib = getLib(lib);
         if (wlib && !this._loading.has(key)) {
-            this._loading.add(key);
-            wlib.getTexture(index).then(tex => {
-                this._tex.set(key, tex || null);
-            }).catch(() => {
-                this._tex.set(key, null);
-            });
+            const load = (i, isCurrent) => {
+                const k = lib + '/' + i;
+                if (this._loading.has(k)) return;
+                this._loading.add(k);
+                this._tex.set(k, null);   // 占位，加载完成后覆盖
+                wlib.getTexture(i).then(tex => {
+                    this._tex.set(k, tex || null);
+                    if (tex && isCurrent) this._lastByLib.set(lib, tex);
+                }).catch(() => { /* 保留 null 占位，等待帧回退 */ });
+            };
+            load(index, true);
+            for (let d = 1; d <= 6; d++) load(index + d, false);
+        } else {
+            this._tex.set(key, null);
         }
-        this._tex.set(key, null);   // 占位，加载完成后覆盖
         return null;
     }
 }
