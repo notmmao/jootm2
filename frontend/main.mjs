@@ -10,6 +10,7 @@ import { DWinManager } from './gui/manager.mjs';
 import { loadResources } from './gfx/resource.mjs';
 import { scheduler } from './gfx/scheduler.mjs';
 import { getLib } from './image/Images.mjs';
+import { sound } from './audio/SoundManager.mjs';
 
 const canvas = document.getElementById('screen');
 canvas.width = SCREEN_WIDTH;
@@ -30,6 +31,8 @@ async function init() {
     await loadResources();
 
     const conn = new Connection('/ws');
+    // 音频模块：'*' 通配监听 WS 消息 + 按钮点击 + 首次手势解锁（服务端零改动）
+    sound.install(conn);
     try {
         await conn.connect();
     } catch (e) {
@@ -58,6 +61,7 @@ async function init() {
     window.__winManager = winManager;
     window.__scheduler = scheduler;
     window.__getLib = getLib;
+    window.__sound = sound;   // 调试：__sound.play(103) / status() / toggle()
 }
 
 init().catch(e => console.error('[init]', e));

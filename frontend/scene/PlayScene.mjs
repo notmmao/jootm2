@@ -6,6 +6,7 @@ import { MapActor } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
 import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
+import { sound, itemClickSound, SFX } from '../audio/SoundManager.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
@@ -394,6 +395,7 @@ export class PlayScene extends Scene {
             cell.style.cssText = `position:absolute;left:${quickXs[i]}px;top:${HUD_Y + 59}px;width:32px;height:29px;`
                 + 'cursor:pointer;pointer-events:auto;overflow:hidden;';
             cell.dataset.quick = String(i);
+            cell.dataset.sfx = String(SFX.clickDrug);   // 原版 DBelt1Click 的药品点击音
             cell.title = `快捷栏 ${i + 1}`;
             cell.addEventListener('click', () => this._onQuickSlotClick(i));
             // 双击使用（原版 DBelt1DblClick → EatItem）
@@ -463,10 +465,10 @@ export class PlayScene extends Scene {
         return btn;
     }
 
-    /** 音效开关（原版 TogglePlaySoundEffect）。 */
+    /** 音效开关（原版 TogglePlaySoundEffect）→ 交给 SoundManager（含 BGM 与持久化）。 */
     _toggleSound() {
-        this._soundOn = !this._soundOn;
-        this._log(this._soundOn ? '[系统] 音效已开启。' : '[系统] 音效已关闭。');
+        const on = sound.toggle();
+        this._log(on ? '[系统] 音效已开启。' : '[系统] 音效已关闭。');
     }
 
     /** 退出到选择角色（原版 Alt-X / 退出角色）。 */
@@ -564,6 +566,7 @@ export class PlayScene extends Scene {
             return;   // 空格静默（原版也不提示）
         }
         this.conn.send('useItem', { makeIndex: mi });
+        sound.play(SFX.eatDrug);   // 原版 DBelt1DblClick → EatItem 的喝药音
     }
 
     /** 唤出聊天输入框（回车 / 斜杠键，对齐原版 ClMain 的 Enter/@/!/ / 处理）。 */
@@ -1874,6 +1877,7 @@ export class PlayScene extends Scene {
             cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`
                 + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
             cell.dataset.slot = String(slot);
+            cell.dataset.sfx = String(it ? itemClickSound(it.stdMode) : SFX.itemClick);
             if (it) {
                 if (ICON_SLOTS.has(slot)) {
                     this._libUrl('stateitem', it.looks).then((url) => {
@@ -2076,6 +2080,7 @@ export class PlayScene extends Scene {
                 + 'width:36px;height:32px;';
             cell.title = it.name;
             cell.dataset.makeIndex = String(it.makeIndex);
+            cell.dataset.sfx = String(itemClickSound(it.stdMode));   // SoundUtil.ItemClickSound
             cell.addEventListener('mouseenter', () => this._showItemDesc(it));
             cell.addEventListener('mouseleave', () => this._hideItemDesc());
             this._libUrl('items', it.looks).then((url) => {
@@ -2093,6 +2098,7 @@ export class PlayScene extends Scene {
                     this.conn.send('takeOnItem', { makeIndex: it.makeIndex, slot: pos });
                 } else {
                     this.conn.send('useItem', { makeIndex: it.makeIndex });
+                    sound.play(SFX.eatDrug);
                 }
             });
             cell.addEventListener('click', () => this._onBagItemClick(it, cell));

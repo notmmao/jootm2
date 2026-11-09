@@ -25,7 +25,7 @@ Java 后端已完整迁移为**纯标准库 Python（asyncio）**实现，46 种
 | `ae0b59d` | `feat(pyserver): 补齐 tick 全子系统、装备属性与 MapQuest 任务`（7 文件 / +1093 行） |
 | `d294744` | `fix(resources): 对齐 1.80 客户端资源布局与 .map tile 步进推断`（7 文件） |
 
-分支共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。
+迁移主体共 4 个提交，相对基线改动 32 个文件 / +9614 −29 行，其中 `pyserver/` 17 个模块共 **6343 行**（Java 侧约 10478 行）。§10 的音频链路是之后独立的一次提交（`feat(audio): …`），只动前端与脚本，**不改 `pyserver/**`，也不改 `src/main/java/**`**。
 
 `git log --oneline 217e125..HEAD` 可随时复核。
 
@@ -112,9 +112,15 @@ python scripts/test_all_messages.py --live 8081           # 46 handler + 33 技�
 python scripts/test_tick_systems.py                       # tick / 装备属性 / MapQuest，53 断言
 python scripts/compare_stacks.py --java-port 8080 --py-port 8081 --full
 python scripts/compare_stacks.py --py-port 8081 --golden scripts/golden/protocol_baseline_full.json
+python scripts/convert_audio.py                       # 全量 WAV→MP3（幂等，需 ffmpeg）
+python scripts/convert_audio.py --check --probe 20    # 校验 mp3 产出 + ffprobe 抽样
+python scripts/convert_audio.py --explain 103         # 查某编号对应的 mp3 / wav URL
+python scripts/convert_audio.py --self-test           # 12/12，临时目录自检
+node scripts/test_audio.mjs                          # 音频前端链路 18/18
+node --check frontend/audio/SoundManager.mjs
 ```
 
-最后一次全量验证结果（全绿）：`48 PASS`（离线 `test_pyserver.py`，含 2 条地图用例）/ `53 PASS`（live）/ `18/18` 成功路径 / `53/0` tick 断言 / `8/8` WS 冒烟 / `10/10` 体检自检 / `--full` 46 步响应类型全一致、字段结构零差异 / golden 回放零差异 / `node --check frontend/map/Maps.mjs` 通过。
+最后一次全量验证结果（全绿）：`48 PASS`（离线 `test_pyserver.py`，含 2 条地图用例）/ `53 PASS`（live）/ `18/18` 成功路径 / `53/0` tick 断言 / `8/8` WS 冒烟 / `10/10` 体检自检 / `--full` 46 步响应类型全一致、字段结构零差异 / golden 回放零差异 / `node --check frontend/map/Maps.mjs` 通过；音频链路追加：`12/12` 转换自检、`18/18` 前端回归、`723/723` mp3 产出、`20/20` ffprobe 可解码、HTTP 200/206 与 MIME 实测通过。
 
 ---
 
@@ -140,11 +146,13 @@ python scripts/compare_stacks.py --py-port 8081 --golden scripts/golden/protocol
 | `.gitignore` | 补 `client_original/`、Python 缓存、`.workbuddy/` | 同上 |
 | `.dockerignore` | 排除缓存 / DB / `.workbuddy/`；原 Java 版未 COPY `gamedata/` 的坑在 `Dockerfile.java` 里补上 | 同上 |
 | `frontend/map/Maps.mjs` | 8 行：`.map` tile 步进改用整数推断（见 §5.3），修 DataView 抛错 | 上游若改地图加载会冲突 |
+| `frontend/main.mjs` | 3 行：`import { sound }` + `sound.install(conn)` + `window.__sound`（见 §10） | 上游若改入口初始化会冲突 |
+| `frontend/scene/PlayScene.mjs` | 7 行：声音按钮接 `sound.toggle()`、背包/装备/快捷栏 `data-sfx`、喝药 `sound.play(107)`（见 §10） | 上游若改 HUD/背包会冲突 |
 | `config/server.properties` | **未改**，两个服务端共用 | 无 |
 
 ### 4.3 新增文件（不会与上游冲突）
 
-`pyserver/**`、`scripts/golden/**`、`Dockerfile.java`、`HANDOFF-PYSERVER.md`（本文件），以及 6 个新回归脚本：`scripts/smoke_ws.py`、`scripts/test_pyserver.py`、`scripts/test_all_messages.py`、`scripts/test_tick_systems.py`、`scripts/verify_resources.py`、`scripts/compare_stacks.py`。
+`pyserver/**`、`scripts/golden/**`、`Dockerfile.java`、`HANDOFF-PYSERVER.md`（本文件），以及 6 个新回归脚本：`scripts/smoke_ws.py`、`scripts/test_pyserver.py`、`scripts/test_all_messages.py`、`scripts/test_tick_systems.py`、`scripts/verify_resources.py`、`scripts/compare_stacks.py`。音频链路（§10）另新增：`scripts/convert_audio.py`、`scripts/test_audio.mjs`、`frontend/audio/SoundManager.mjs`、`frontend/audio/audio_map.json`；二进制 `resources/Audio/*.mp3` 不提交（`.gitignore` 已忽略 `resources/`）。
 
 > 这些回归脚本在本分支都是**新建**文件，不是修改上游脚本。上游 `scripts/` 里原有的是 `fx_*.py` / `taoist_test.py` / `paradox_to_csv.py` / `highwall_check.py` 等调试脚本，本分支未动它们。
 
@@ -153,7 +161,7 @@ python scripts/compare_stacks.py --py-port 8081 --golden scripts/golden/protocol
 1. `ResourcesIndexGenerator` 会把 `.wzl/.wzx` 也写进 `resources.json`，但前端 `frontend/gfx/wil.mjs` 只支持 WIL/WIX → 「索引生成成功但画面全空」的假兼容。Python 侧 `gamedata.py` 已改为**只索引 WIL/WIX 并告警**。
 2. `MapFileReader` 写死 12 字节 tile；前端自适应 12/14。Python 侧 `map_tile_stride` 已完整处理。
 
-另外几项**是 Java 自身既有局限，不算转换遗漏**，Python 与之保持一致：`MessageIds.java`（装备槽 `U_*` 常量，`util.py` 已覆盖）、`makeFireWall(p, targetId, …)` 定义了但全项目无人调用、`questParams` 不落库、`teleportRing` 只声明不消费、音效 `wavUrl/wavCount` 有定义无调用。
+另外几项**是 Java 自身既有局限，不算转换遗漏**，Python 与之保持一致：`MessageIds.java`（装备槽 `U_*` 常量，`util.py` 已覆盖）、`makeFireWall(p, targetId, …)` 定义了但全项目无人调用、`questParams` 不落库、`teleportRing` 只声明不消费。音效链路已由前端补齐（§10）：`wavUrl()` 现在作为 mp3 缺失时的回退被调用，`wavCount()` 仍只是预留工具函数。
 
 ---
 
@@ -225,10 +233,10 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 2. **Java 侧两个小修**（§4.4）：WZL/WZX 假兼容、`MapFileReader` 写死 12 字节。之前约定「等用户点头」，**未动**。
 3. **浏览器分片缓存**：实测（无头 Chrome + CDP，登录界面、未进游戏）首次清空缓存 33 请求 / **2.654 MB**，二次热缓存 33 请求 / **2.650 MB** —— 只有 2 个 WIX 命中缓存，**3 个 WIL 分片 2.36 MB 原样重下**。原因是 Chrome 不缓存 `fetch()` 发出的 Range 206 分片（即使标了 immutable）。修法：在 `frontend/gfx/scheduler.mjs` 加 Cache API / IndexedDB / Service Worker 层分片缓存。
 4. **服务端 304 / ETag**：`.mjs` 与 `resources.json` 是 `no-cache`，Python 服务端不处理 `If-Modified-Since` / `If-None-Match`，每次 200 全量约 290 KB。
-5. **磁盘瘦身**（约 723 MB 死数据 + `client_original/` 441 MB）：19 个从未引用的图库 476.1 MB（`deco / dragon / hair2 / humeffect / magic3~5 / mon22 / mon23 / objects2~10 / prguse2`）、Wav 189.1 MB（音效链路根本没接，一个都不会被请求）、282 张 MapInfo 未引用的 `.map` 49.5 MB、`Data` 里非 WIL/WIX 的 8.1 MB。⚠️ **Wav/ 目录要保留（可清空文件）**。删文件前必须先列完整清单再动手，别递归删。
+5. **磁盘瘦身**（约 723 MB 死数据 + `client_original/` 441 MB）：19 个从未引用的图库 476.1 MB（`deco / dragon / hair2 / humeffect / magic3~5 / mon22 / mon23 / objects2~10 / prguse2`）、Wav 189.1 MB（**已全量预转为 13.57 MB MP3，见 §10**；保留 mp3 的前提下原始 WAV 可裁，但裁掉后 mp3 404 时就没有 WAV 可回退）、282 张 MapInfo 未引用的 `.map` 49.5 MB、`Data` 里非 WIL/WIX 的 8.1 MB。⚠️ **Wav/ 目录要保留（可清空文件）**。删文件前必须先列完整清单再动手，别递归删。
 6. **Docker 真机构建验证**：daemon 未启动，目前只有 `compose config` 语法校验 + 等价目录模拟。
 7. **浏览器端完整试玩回归**：资源链路 / WS 冒烟 / golden 都通了，但没做「登录 → 建角 → 进图 → 移动 → 战斗」的浏览器端 E2E（Playwright 脚本上游有，见 `scripts/fx_*.py`）。
-8. **音效链路**：`wavUrl/wavCount` 只有定义没有调用，`_toggleSound()` 只打日志。这是 Java 版也有的功能缺口，但属于「可玩性」层面的实际待办。
+8. ~~**音效链路**：`wavUrl/wavCount` 只有定义没有调用，`_toggleSound()` 只打日志~~ → **已完成**（2026-11-09 方案 B 全量落地，见 §10）。剩余的人工验证是「浏览器里真听一遍」，用户安排晚上自测。
 
 ### 6.2 已完成、「全部完成」的口径
 
@@ -238,6 +246,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 - 默认部署切 Python、Java 版保留为对照、Docker 缺 `gamedata/` 修复
 - 1.80 客户端资源布局与 `.map` 解析修复（此前「客户端资源缺失」这项边界**已解决**）
 - 浏览器不会下载 1.5 G：按需懒加载（`resources.json` 35 KB + 前端 `.mjs` 253 KB + WIX 索引几 KB + 覆盖所需图片的 512 KB Range 分片 + 进入某图时该图 `.map` 整文件），且全是 `localhost` 本机读取、不占公网带宽
+- 音效链路（§10）：723 个 WAV 全量转 MP3、714 个原版编号可用、7 首 BGM、事件→音效映射、开关/音量持久化；服务端与 WS 协议零改动，Java 版同样可用
 
 ### 6.3 不算遗漏的项
 
@@ -253,7 +262,7 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 - 当前 `origin/main` = `217e125` = 本分支基点，**此刻合并没有新内容**。上游前进后再合并时：
   - `HANDOFF.md`：本分支零改动 → **必然不冲突**（本文已把说明全部搬走）。
   - 全部新增文件（`pyserver/**`、`HANDOFF-PYSERVER.md`、`Dockerfile.java`、新增 scripts）：除非上游恰好建同名文件，否则不冲突。
-  - ⚠️ **可能冲突的 6 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`.gitignore`、`.dockerignore`。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
+  - ⚠️ **可能冲突的 8 个上游文件**：`README.md`、`Dockerfile`、`docker-compose.yml`、`frontend/map/Maps.mjs`、`frontend/main.mjs`、`frontend/scene/PlayScene.mjs`、`.gitignore`、`.dockerignore`（后两个前端文件是 §10 音频接线）。建议 `git fetch origin` 后先看 `git diff --stat HEAD..origin/main` 是否碰这些文件；若碰到，取舍原则是「保留 Python 运行说明 + 上游新增玩法记录」。
   - 若希望连 `README.md` 也零冲突，可单独把该文件还原到 `217e125`（代价是 README 会重新写成 Maven/Java 运行方式，运行说明需以本文为准）。**此操作尚未执行，等用户决定。**
 - 本地软链数据 `resources/`、`gamedata/Mir200/Map`、`client_original/` 均在 `.gitignore` 中，不要提交；删除 junction 前先看 §5.3 的警告。
 
@@ -284,3 +293,91 @@ jootm2 **完全不兼容**原版 Delphi 客户端：原版是 TCP 多网关 + `T
 | 磁盘体积 | `Data` 1167.6 MB + `Map` 201.8 MB + `Wav` 189.1 MB ≈ 1.52 GB；`client_original` 441 MB |
 | 理论必需 / 可裁 | ~835.7 MB / ~722.9 MB |
 | 浏览器实测传输 | 首次 2.654 MB / 二次 2.650 MB（33 请求，登录界面） |
+| 音频（§10） | 723 wav → 723 mp3；189.1 MB → 13.57 MB（13.9×）；714 编号 / 7 BGM / 15 缺失；索引 70.6 KB |
+
+---
+
+## 10. 音频链路（方案 B 全量，2026-11-09 追加）
+
+### 10.1 设计前提
+
+服务端和 WS 协议**零改动**：两个后端都不下发音效 id，但都已支持 `.wav/.mp3/.ogg` 的 MIME + Range 206 + CORS；`Connection._dispatch` 支持 `'*'` 通配 handler，所以音效完全可以由前端按 WS 消息本地映射，Java 版也能直接用。
+
+`resources/Wav/sound.lst` 就是原版 Delphi `SoundUtil.pas::LoadSoundList` 读的编号表（GBK，1001 行：714 条有效 / 15 条指向不存在的文件 / 252 条空值 / 20 行注释），`s_*` 常量可直接套用。723 个 WAV 全是标准 PCM，ffmpeg 4.3.1 自带 libmp3lame；全量转码后 **189.1 MB → 13.57 MB（13.9×）**，8 并发耗时 19.8s。
+
+### 10.2 文件与命令
+
+| 文件 | 作用 |
+|---|---|
+| `scripts/convert_audio.py` | 离线构建：解析 GBK 编号表、去重转码、生成索引；幂等按 mtime |
+| `frontend/audio/audio_map.json` | **提交进仓库**的 70.6 KB 索引（不含二进制） |
+| `frontend/audio/SoundManager.mjs` | 前端播放内核 + 事件映射 + BGM + 开关/音量 |
+| `scripts/test_audio.mjs` | Node 22 零依赖前端回归（18/18） |
+| `resources/Audio/*.mp3` | 723 个衍生资源，`.gitignore` 已忽略 `resources/`，**不提交** |
+
+```bash
+python scripts/convert_audio.py                       # 全量转码（幂等，已转且源未变则跳过）
+python scripts/convert_audio.py --force               # 忽略时间戳全部重转
+python scripts/convert_audio.py --check --probe 20    # 校验产出 + ffprobe 抽样解码
+python scripts/convert_audio.py --explain 103         # 查编号 103 的 mp3 / wav URL 与文件大小
+python scripts/convert_audio.py --self-test           # 12/12，临时目录自检（含真实 ffmpeg 转码）
+node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio 的前端链路
+```
+
+编码参数：短音效 `-ac 1 -ar 22050 -b:a 64k -codec:a libmp3lame`；>= 1 MB 的 BGM/长音频 `-ar 44100 -b:a 96k` 保留原声道。`ENCODER_VERSION` 变更会自动让旧产物全部失效重转。
+
+### 10.3 索引与命名
+
+`audio_map.json` = `{version, source, base: "/resources/", audioDir: "Audio/", sounds{id:{mp3,wav}}, bgm{key:{mp3,wav}}, files{wav文件:mp3文件}, missing[15], stats{}}`。
+
+每个**唯一 wav 只转一份 mp3**：被编号表引用的用「引用它的最小编号」命名（`103.wav → Audio/103.mp3`），未引用的用文件名 slug（`Field2.wav → Audio/field2.mp3`）；多个编号指向同一 wav 时在 `sounds` 里指向同一份文件。BGM 不在 `sound.lst` 里，按 Delphi `bmg_*` 常量 + 磁盘真实文件名单独编 7 个语义键（intro / select / field / gameover / theme / heroLogin / heroLogout）。
+
+### 10.4 前端链路
+
+- `main.mjs` 里 `sound.install(conn)`：注册 `'*'` 监听、全局 capture 点击、`pointerdown`/`keydown` 首次手势解锁、异步加载索引；`window.__sound` 是调试入口。
+- `play(id, {gap, key, volume})`：编号 → `/resources/Audio/<id>.mp3`；`<audio>` 元素池 + `cloneNode()` 并发，同类 80ms 节流、脚步统一 key 250ms 节流、并发语音 ≤ 24；mp3 404/解码失败自动回退 `Wav/<原文件>`，索引 404 时退化到 `resource.mjs::wavUrl(id)`。
+- BGM 独立 `<audio loop>`，随 `loginResult`/`characterList` → select、`enterGame` → field、连接关闭 → intro 切换；`gameover/theme/heroLogin/heroLogout` 可用 `__sound.setBgm(key)` 手动切。
+- 开关与音量存 `localStorage`（`mir2.sound.enabled/volume/bgmVolume`，默认开 / 0.8 / 0.45）；右上角「声音」按钮 `_toggleSound()` 已接 `sound.toggle()`。
+- 全局点击命中 `data-sfx` 属性或 `cursor:pointer` 热区就播按钮音；背包格 / 装备格按 `stdMode` 带 `data-sfx`，快捷栏格带 108，喝药播 107。
+
+### 10.5 事件 → 音效编号
+
+| 事件 | 编号 | 原版常量 |
+|---|---|---|
+| 按钮点击 / 背包物品点击 | 103 / 按 stdMode：108,111,112,113,114,115,116,118 | `s_norm_button_click` / `ItemClickSound` |
+| 快捷栏点击 / 使用药品 | 108 / 107 | `s_click_drug` / `s_eat_drug` |
+| 自己移动（走 / 跑） | 1,2 / 3,4 交替 | `s_walk_ground_l/r`、`s_run_ground_l/r` |
+| 自己攻击 | 52；`swordHit` 7→56、12→132、25→133、26→137 | 攻杀/刺杀/半月/烈火 |
+| 自己受击 / 死亡 | 138 / 144 | `s_man_struck` / `s_man_die` |
+| 他人攻击（环境音） | 50 | `s_hit_short` |
+| 施法 | 火系 137；雷/冰 8301/8302/8226；辅助 101；其它 118 | 近似表 `MAGIC_SFX` |
+| 金币增加 / 掉落金币 | 106 | `s_money` |
+| 其它物品掉落 | 92 | `s_drop_stonepiece` |
+| 传送现身 / 换图 | 110 | `s_spacemove_in` |
+
+### 10.6 踩过的坑
+
+1. **autoplay 策略**：首次用户手势前 `play()` 会抛 `NotAllowedError`。用 `once` 的 pointerdown/keydown 解锁 + 静音 WAV data URI 试播，登录按钮是天然解锁点。
+2. **编号表细节**：GBK 编码、`;;` 注释、252 个空值、15 个指向缺失文件的编号要跳过并记日志；`130/132/133/137` 指向 `M7-1.wav`/`M12-1.wav` 这类**非数字文件名**，`wavUrl(132)` 找不到，必须走索引。
+3. **BGM 大小写/空格**：`Game over2.wav` 与 `Game-over2.wav` 是两份文件，Delphi 常量用空格版；脚本按磁盘实际文件名（大小写不敏感）解析，不要硬编码。
+4. **ffmpeg 临时文件**：临时名若叫 `103.mp3.part` 会报 `Unable to find a suitable output format`；改成 `103.part.mp3` 并显式 `-f mp3`，成功后 `os.replace` 原子落盘。
+5. **Range 206 分片不缓存**（§6.1 第 3 项）对音频不适用：mp3 交给 `<audio src>` 由浏览器自己处理，不走前端 scheduler，正好绕开这个缺陷。
+6. **原版玩家施法音**来自 Actor 的 `m_nMagicStartSound` 等字段，本项目 `spellCast` 只带 `magicId`，所以 `MAGIC_SFX` 是**可调整的近似映射**，不是逐技能还原。
+
+### 10.7 晚上自测清单（用户）
+
+1. 服务在 8080（`python -m pyserver`），浏览器**硬刷新 Ctrl+F5**（`.mjs` 是 `no-cache`，但保险起见）。
+2. F12 Console 应出现 `[sound] 索引已加载：714 个编号 / 7 首 BGM / 15 条缺失`。
+3. 首次点击/按键后应出现 `[sound] 浏览器音频已解锁`，并听到登录 BGM（`Log-in-long2`）。
+4. 控制台直接验证：`__sound.status()`、`__sound.play(103)`（按钮）、`__sound.play(106)`（金币）、`__sound.setBgm('field')`。
+5. 登录成功 → 选角 BGM；进游戏 → `Field2`；走两步、打一下怪、喝药、捡金币、点背包，逐项听声。
+6. 右上角「声音」按钮是**开关**：默认开启，所以**第一次点击是关闭**，再点一次恢复；日志会提示。音量用 `__sound.setVolume(0.5)` / `__sound.setBgmVolume(0.2)`。
+7. 回退链路：临时移走 `resources/Audio/103.mp3`，点按钮应自动改播 `Wav/103.wav`；把 `frontend/audio/audio_map.json` 移走则退化到 `resources.json` 的 `wavUrl()`（非数字文件名音效会缺）。测完记得恢复。
+8. HTTP 自查：`/audio/audio_map.json` → 200 `application/json`；`/resources/Audio/103.mp3` → 200 `audio/mpeg`；带 `Range: bytes=0-99` → 206 + `Content-Range`。
+
+### 10.8 已知边界
+
+- 15 个缺失编号（291/292/294/295/943/1503/1922/2103/2141/2151/9224/9234/10110/10111/10521）静默跳过。
+- 玩家受击/死亡固定用男声 138/144：WS 消息没带性别，要女声改 139/145。
+- 怪物叫声、逐技能精细音效未做（全量 mp3 已备齐，缺的只是映射表）。
+- **未做浏览器端真听 E2E**：本次验证是脚本自检 + Node mock + HTTP 实测，听感与场景切换由用户晚上自测确认。
