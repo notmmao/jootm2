@@ -100,24 +100,30 @@ export class SelectCharScene extends Scene {
         this._ensurePortraits();
     }
 
-    /** 按当前角色槽算出需要的立绘帧（站立 10 帧 + 冻结帧），一次性并发预取。 */
+    /**
+     * 按当前角色槽算出需要的立绘帧（站立 10 帧 + 冻结帧），一次性并发预取。
+     * 建角模式额外预取「当前所选职业/性别」的立绘：原版 MakeNewChar 把
+     * ChrArr[NewIndex].Valid 置 TRUE，PlayScene 按 UserChr.Job/Sex 实时画人物，
+     * 所以点职业/性别按钮要立刻换形象，不能只在提交时生效。
+     */
     _ensurePortraits() {
         const ids = new Set();
-        for (const c of this.chars) {
-            if (!c) continue;
-            const job = Math.max(0, Math.min(2, c.job | 0));
-            const sex = c.sex ? 1 : 0;
-            const base = 40 + job * 40 + sex * 120;
+        const addChar = (rawJob, sex) => {
+            const job = Math.max(0, Math.min(2, rawJob | 0));
+            const s = sex ? 1 : 0;
+            const base = 40 + job * 40 + s * 120;
             for (let f = 0; f < STAND_FRAME_COUNT; f++) ids.add(base + f);
-            ids.add(60 + job * 40 + sex * 120);
+            ids.add(60 + job * 40 + s * 120);
+        };
+        for (const c of this.chars) {
+            if (c) addChar(c.job, c.sex);
+        }
+        if (this.createMode && this.createState) {
+            addChar(this.createState.job, this.createState.sex);
         }
         // 还没有角色时先预取武士男/女两组，避免建角后首圈等待
         if (!ids.size) {
-            for (const sex of [0, 1]) {
-                const base = 40 + sex * 120;
-                for (let f = 0; f < STAND_FRAME_COUNT; f++) ids.add(base + f);
-                ids.add(60 + sex * 120);
-            }
+            for (const sex of [0, 1]) addChar(0, sex);
         }
         this._wanted = ids;
         for (const id of ids) this._loadPortrait(id);
@@ -263,6 +269,7 @@ export class SelectCharScene extends Scene {
         this.createMode = true;
         this.newIndex = index;
         this.createState = { job: 0, sex: 0, hair: 0 };   // 建角状态（同步初始化，避免 await 后才可用）
+        this._createBtns = [];                 // 建角按钮（含选中态图），供 _refreshCreateSelection 使用
         const left = index === 0 ? 415 : 75;   // 照 MakeNewChar：槽0在右、槽1在左
         const top = 15;
 
@@ -282,22 +289,45 @@ export class SelectCharScene extends Scene {
         win.appendChild(name);
         this._nameInput = name;
 
+        // 操作提示 + 当前选择文字。原版只靠实时人物立绘反馈（DCreateChr 上无文字），
+        // 这里补一行明确状态，避免「点了职业按钮没反应、不知道选没选上」。
+        const hint = document.createElement('div');
+        // 放在性别按钮(231)与发型按钮(308)之间的空白带，避开面板自带的「职业」标题(≈131)
+        // 和「姓名」输入框(107)；原来放 131 会和面板文字叠成一团。
+        hint.style.cssText = 'position:absolute;left:20px;top:275px;width:270px;font-size:11px;'
+            + 'text-align:center;color:#cfe0a8;text-shadow:1px 1px 0 #000;'
+            + 'pointer-events:none;line-height:14px;';
+        hint.textContent = '① 选职业 ② 选性别 ③ 输名字 ④ 确定';
+        win.appendChild(hint);
+
+        const info = document.createElement('div');
+        info.style.cssText = 'position:absolute;left:20px;top:390px;width:270px;font-size:12px;'
+            + 'color:#ffe9a8;text-shadow:1px 1px 0 #000;pointer-events:none;line-height:16px;';
+        win.appendChild(info);
+        this._createInfo = info;
+        this._refreshCreateSelection();
+
         // 窗口背景 Prguse[73]（300×417，异步插入）
         this._prgUrl(73).then((bgUrl) => {
             if (!bgUrl || !this.createWin) return;
             const bg = document.createElement('img');
             bg.src = bgUrl;
             bg.draggable = false;
-            bg.style.cssText = 'position:absolute;left:0;top:0;';
-            bg.style.zIndex = '-1';
+            // 不能用 z-index:-1：win 自身没有建立层叠上下文，负层级会掉到游戏
+            // canvas 后面，整张 DCreateChr 面板（连同按钮底图）就彻底看不见，
+            // 只剩几个「按下态」小图标浮在人物身上 —— 这正是「不知道怎么选职业」的观感来源。
+            // 作为第一个子元素、z-index:0，后面的输入框/按钮按 DOM 顺序自然盖在它上面。
+            bg.style.cssText = 'position:absolute;left:0;top:0;z-index:0;pointer-events:none;';
             win.insertBefore(bg, win.firstChild);
         });
 
         // 职业/性别/发型/确定/关闭按钮（并行加载，坐标照 FState.pas；透明热区 + 按下态 img）
-        const mk = (idx, l, t, onClick) => this._prgUrl(idx).then((url) => {
+        const mk = (idx, l, t, onClick, group = null, value = 0, tip = '') =>
+            this._prgUrl(idx).then((url) => {
             if (!url) return;
             const hot = document.createElement('div');
             hot.style.cssText = `position:absolute;left:${l}px;top:${t}px;cursor:pointer;`;
+            hot.title = tip;                       // 悬停提示：武士/法师/道士、男/女…
             const el = document.createElement('img');
             el.src = url;
             el.draggable = false;
@@ -308,36 +338,65 @@ export class SelectCharScene extends Scene {
             });
             hot.appendChild(el);
             hot.addEventListener('mousedown', () => { el.style.visibility = 'visible'; });
-            const restore = () => { el.style.visibility = 'hidden'; };
+            // 抬起/移出后恢复成「当前选中项高亮」，而不是全部隐藏：
+            // 原版选中职业/性别后按钮保持按下态，否则用户看不出选了哪个。
+            const restore = () => this._refreshCreateSelection();
             hot.addEventListener('mouseup', restore);
             hot.addEventListener('mouseleave', restore);
             hot.addEventListener('click', onClick);
             win.appendChild(hot);
+            this._createBtns.push({ hot, el, group, value });
         });
         // 职业（DccWarrior(48,157) DccWizzard(93,157) DccMonk(138,157)）
         // 性别（DccMale(93,231) DccFemale(138,231)）
         // 发型（DccLeftHair(76,308) DccRightHair(170,308)）
         // 确定（DccOk 图62 (102,359)）/ 关闭（DccClose 图64 (248,31)）
         return Promise.all([
-            mk(74, 48, 157, () => this._setJob(0)),
-            mk(75, 93, 157, () => this._setJob(1)),
-            mk(76, 138, 157, () => this._setJob(2)),
-            mk(77, 93, 231, () => this._setSex(0)),
-            mk(78, 138, 231, () => this._setSex(1)),
-            mk(79, 76, 308, () => this._setHair(-1)),
-            mk(80, 170, 308, () => this._setHair(+1)),
-            mk(62, 102, 359, () => this._createOk()),
-            mk(64, 248, 31, () => this._createClose()),
+            mk(74, 48, 157, () => this._setJob(0), 'job', 0, '武士（战士）'),
+            mk(75, 93, 157, () => this._setJob(1), 'job', 1, '魔法师（法师）'),
+            mk(76, 138, 157, () => this._setJob(2), 'job', 2, '道士'),
+            mk(77, 93, 231, () => this._setSex(0), 'sex', 0, '男'),
+            mk(78, 138, 231, () => this._setSex(1), 'sex', 1, '女'),
+            mk(79, 76, 308, () => this._setHair(-1), null, 0, '上一个发型'),
+            mk(80, 170, 308, () => this._setHair(+1), null, 0, '下一个发型'),
+            mk(62, 102, 359, () => this._createOk(), null, 0, '确定创建角色'),
+            mk(64, 248, 31, () => this._createClose(), null, 0, '关闭'),
         ]).then(() => {
+            this._refreshCreateSelection();
             name.focus();
             this._keyHandler = (e) => { if (e.key === 'Enter') this._createOk(); };
             document.addEventListener('keydown', this._keyHandler);
         });
     }
 
-    _setJob(job) { this.createState.job = job; }
-    _setSex(sex) { this.createState.sex = sex; }
-    _setHair(d) { this.createState.hair = (this.createState.hair + d + 10) % 10; }
+    /** 把当前选择的职业/性别以「按下态」高亮，并刷新状态文字（原版 TDButton.Down 语义）。 */
+    _refreshCreateSelection() {
+        const st = this.createState || { job: 0, sex: 0, hair: 0 };
+        for (const b of this._createBtns || []) {
+            const on = (b.group === 'job' && st.job === b.value)
+                    || (b.group === 'sex' && st.sex === b.value);
+            b.el.style.visibility = on ? 'visible' : 'hidden';
+        }
+        if (this._createInfo) {
+            this._createInfo.textContent = `职业：${JOB_NAMES[st.job]}　`
+                + `性别：${st.sex ? '女' : '男'}　发型：${st.hair + 1}`;
+        }
+    }
+
+    _setJob(job) {
+        this.createState.job = Math.max(0, Math.min(2, job | 0));
+        this._refreshCreateSelection();
+        this._ensurePortraits();     // 原版 SelChrNewJob → SelectChr → PlayScene 立刻换人物
+    }
+    _setSex(sex) {
+        this.createState.sex = sex ? 1 : 0;
+        this._refreshCreateSelection();
+        this._ensurePortraits();     // 原版 SelChrNewm_btSex 同理
+    }
+    _setHair(d) {
+        this.createState.hair = (this.createState.hair + d + 10) % 10;
+        this._refreshCreateSelection();
+    }
 
     _createOk() {
         const name = this._nameInput.value.trim();
@@ -349,7 +408,11 @@ export class SelectCharScene extends Scene {
     _createClose() {
         this.createMode = false;
         if (this.createWin) { this.createWin.remove(); this.createWin = null; }
+        this._createBtns = [];
+        this._createInfo = null;
+        this._nameInput = null;
         document.removeEventListener('keydown', this._keyHandler);
+        this._ensurePortraits();     // 恢复成真实角色列表需要的帧，别把预览帧留在 _wanted
     }
 
     // ---- 消息 ---------------------------------------------------------------
@@ -427,7 +490,8 @@ export class SelectCharScene extends Scene {
         // 两个角色立绘
         for (let n = 0; n < 2; n++) {
             const c = this.chars[n];
-            if (!c) continue;
+            // 建角中的槽位改由下方的实时预览绘制
+            if (!c || (this.createMode && n === this.newIndex)) continue;
             const pos = CHAR_POS[c.job] && CHAR_POS[c.job][c.sex];
             if (!pos) continue;
             const off = n === 1 ? { bx: 340, by: 2, fx: 340, fy: 2 } : { bx: 0, by: 0, fx: 0, fy: 0 };
@@ -456,6 +520,26 @@ export class SelectCharScene extends Scene {
                 this._text(ctx, c.name, 671, 496);
                 this._text(ctx, String(c.level), 671, 525);
                 this._text(ctx, JOB_NAMES[c.job] || '', 671, 555);
+            }
+        }
+
+        // 建角实时预览：原版 MakeNewChar 把 ChrArr[NewIndex].Valid := TRUE，
+        // PlayScene 按 UserChr.Job/Sex 绘制该槽人物，点职业/性别按钮立刻换形象。
+        // 旧版这里该槽是空的 → 点职业按钮完全没反馈，用户以为「不能选职业」。
+        if (this.createMode && this.createState) {
+            const n = this.newIndex;
+            const job = Math.max(0, Math.min(2, this.createState.job | 0));
+            const sex = this.createState.sex ? 1 : 0;
+            const pos = CHAR_POS[job] && CHAR_POS[job][sex];
+            if (pos) {
+                const dx = n === 1 ? 340 : 0;
+                const dy = n === 1 ? 2 : 0;
+                const img = 40 + job * 40 + this._frame + sex * 120;
+                const tex = this._chrTex(img, n);
+                if (tex) ctx.drawImage(tex, pos.fx + dx, pos.fy + dy);
+                const lx = n === 0 ? 117 : 671;
+                this._text(ctx, this._nameInput ? this._nameInput.value.trim() : '', lx, n === 0 ? 494 : 496);
+                this._text(ctx, JOB_NAMES[job], lx, n === 0 ? 553 : 555);
             }
         }
     }

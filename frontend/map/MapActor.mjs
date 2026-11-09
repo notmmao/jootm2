@@ -12,6 +12,9 @@ import { PALETTE_RGBA } from '../gfx/palette.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
+// 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑会被看成「一条一条的黑条」，
+// 用接近地砖暗部的颜色 + 借用邻格像素，保证任何时刻都不会露出纯黑条带。
+const FLOOR_FALLBACK = '#1e1a12';
 
 export class MapActor {
     constructor(viewW, viewH) {
@@ -191,7 +194,7 @@ export class MapActor {
         canvas.width = CW;
         canvas.height = CH;
         const fctx = canvas.getContext('2d', { alpha: false });
-        fctx.fillStyle = '#000';
+        fctx.fillStyle = FLOOR_FALLBACK;
         fctx.fillRect(0, 0, CW, CH);
         const cells = new Uint8Array(gw * gh);
         if (f && f.gw === gw && f.gh === gh) {
@@ -210,14 +213,45 @@ export class MapActor {
         return this._floor;
     }
 
-    /** 单张地面纹理的就绪状态；未就绪时按需触发加载（空图/failed 视为不需要）。 */
+    /**
+     * 单张地面纹理的就绪状态。
+     * 注意：failed 不等于「这一格没有图」——首屏预取超时 / Range 请求抖动都会置 failed，
+     * 旧实现直接当成完成并把整格涂黑 + cells=1 永久锁定，正是「一条一条带间隔的黑条」根因。
+     * 现在 failed 超过 5 秒就删占位重新加载，期间该格保持未完成（借用邻格像素）。
+     */
     _floorTex(key, index) {
         if (index == null || index < 0) return { ready: true, tex: null };
-        const hit = this._texCache.get(key + '/' + index);
+        const k = key + '/' + index;
+        const hit = this._texCache.get(k);
         if (hit && hit.canvas) return { ready: true, tex: hit };
-        if (hit && hit.failed) return { ready: true, tex: null };
+        if (hit && hit.failed) {
+            if (Date.now() - (hit.failedAt || 0) > 5000) {
+                this._texCache.delete(k);
+                this._getTex(key, index);   // 重新发起（内部会再放占位）
+            }
+            return { ready: false, tex: null };
+        }
         if (!hit) this._getTex(key, index);
         return { ready: false, tex: null };   // 加载中：整格等待，不画半成品
+    }
+
+    /**
+     * 未就绪的格子先借用相邻已绘制格的像素，避免纯黑条带；不置 cells=1，
+     * 纹理到达后下一帧会用真实内容覆盖。canvas 允许以自身为源 drawImage。
+     */
+    _borrowFloorCell(f, ix, iy, px, py) {
+        const neighbours = [[ix - 1, iy], [ix, iy - 1], [ix + 1, iy], [ix, iy + 1]];
+        for (const [nx, ny] of neighbours) {
+            if (nx < 0 || ny < 0 || nx >= f.gw || ny >= f.gh) continue;
+            if (!f.cells[ny * f.gw + nx]) continue;
+            try {
+                f.ctx.drawImage(f.canvas, nx * TILE_W, ny * TILE_H, TILE_W, TILE_H,
+                                px, py, TILE_W, TILE_H);
+                return;
+            } catch (e) { break; }
+        }
+        f.ctx.fillStyle = FLOOR_FALLBACK;
+        f.ctx.fillRect(px, py, TILE_W, TILE_H);
     }
 
     _paintFloorCells(m, f) {
@@ -226,19 +260,30 @@ export class MapActor {
                 const idx = iy * f.gw + ix;
                 if (f.cells[idx]) continue;
                 const gx = f.wx0 + ix, gy = f.wy0 + iy;
+                const px = ix * TILE_W, py = iy * TILE_H;
                 if (gx < 0 || gy < 0 || gx >= m.width || gy >= m.height) {
-                    f.cells[idx] = 1;    // 地图外，保持黑色
+                    // 地图外沿用纯黑（原版边界），但同样锁定，避免每帧重涂
+                    f.ctx.fillStyle = '#000';
+                    f.ctx.fillRect(px, py, TILE_W, TILE_H);
+                    f.cells[idx] = 1;
                     continue;
                 }
-                const t = m.tiles[gx][gy];
+                const col = m.tiles[gx];
+                const t = col && col[gy];
+                if (!t) { this._borrowFloorCell(f, ix, iy, px, py); continue; }
                 const bgx = gx & ~1, bgy = gy & ~1;
                 const bt = m.tiles[bgx] && m.tiles[bgx][bgy];
                 const bng = this._floorTex(this._libKey('tiles', bt ? bt.bngFile : 0),
                                            bt ? bt.bng : -1);
                 const mid = this._floorTex(this._libKey('smtiles', t.midFile), t.mid);
-                if (!bng.ready || !mid.ready) continue;   // 原子：整格一起出现
+                if (!bng.ready || !mid.ready) {
+                    this._borrowFloorCell(f, ix, iy, px, py);   // 原子：整格一起出现，但不留黑
+                    continue;
+                }
 
-                const px = ix * TILE_W, py = iy * TILE_H;
+                // 先铺兜底底色：任一图层缺失/尺寸不足时也不会露出纯黑
+                f.ctx.fillStyle = FLOOR_FALLBACK;
+                f.ctx.fillRect(px, py, TILE_W, TILE_H);
                 if (bng.tex) {
                     const src = bng.tex.canvas;
                     const qx = (gx % 2) * TILE_W, qy = (gy % 2) * TILE_H;
@@ -246,6 +291,9 @@ export class MapActor {
                         f.ctx.drawImage(src, qx, qy,
                             Math.min(TILE_W, src.width - qx), Math.min(TILE_H, src.height - qy),
                             px, py, TILE_W, TILE_H);
+                    } else if (src.width > 0 && src.height > 0) {
+                        // 少数 tiles 图只有单格尺寸（不足 96×64），象限越界时整图铺满当前格
+                        f.ctx.drawImage(src, 0, 0, src.width, src.height, px, py, TILE_W, TILE_H);
                     }
                 }
                 if (mid.tex) f.ctx.drawImage(mid.tex.canvas, px, py);

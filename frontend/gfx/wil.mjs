@@ -7,15 +7,19 @@ import { scheduler } from './scheduler.mjs';
 
 const CHUNK_SIZE = 512 * 1024;   // 单次请求最大字节数
 
-// 兼容创建离屏画布
+// 创建纹理画布。
+// 主线程一律用 HTMLCanvasElement：OffscreenCanvas 的 2D 上下文在部分 Chromium 环境
+// （无头 / GPU 读回异常）里 convertToBlob() 会抛 NotReadableError，且该失败不可重试，
+// 表现为 UI 按钮贴图整片空白。HTML canvas 的 toDataURL() 读回稳定，同样可作为
+// drawImage 的源，性能等价；仅在没有 document 的 worker 里退回 OffscreenCanvas。
 function createCanvas(w, h) {
-    if (typeof OffscreenCanvas !== 'undefined') {
-        return new OffscreenCanvas(w, h);
+    if (typeof document !== 'undefined') {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        return c;
     }
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    return c;
+    return new OffscreenCanvas(w, h);
 }
 
 export class WIL {

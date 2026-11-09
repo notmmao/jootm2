@@ -185,7 +185,8 @@ export class PlayScene extends Scene {
         this._holding = false;       // 鼠标按住状态（按住持续移动，松开停止）
         this._mouseRun = false;      // 是否跑（右键）
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
-        this._lastMoveAt = 0;        // 上次移动时间戳
+        this._lastMoveAt = 0;        // 上次发送移动的时间戳（发送节流，对所有来源共用）
+        this._pendingStep = false;   // 单击待发的一步（受节流约束，快速连点不会堆积成瞬移）
         this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
         this._dirAttackHolding = false;  // shift+左键 方向攻击持续状态（按住持续挥刀，松开停止）
         this._dirAttackDir = -1;         // 方向攻击方向（鼠标相对人物，0-7）
@@ -328,6 +329,12 @@ export class PlayScene extends Scene {
         this._miniMapTex = null;
         this._miniMapScale = 1.5;   // mmap 底图 1.5 像素/格；兜底自生成图 1 像素/格
         this._miniMapStyle = 0;     // 0=关、1=半透明、2=不透明（原版 ViewMiniMapStyle）
+        // 大地图 / 系统菜单（原版 TAB 打开地图、切换大小地图、关闭；ESC 关窗口/开系统菜单）
+        this._bigMapOpen = false;
+        this._bigMapPanel = null;
+        this._bigMapCanvas = null;
+        this._bigMapTitle = null;
+        this._sysMenu = null;
 
         // 聊天记录区（208,470，374×108 = 9 行 × 12px）
         // 原版没有滚动条：固定 9 行窗口 + ChatBoardTop 偏移，↑↓/PgUp/PgDn 滚动（ClMain.pas:1902-1925）
@@ -455,6 +462,8 @@ export class PlayScene extends Scene {
         // 背包窗口（F9）/ 状态窗口（F10）—— 原版 DItemBag / DStateWin
         this._buildStateWin();
         this._buildBag();
+        // 进游戏给一次快捷键提示（原版靠玩家口口相传，这里直接列出，避免"不知道怎么打开"）
+        this._log('[提示] Tab 大地图 / V 小地图 / Esc 系统菜单 / F9 背包 / F10 状态 / F11 技能', '#e8d9b0');
     }
 
     /**
@@ -658,6 +667,20 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { this._shiftDown = true; return; }
+        // Tab：打开地图 → 切换大地图/小地图 → 关闭（原版 TAB 打开地图、切换大小地图、关闭地图）
+        if (e.code === 'Tab') { e.preventDefault(); this._cycleMapView(); return; }
+        // V：小地图 关闭 → 半透明 → 不透明 → 关闭（原版 ViewMiniMapStyle，HUD 按钮上的提示也是 V）
+        if (e.code === 'KeyV') { e.preventDefault(); this._toggleMiniMap(); return; }
+        // Esc：优先关闭最上层窗口，没有窗口时打开系统菜单（原版 ESC 关窗口 / 打开系统设置）
+        if (e.code === 'Escape') {
+            e.preventDefault();
+            if (!this._closeTopWindow()) this._toggleSystemMenu();
+            return;
+        }
+        // F9 背包 / F10 状态 / F11 技能（原版 ClMain.pas FormKeyDown）
+        if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); return; }
+        if (e.code === 'F10') { e.preventDefault(); this.statePage = 0; this._toggleStateWin(); return; }
+        if (e.code === 'F11') { e.preventDefault(); this._openSkillSetup(); return; }
         // 回车 / @ / ! / 斜杠 唤出聊天输入框（对齐原版 ClMain.pas:2005-2027）
         if (e.key === 'Enter' || e.key === '@' || e.key === '!' || e.key === '/') {
             e.preventDefault();
@@ -676,8 +699,7 @@ export class PlayScene extends Scene {
         if (e.code === 'PageUp') { e.preventDefault(); this._scrollChat(-VIEWCHATLINE); return; }
         if (e.code === 'PageDown') { e.preventDefault(); this._scrollChat(VIEWCHATLINE); return; }
         // Space 不绑定攻击（原版 `ClMain.pas` 里没有 VK_SPACE 分支）
-        // 背包(F9)/状态(F10)/技能(F12) 不接快捷键——统一走 HUD 右上角的按钮（状态/背包/技能/声音）
-        // 小地图同样只用底板按钮切换
+        // F9/F10/F11、Tab、V、Esc 已在函数开头处理；HUD 按钮仍然保留，两条入口等价。
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
@@ -779,6 +801,11 @@ export class PlayScene extends Scene {
         if (!this.self || !this.mapActor.map) return;
         if (e.button !== 0 && e.button !== 2) return;   // 0=左键 2=右键
         e.preventDefault();
+        // 大地图 / 系统菜单是模态的：第一次点击只关闭面板，不穿透成游戏内移动/攻击
+        if (this._bigMapOpen || (this._sysMenu && this._sysMenu.style.display === 'block')) {
+            this._closeTopWindow();
+            return;
+        }
         // 选中（拿起）物品时点击画面 → 扔到对应格子（原版 DropItem）
         if (this.pickedItem) {
             const { tx, ty } = this._gridFromMouse(e);
@@ -859,8 +886,19 @@ export class PlayScene extends Scene {
         this._holding = true;
         this._mouseRun = run;
         this._mouseDir = dir;
-        // 立即可以走第一步（重置间隔，让「点一下」也走一步）
-        this._lastMoveAt = 0;
+        // 首次点击保持「立刻走一步」的手感，但**不能重置节流**：旧实现每次点击把
+        // _lastMoveAt 归零，快速连点会绕过 WALK_INTERVAL 连发 N 条 move，服务端一次推进
+        // N 格，镜头匀速追赶期间动画却已按 600ms 超时回 stand →「坐标还在动、人却不走路」。
+        // 现在距离上次发送不足一个间隔时只挂 _pendingStep（布尔，N 次连点最多补 1 步）。
+        const stepDur = run ? RUN_INTERVAL : WALK_INTERVAL;
+        const now = Date.now();
+        if (now - this._lastMoveAt >= stepDur) {
+            this.conn.send('move', { dir, run });
+            this._lastMoveAt = now;
+            this._pendingStep = false;
+        } else {
+            this._pendingStep = true;
+        }
     }
 
     // 鼠标移动：始终记录最近位置 + 悬停施法目标（原版 FocusCret），按住时实时更新移动方向
@@ -1424,6 +1462,205 @@ export class PlayScene extends Scene {
         }
         this._log(this._miniMapStyle === 0 ? '小地图：关闭'
             : (this._miniMapStyle === 1 ? '小地图：半透明' : '小地图：不透明'), '#e8d9b0');
+    }
+
+    // ---- 大地图（Tab）/ 系统菜单（Esc）------------------------------------
+    // 原版 ClMain.pas：TAB 打开地图、切换大地图与小地图、再按关闭；
+    // ESC 先关窗口，没有窗口时打开系统设置菜单。这里用 DOM 覆盖层实现，
+    // 底图复用 mmap.wil / 兜底自生成的小地图纹理（同一份，不再额外请求资源）。
+
+    /** Tab：关 → 小地图 → 大地图 → 关（原版 TAB 的三态循环）。 */
+    _cycleMapView() {
+        if (this._bigMapOpen) {
+            this._closeBigMap();
+            this._miniMapStyle = 0;
+            this._renderMiniMap();
+            this._log('地图：关闭', '#e8d9b0');
+            return;
+        }
+        if (this._miniMapStyle) {
+            this._openBigMap();
+            this._log('地图：大地图（再按 Tab 关闭）', '#e8d9b0');
+            return;
+        }
+        this._miniMapStyle = 2;
+        if (!this._miniMapTex) {
+            this._loadMiniMapTexture(this._miniMapIndex != null ? this._miniMapIndex : -1);
+        }
+        this._renderMiniMap();
+        this._log('地图：小地图（再按 Tab 看大地图）', '#e8d9b0');
+    }
+
+    _openBigMap() {
+        this._bigMapOpen = true;
+        if (!this._miniMapTex) {
+            this._loadMiniMapTexture(this._miniMapIndex != null ? this._miniMapIndex : -1);
+        }
+        this._buildBigMapPanel();
+        if (this._bigMapPanel) this._bigMapPanel.style.display = 'block';
+        this._renderBigMap();
+    }
+
+    _closeBigMap() {
+        this._bigMapOpen = false;
+        if (this._bigMapPanel) this._bigMapPanel.style.display = 'none';
+    }
+
+    _buildBigMapPanel() {
+        if (this._bigMapPanel || !this.hudEl) return;
+        const p = document.createElement('div');
+        p.style.cssText = 'position:absolute;left:100px;top:36px;width:600px;height:420px;'
+            + 'background:rgba(8,10,14,0.94);border:2px solid #8a7448;box-sizing:border-box;'
+            + 'pointer-events:auto;display:none;z-index:60;font-family:SimSun,serif;color:#e8d9b0;';
+        const title = document.createElement('div');
+        title.style.cssText = 'height:26px;line-height:26px;padding-left:10px;font-size:14px;'
+            + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #8a7448;';
+        title.textContent = '地图';
+        p.appendChild(title);
+        this._bigMapTitle = title;
+
+        const cv = document.createElement('canvas');
+        cv.width = 580;
+        cv.height = 350;
+        cv.style.cssText = 'position:absolute;left:8px;top:34px;width:580px;height:350px;'
+            + 'background:#0b0d0a;image-rendering:pixelated;';
+        p.appendChild(cv);
+        this._bigMapCanvas = cv;
+
+        const tip = document.createElement('div');
+        tip.style.cssText = 'position:absolute;left:10px;top:392px;font-size:11px;color:#9fb08a;';
+        tip.textContent = '白=自己  红=怪物  黄=NPC  蓝=玩家   |   Tab 关闭 / Esc 关闭 / 点击面板关闭';
+        p.appendChild(tip);
+        p.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            this._closeBigMap();
+        });
+        this.hudEl.appendChild(p);       // hudEl 随 onExit 的 gui.innerHTML='' 一起清理
+        this._bigMapPanel = p;
+    }
+
+    /** 整张地图等比铺进面板，并标出自己/怪物/NPC/其他玩家（复用小地图底图）。 */
+    _renderBigMap() {
+        if (!this._bigMapOpen) return;
+        this._buildBigMapPanel();
+        const cv = this._bigMapCanvas;
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#0b0d0a';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        const tex = this._miniMapTex;
+        if (!tex || !this.self) {
+            ctx.fillStyle = '#c9b98a';
+            ctx.font = '14px SimSun,serif';
+            ctx.fillText('该地图暂无地图资料', 12, 24);
+            return;
+        }
+        const sc = this._miniMapScale || 1.5;
+        const mapW = Math.max(1, tex.width / sc);
+        const mapH = Math.max(1, tex.height / sc);
+        const k = Math.min((cv.width - 16) / tex.width, (cv.height - 16) / tex.height);
+        const w = Math.max(1, Math.floor(tex.width * k));
+        const h = Math.max(1, Math.floor(tex.height * k));
+        const bx = Math.floor((cv.width - w) / 2);
+        const by = Math.floor((cv.height - h) / 2);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tex, 0, 0, tex.width, tex.height, bx, by, w, h);
+        const dot = (gx, gy, color) => {
+            const dx = Math.round(bx + (gx / mapW) * w);
+            const dy = Math.round(by + (gy / mapH) * h);
+            ctx.fillStyle = color;
+            ctx.fillRect(dx - 1, dy - 1, 3, 3);
+        };
+        for (const e of this.entities.values()) {
+            if (e.alive === false || e.id === this.self.id) continue;
+            if (e.type === 'monster') dot(e.x, e.y, '#f87171');
+            else if (e.type === 'npc') dot(e.x, e.y, '#e5c07b');
+            else dot(e.x, e.y, '#7dd3fc');
+        }
+        dot(this.self.x, this.self.y, '#ffffff');
+        // 与 HUD 左下角同一口径：优先中文地图名 title（如「比奇省」），
+        // 服务端 name 是内部编号 "0"，直接拿来当标题会显示成数字。
+        const sm = (this.snapshot && this.snapshot.map) || this.mapActor.map || {};
+        const name = sm.title || sm.name || '未知地图';
+        if (this._bigMapTitle) {
+            this._bigMapTitle.textContent = `${name}　(${this.self.x}, ${this.self.y})`;
+        }
+    }
+
+    /** 关掉最上层的一个窗口；返回 false 表示没有任何窗口可关（此时 Esc 打开系统菜单）。 */
+    _closeTopWindow() {
+        if (this._bigMapOpen) { this._closeBigMap(); return true; }
+        if (this._sysMenu && this._sysMenu.style.display === 'block') {
+            this._closeSystemMenu();
+            return true;
+        }
+        if (this.shopPanel) { this._closeShopPanel(); return true; }
+        if (this.npcDlg) { this._closeNpcDialog(); return true; }
+        if (this.stateWin && this.stateWin.style.display === 'block') {
+            this.stateWin.style.display = 'none';
+            return true;
+        }
+        if (this.bagPanel && this.bagPanel.style.display === 'block') {
+            this.bagPanel.style.display = 'none';
+            return true;
+        }
+        return false;
+    }
+
+    _toggleSystemMenu() {
+        this._buildSystemMenu();
+        if (!this._sysMenu) return;
+        const open = this._sysMenu.style.display === 'block';
+        this._sysMenu.style.display = open ? 'none' : 'block';
+    }
+
+    _closeSystemMenu() {
+        if (this._sysMenu) this._sysMenu.style.display = 'none';
+    }
+
+    _buildSystemMenu() {
+        if (this._sysMenu || !this.hudEl) return;
+        const p = document.createElement('div');
+        p.style.cssText = 'position:absolute;left:285px;top:120px;width:230px;padding:6px;'
+            + 'background:rgba(10,12,16,0.96);border:2px solid #8a7448;box-sizing:border-box;'
+            + 'pointer-events:auto;display:none;z-index:70;font-family:SimSun,serif;color:#e8d9b0;';
+        const title = document.createElement('div');
+        title.style.cssText = 'height:24px;line-height:24px;text-align:center;font-size:14px;'
+            + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #8a7448;margin-bottom:6px;';
+        title.textContent = '系统菜单';
+        p.appendChild(title);
+        const mk = (label, fn) => {
+            const b = document.createElement('div');
+            b.style.cssText = 'height:24px;line-height:24px;text-align:center;cursor:pointer;'
+                + 'border:1px solid #5c4d30;margin:3px 6px;background:#241d12;'
+                + 'color:#ffe9a8;font-size:12px;';
+            b.textContent = label;
+            b.addEventListener('mouseenter', () => { b.style.background = '#3a2f1c'; });
+            b.addEventListener('mouseleave', () => { b.style.background = '#241d12'; });
+            b.addEventListener('mousedown', (e) => e.stopPropagation());
+            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+            p.appendChild(b);
+        };
+        mk('返回游戏', () => this._closeSystemMenu());
+        mk('大地图 (Tab)', () => { this._closeSystemMenu(); this._openBigMap(); });
+        mk('小地图 (V)', () => { this._closeSystemMenu(); this._toggleMiniMap(); });
+        mk('音效：开 / 关', () => this._toggleSound());
+        mk('背包 (F9)', () => { this._closeSystemMenu(); this._toggleBag(); });
+        mk('状态 (F10)', () => { this._closeSystemMenu(); this.statePage = 0; this._toggleStateWin(); });
+        mk('技能 (F11)', () => { this._closeSystemMenu(); this._openSkillSetup(); });
+        mk('快捷键说明', () => { this._closeSystemMenu(); this._showKeyHints(); });
+        mk('返回角色选择', () => { this._closeSystemMenu(); this._logout(); });
+        const tip = document.createElement('div');
+        tip.style.cssText = 'margin:6px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
+        tip.textContent = 'Esc 关闭';
+        p.appendChild(tip);
+        this.hudEl.appendChild(p);
+        this._sysMenu = p;
+    }
+
+    _showKeyHints() {
+        this._log('[快捷键] Tab 大地图 / V 小地图 / Esc 系统菜单 / F9 背包 / F10 状态 / F11 技能 / F1-F8 技能栏', '#e8d9b0');
+        this._log('[鼠标] 左键走或攻击 / 右键跑 / Shift+左键强制攻击 / 1-6 喝药 / 回车聊天', '#e8d9b0');
     }
 
     /** 屏幕上方系统消息飘字（原版 DScreen.AddSysMsg：3 秒后消失、最多 10 条）。 */
@@ -2621,12 +2858,15 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 按住持续朝当前方向移动（主循环按间隔节流，松开 _holding=false 即停）
-        if (this._holding && this.self && this._mouseDir >= 0) {
+        // 按住持续朝当前方向移动；_pendingStep 让「快点一下」也能走一步。
+        // 两种来源共用 _lastMoveAt 节流，所以快速连点只会合并成一步/间隔，
+        // 不会向服务端灌入一串 move 造成坐标跳跃与动画脱节。
+        if ((this._holding || this._pendingStep) && this.self && this._mouseDir >= 0) {
             const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
             if (now - this._lastMoveAt >= stepDur) {
                 this.conn.send('move', { dir: this._mouseDir, run: this._mouseRun });
                 this._lastMoveAt = now;
+                this._pendingStep = false;
             }
         }
         // 方向攻击持续（shift+左键按住）：每完成一次攻击动作 + 攻速间隔到，就继续挥刀（空挥也持续）
@@ -2664,10 +2904,17 @@ export class PlayScene extends Scene {
         const vcy = Math.floor(this._viewY);
         const shiftX = Math.round((this._viewX - vcx) * 48);
         const shiftY = Math.round((this._viewY - vcy) * 32);
+        // 镜头还在追赶逻辑坐标时，自己的走/跑动画必须继续播。
+        // 一次推进多格（连点堆积 / 网络抖动 / 冲撞）时镜头要花 N×WALK_INTERVAL 才追上，
+        // 固定的 600ms 超时会过早把动作切回 stand，出现「地图还在滑、人却站着不动」。
+        const selfCatchingUp = this._viewX != null
+            && (Math.abs(this.self.x - this._viewX) > 0.02
+                || Math.abs(this.self.y - this._viewY) > 0.02);
         const entities = [];
         for (const e of this.entities.values()) {
             // 移动停止超时回站立（所有实体：连续移动动画循环，停止后归位 stand）
-            if ((e._action === 'walk' || e._action === 'run')
+            const stillScrolling = (e.id === this.self.id) && selfCatchingUp;
+            if (!stillScrolling && (e._action === 'walk' || e._action === 'run')
                 && (now - (e._lastMoveAt || 0)) > 600) {
                 e._action = 'stand';
             }
@@ -2710,6 +2957,7 @@ export class PlayScene extends Scene {
         this._renderGroundItems(ctx);
         this._renderHud();
         this._renderMiniMap();
+        this._renderBigMap();   // 大地图打开时逐帧刷新自己/怪物位置
     }
 
     // 实体精灵缓存（entityAdd 替换对象后重建）
@@ -3158,6 +3406,13 @@ export class PlayScene extends Scene {
         this.pickedSource = null;   // 'bag' | 'equip'
         this.pickedSlot = -1;       // pickedSource === 'equip' 时的槽位号
         this._pickedCell = null;
+        // 大地图 / 系统菜单等 HUD 覆盖层随 gui.innerHTML 一起移除，引用一并置空
+        this._bigMapOpen = false;
+        this._bigMapPanel = null;
+        this._bigMapCanvas = null;
+        this._bigMapTitle = null;
+        this._sysMenu = null;
+        this._pendingStep = false;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
     }

@@ -616,3 +616,42 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 ### 15.6 仍待用户确认（**未硬改**）
 
 若「不对」指的是**登录/选角那两首不是记忆中的经典旋律**：那是资源包内容问题，不是代码映射错误。博客园/17173 的玩家改名方案是把 `Game over2.wav` 当 `Log-in-long2.wav`、`main_theme.wav` 当 `sellect-loop2.wav` 使用（即上表 `gameover` / `theme` 两键）。本轮**不擅自替换默认曲**，因为无原版源码依据；用户可用上表命令试听后指定，再把对应键设为默认即可。
+
+---
+
+## 16. 四项实测反馈（建角选职业 / 连点无动画 / 条带黑条 / 大地图与系统菜单）（2026-11-09 第五轮）
+
+用户一次性反馈 4 项，要求「如果上面功能是缺失，就参考 delphi 版本补上」。核查结论：**4 项都不是「功能不存在」，而是可见性 / 节流 / 缓存 / 入口四类实现缺口**；服务端 `pyserver/**` 与协议本轮零改动，全部改在前端（+ 一处测试断言）。原版依据：`IntroScn.pas::MakeNewChar / SelChrNewJob / SelChrNewm_btSex`、`FState.pas::DCreateChr`、`ClMain.pas` 的 `FormKeyDown`（TAB / ESC / F9-F11）与 `ViewMiniMapStyle`。
+
+### 16.1 四项修复对照
+
+| 用户问题 | 实际根因 | 改动 | 文件 |
+| --- | --- | --- | --- |
+| **1. 创建人物时如何选职业?** | 按钮与 `createCharacter{job,sex,hair}` 参数一直存在，但 ① `DCreateChr` 背景图用 `z-index:-1`，父容器未建立层叠上下文 → 整张面板（含职业按钮底图）掉到游戏 canvas 后面，只剩几个「按下态」小图标浮在人物身上；② 选中态不保持、无文字状态、点职业后立绘不换 | 背景图改 `z-index:0` + `pointer-events:none`（与 `PlayScene` NPC 对话框的既有做法一致）；新增 `_refreshCreateSelection()` / `_setJob()` / `_setSex()` / `_setHair()`，选中按钮保持按下态、底部显示「职业／性别／发型」、按钮加 `title` 悬停提示；`_ensurePortraits()` 在建角模式预取当前职业/性别的 10 帧站立 + 冻结帧；`render()` 在建角槽实时绘制所选职业/性别立绘；操作提示移到性别与发型按钮之间的空白带（原 `top:131` 会压住面板自带「职业」二字） | `frontend/ui/SelectCharScene.mjs` |
+| **2. 快速点击多次，人物坐标还在位移但不播动画** | `_onMouseDown` 每次点击把 `_lastMoveAt` 归零，绕过 `WALK_INTERVAL` / `RUN_INTERVAL` 节流 → 连点灌入 N 条 `move`，服务端无 cooldown 连续推进；镜头匀速追赶要花 N×间隔，固定 600 ms 动画超时却先把动作切回 `stand` | 新增 `_pendingStep` 布尔：距离上次发送不足一个间隔时只挂 1 个待发步骤（N 次连点最多补 1 步），与按住移动共用 `_lastMoveAt` 节流；render 新增 `selfCatchingUp` 判定，镜头仍在追逻辑坐标时不把自身 `walk/run` 切回 `stand` | `frontend/scene/PlayScene.mjs` |
+| **3. 地图出现「一条一条、带间隔」的黑条** | `_floorTex()` 把 `failed` 纹理当成 `ready`，`_paintFloorCells()` 随即把该格涂成纯黑并 `cells[idx]=1` **永久锁定**；首屏预取超时 / Range 抖动留下的 failed 占位就是那些间隔黑条，且永远不会恢复 | 兜底底色 `FLOOR_FALLBACK='#1e1a12'`（初始填充不再是 `#000`）；`failed` 超过 5 秒删占位重新 `_getTex()`；未就绪格改 `_borrowFloorCell()` 借用相邻已绘制格像素且**不写 cells=1**，纹理到位后下一帧覆盖；`tiles` 图不足 96×64（象限越界）时整图铺满当前格 | `frontend/map/MapActor.mjs` |
+| **4. 如何看大地图？如何打开系统菜单？** | 只有 HUD 按钮，`_onKeyDown` 未绑定 Tab / V / Esc / F9 / F10 / F11，注释甚至写着「不接快捷键」；没有大地图与系统菜单面板 | 按原版补 `Tab` 三态（关→小地图→大地图→关）、`V`（关→半透明→不透明）、`Esc`（先关最上层窗口，无窗口则开系统菜单）、`F9` 背包 / `F10` 状态 / `F11` 技能；新增 DOM 覆盖层大地图（复用 `mmap` 底图，标白=自己／红=怪／黄=NPC／蓝=玩家）与系统菜单；模态面板首次点击只关闭不穿透成移动/攻击；进游戏给一行快捷键提示；`onExit` 清理新增状态 | `frontend/scene/PlayScene.mjs` |
+
+### 16.2 顺带修掉的两个既有缺陷（都是「验证暴露出来的真问题」）
+
+1. **UI 贴图偶发整片空白**：`wil.mjs::createCanvas()` 原先一律返回 `OffscreenCanvas`。实测无头 Chromium 下 `convertToBlob()` 会抛 `NotReadableError: Readback of the source image has failed`，且**同一画布重试 4 次仍失败**、内容全透明；`Prguse[62]/[64]`（确定/关闭按钮）因此曾完全空白，建角窗口的 e2e 也被这个异常卡住。主线程全部改用 `HTMLCanvasElement`（`toDataURL()` 读回稳定、同样可作 `drawImage` 源），仅在无 `document` 的 worker 里保留 `OffscreenCanvas`。诊断数据：修复后 11 张 Prguse 图全部拿到正常像素（`62`: 2505 可见像素 / `64`: 368），`pageerrors: []`。
+2. **大地图标题显示成 `0`**：服务端 `snapshot.map.name` 是内部地图编号，中文名在 `map.title`（HUD 左下角用 `title || name`）。`_renderBigMap()` 统一为 `title || name`，现显示「比奇省　(332, 480)」。
+3. **回归脚本里的 §15 遗留断言**：`scripts/test_audio.mjs` 仍断言 `enterGame → bgmKey='field'`，与 §15 已提交的 `play`（102 号主场景主题曲）冲突，导致 `17/18`。改为断言 `play` + `loop=false` + `102.mp3`，现 **18/18 PASS**。
+
+### 16.3 验证
+
+- **浏览器端到端**（`D:/Python39/python.exe` + Playwright，账号 `player/123456/TestHero`，8080 live）：**28 项全通过**，含
+  - 建角：`_openCreate(1)` 后 9 个按钮齐备、初始高亮武士+男、切「道士/女」后状态文字与高亮同步、`_wanted` 含新职业 10 帧、关闭窗口恢复、面板背景/按钮底图可见、提示文字不再压住面板文字；职业/性别行切换前后像素差 1655 / 1741（可见反馈真实生效）。
+  - 连点：10 次快速点击 → 立即发出 `move` **0** 条、`_pendingStep=true`、`_lastMoveAt` 未被归零；镜头差 3 格时 350 ms 后动作仍为 `walk`（`dx=2.39`），把镜头对齐后恢复 `stand`。
+  - 黑条：地面缓存 1760×957 / 1178 格，采样纯黑像素占比 **0**；人为把 24 个可见纹理标记为 failed 后强制重绘，纯黑占比仍为 0、1178 格中 63 格保持未锁定（可重绘）、超 5 秒后 `_floorTex` 确实删占位并重新发起加载。
+  - 大地图/菜单：Tab 三态、V 半透明、Esc 开关系统菜单、F9 开关背包；大地图标题「比奇省　(332, 480)」；**浏览器无 JS 异常**；截图 `_tmp_bigmap.png` / `_tmp_sysmenu.png` / `_tmp_create.png` 目视确认面板与立绘正常。
+- **前端语法**：4 个改动文件 `node --check` 全通过；`node scripts/test_audio.mjs` **18/18**。
+- **服务端回归**（按 §14.5 全部用 `D:/Python310/python.exe`）：`test_pyserver.py` **48/0**、`test_tick_systems.py` **53/0**、`test_all_messages.py --live 8080` **18/18 + ping→pong PASS**；`/api/migration` 仍 46/46。
+- `git diff --check` 通过；`HANDOFF.md` 保持零改动。
+
+### 16.4 已知边界（未硬改）
+
+- 大地图/系统菜单用 DOM 覆盖层实现（原版是画面内绘制的自绘窗口），布局按 800×600 固定坐标；没有做窗口拖拽与分辨率自适应。
+- 发型左右箭头只有「按下态」贴图，`Prguse[73]` 底图本身没有对应常态图案，所以不选中时看不见箭头；`hair` 参数服务端已接收但外观未逐发型区分。
+- 真实带 GPU 浏览器的建角立绘切换观感、连点手感、黑条是否彻底消失仍需用户 `Ctrl+F5` 自测确认；本轮为无头 Chromium 定量 + 截图像素对比。
+- 其余历史边界见 §13.3（PvP 永不 miss、逐技能施法音近似、rush 无专属身位动画等），本轮未动。

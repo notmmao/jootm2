@@ -138,10 +138,14 @@ ck('开关与音量持久化到 localStorage', () => {
     sound.setVolume(0.5);
     assert.equal(storage.get('mir2.sound.volume'), '0.5');
 });
-ck('enterGame → selfId + field BGM', () => {
+// §15：原版 PlayScn.pas 主场景音乐是 PlaySound(s_main_theme=102)，不是 bmg_field(Field2)。
+// enterGame 现在切到派生的 play 键，且按原版 46 秒周期重播（非无缝 loop）。
+ck('enterGame → selfId + play BGM(s_main_theme=102)', () => {
     sound._onMessage({ type: 'enterGame', player: { id: 7 } });
     assert.equal(sound.selfId, 7);
-    assert.equal(sound.bgmKey, 'field');
+    assert.equal(sound.bgmKey, 'play');
+    assert.equal(sound.bgmAudio.loop, false);
+    assert.ok(lastUrl().endsWith('/Audio/102.mp3'));
 });
 ck('move(自己) → 脚步声；节流 250ms', () => {
     sound.lastAt.clear();
