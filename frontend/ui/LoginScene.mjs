@@ -7,7 +7,17 @@
 import { Scene } from '../scene/Scene.mjs';
 import { SelectCharScene } from './SelectCharScene.mjs';
 import { getLib } from '../image/Images.mjs';
+import { sound } from '../audio/SoundManager.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../core/config.mjs';
+
+// 原版 IntroScn.pas::TLoginScene 开门：m_nMaxFrame=10、300ms/帧，
+// 底图 ChrSel[22]，门帧 ChrSel[23+frame]（WChrSel.Images[103+frame-80]）。
+// 播完置 g_boDoFadeOut → g_nFadeIndex 淡出 → DScreen.ChangeScene(stSelectChr)。
+const DOOR_FRAMES = 10;
+const DOOR_FRAME_MS = 300;
+const DOOR_FIRST_INDEX = 23;
+const DOOR_FADE_MS = 300;
+const DOOR_SOUND = 100;      // SoundUtil.pas: s_rock_door_open = 100
 
 // 窗口定义（FState.pas：DLogIn=60 / DNewAccount=63 / DChgPw=50，尺寸取自图）
 const WIN_LOGIN = { bg: 60, w: 296, h: 254 };
@@ -50,6 +60,8 @@ export class LoginScene extends Scene {
         this._bgLoading = false;
         this.root = null;
         this._edits = [];           // 当前窗口的输入框（回车跳转）
+        // 登录成功后的开门动画状态（原版 m_boNowOpening / m_nCurFrame / m_dwStartTime）
+        this._door = { active: false, done: false, startAt: 0, frames: [] };
     }
 
     // WIL 纹理 → img URL（缓存）
@@ -169,7 +181,8 @@ export class LoginScene extends Scene {
         id.addEventListener('keydown', (e) => { if (e.key === 'Enter') pw.focus(); });
         pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') this._login(); });
 
-        this.errEl = this._err(win, 24, 224, 248);
+        // 登录失败不再画在窗口底部（原来 left=24,top=224 会压在按钮/背景上），
+        // 改为 onMessage 里 _showMsgDlg 的居中弹窗，照原版 FrmDlg.DMessageDlg。
 
         // 按钮（FState.pas）：Ok(171,165) New(24,207) ChgPw(111,207) Close(252,28)
         await this._btn(win, BTN_SUBMIT, 171, 165, () => this._login());
@@ -265,10 +278,11 @@ export class LoginScene extends Scene {
     // ---- 逻辑 ---------------------------------------------------------------
 
     _login() {
+        if (this._door.active) return;
         const u = this._edits[0].value.trim();
         const p = this._edits[1].value;
         if (!u || !p) {
-            this.errEl.textContent = '请输入帐号和密码。';
+            this._showMsgDlg('请输入帐号和密码。');
             return;
         }
         this.conn.send('login', { username: u, password: p });
@@ -277,17 +291,66 @@ export class LoginScene extends Scene {
     onMessage(type, msg) {
         if (type === 'loginResult') {
             if (msg.ok) {
-                this.manager.switchTo(new SelectCharScene(this.manager));
+                this._startDoor();     // 原版：登录成功先开门，再淡出切选人
             } else {
-                this.errEl.textContent = msg.error || '登录失败。';   // 照原版 PassWdFail
+                // 原版 SM_PASSWD_FAIL 走 FrmDlg.DMessageDlg 居中弹窗，
+                // LoginScene.PassWdFail 只重新显示输入框，并不在窗口里画一行字。
+                this._showMsgDlg(msg.error || 'ID不存在或未知错误，请稍后再试。');
             }
         } else if (type === 'registerResult') {
             if (msg.ok) {
                 this._login();   // 照原版注册成功后自动登录
             } else {
-                this.errEl.textContent = msg.error || '注册失败。';
+                this._showMsgDlg(msg.error || '注册失败。');
             }
         }
+    }
+
+    /** 原版 TLoginScene.OpenLoginDoor：隐藏登录框、播石门音、开始 10 帧开门。 */
+    async _startDoor() {
+        if (this._door.active || this._door.done) return;
+        this._door.active = true;
+        this._door.startAt = Date.now();
+        if (this.root) this.root.style.display = 'none';   // HideLoginBox
+        try { sound.play(DOOR_SOUND); } catch (e) { /* 音频未解锁时忽略 */ }
+        const frames = [];
+        for (let f = 0; f < DOOR_FRAMES; f++) {
+            try { frames.push(await this.chr.getTexture(DOOR_FIRST_INDEX + f)); }
+            catch (e) { frames.push(null); }
+        }
+        this._door.frames = frames;
+    }
+
+    /**
+     * 原版 SM_PASSWD_FAIL → FrmDlg.DMessageDlg：屏幕居中的模态提示框，
+     * 白字黑边、'\' 分行、行距 14。这里用 DOM 覆盖层近似底图 g_WMainImages[360/380]。
+     */
+    _showMsgDlg(text) {
+        if (!this.root) return;
+        const old = this.root.querySelector('[data-msgdlg]');
+        if (old) old.remove();
+        const mask = document.createElement('div');
+        mask.dataset.msgdlg = '1';
+        mask.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;'
+            + 'justify-content:center;pointer-events:auto;';
+        const box = document.createElement('div');
+        box.style.cssText = 'width:320px;box-sizing:border-box;padding:20px 18px 14px;'
+            + 'background:#14100a;border:2px solid #8a7448;box-shadow:0 0 0 1px #000,0 8px 24px rgba(0,0,0,.7);'
+            + 'color:#fff;font:13px/20px SimSun,serif;text-align:center;';
+        for (const line of String(text).split('\\')) {
+            const d = document.createElement('div');
+            d.textContent = line;
+            d.style.cssText = 'text-shadow:1px 1px 0 #000,-1px -1px 0 #000;min-height:20px;';
+            box.appendChild(d);
+        }
+        const ok = document.createElement('div');
+        ok.textContent = '确定';
+        ok.style.cssText = 'margin:14px auto 0;width:72px;height:22px;line-height:22px;cursor:pointer;'
+            + 'border:1px solid #8a7448;background:#241d12;color:#ffe9a8;font-size:12px;';
+        ok.addEventListener('click', () => mask.remove());
+        box.appendChild(ok);
+        mask.appendChild(box);
+        this.root.appendChild(mask);
     }
 
     // 场景背景（照 TLoginScene.PlayScene：WChrSel.Images[102-80] = ChrSel[22] 铺满全屏）
@@ -299,6 +362,28 @@ export class LoginScene extends Scene {
         } else if (!this._bgLoading) {
             this._bgLoading = true;
             this.chr.getTexture(22).then((t) => { this._bgTex = t; });
+        }
+        if (!this._door.active || this._door.done) return;
+
+        const elapsed = Date.now() - this._door.startAt;
+        const frame = Math.min(DOOR_FRAMES - 1, Math.floor(elapsed / DOOR_FRAME_MS));
+        const t = this._door.frames[frame];
+        if (t && t.canvas) {
+            const w = t.width || t.canvas.width;
+            const h = t.height || t.canvas.height;
+            // 原版 MSurface.Draw((SCREENWIDTH-d.Width) div 2 + 1,
+            //                   (SCREENHEIGHT-d.Height) div 2 - 23, ..., TRUE)
+            ctx.drawImage(t.canvas, Math.floor((SCREEN_WIDTH - w) / 2) + 1,
+                          Math.floor((SCREEN_HEIGHT - h) / 2) - 23);
+        }
+        if (elapsed < DOOR_FRAMES * DOOR_FRAME_MS) return;
+        // 10 帧播完 → 淡出到黑（原版 g_boDoFadeOut / g_nFadeIndex）→ ChangeScene(stSelectChr)
+        const fade = Math.min(1, (elapsed - DOOR_FRAMES * DOOR_FRAME_MS) / DOOR_FADE_MS);
+        ctx.fillStyle = `rgba(0,0,0,${fade})`;
+        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (fade >= 1) {
+            this._door.done = true;
+            this.manager.switchTo(new SelectCharScene(this.manager));
         }
     }
 }

@@ -460,12 +460,28 @@ class WorldExtra:
         self._broadcast_item_remove(gi)
         return True
 
-    def scatter_pos(self, game_map, cx: int, cy: int):
-        for _ in range(50):
-            x = cx + int(random.random() * 7) - 3
-            y = cy + int(random.random() * 7) - 3
-            if game_map.can_walk(x, y):
-                return x, y
+    def scatter_pos(self, game_map, cx: int, cy: int, max_range: int = 3):
+        """原版 M2Server ``GetDropPosition``（ObjBase.pas:1534-1582）：
+
+        从半径 1 起逐圈环形扩散（``i := 1 to nRange``），优先选**没有其他掉落物**
+        的可站格；一圈都找不到才扩大半径，最后才回退到尸体所在格。
+        旧实现是在 ±3 范围里随机撒 50 次，物品经常落到离尸体很远的格子上，
+        与「掉在怪物脚边」的观感不符。
+        """
+        occupied = {(gi.x, gi.y) for gi in self.ground_items.values()
+                    if gi.map is game_map}
+        for i in range(1, max(1, max_range) + 1):
+            cand = []
+            for dy in range(-i, i + 1):
+                for dx in range(-i, i + 1):
+                    if max(abs(dx), abs(dy)) != i:
+                        continue
+                    x, y = cx + dx, cy + dy
+                    if (x, y) in occupied or not game_map.can_walk(x, y):
+                        continue
+                    cand.append((x, y))
+            if cand:
+                return random.choice(cand)
         return (cx, cy) if game_map.can_walk(cx, cy) else None
 
     def drop_loot(self, m) -> None:
@@ -503,17 +519,39 @@ class WorldExtra:
             out.append(gi.to_json(t.name if t else "?", t.looks if t else 0))
         return out
 
+    @staticmethod
+    def butchable(m) -> bool:
+        """原版 ``m_boAnimal``（M2Share.pas: RC_ANIMAL=50 / CHICKEN=51 / DEER=52 / WOLF=53）。
+
+        本仓库 Monster.csv 里 race 52 还含「护卫」(appr 71) 之类非动物，
+        用动物 appr 白名单（羊 43 / 狼 70 / 鸡 160 / 鹿 161）排除。
+        """
+        t = getattr(m, "template", None)
+        if t is None:
+            return False
+        return int(t.race) in (51, 52, 53) and int(t.appr) in (43, 70, 160, 161)
+
     def kill_monster(self, m, now: int, killer=None) -> None:
         m.alive = False
         m.pending_respawn = True
         m.respawn_at = now + (m.respawn_interval_ms or 15_000)
         m.hp = 0
         m.target_id = -1
-        self.drop_loot(m)
+        # 原版 ObjBase.pas:20983：动物死亡**不**走 ScatterBagItems，肉要玩家
+        # Alt+左键挖；尸体按 SM_DEATH 保留 actor（ClMain.pas 60s 后 Free）。
+        animal = self.butchable(m)
+        if animal:
+            m.corpse_until = now + 60_000
+            m.butch_count = 0
+            m.skeleton = False
+        else:
+            self.drop_loot(m)
         if killer is not None:
             self.trigger_map_quest(killer, m)
-        self.broadcast_around(m.map, {"type": "death", "id": m.id},
-                              m.x, m.y, SIGHT_RANGE)
+        o = {"type": "death", "id": m.id}
+        if animal:
+            o["corpse"] = True
+        self.broadcast_around(m.map, o, m.x, m.y, SIGHT_RANGE)
 
     def level_for_exp(self, exp: int) -> int:
         """``ExperienceTable.levelForExp``：NEED_EXPS 是每级升级阈值的累计和。"""

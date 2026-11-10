@@ -2,6 +2,7 @@
 // 真实等距地图 + 实体（sprite）+ 鼠标按住移动（走/跑）+ HUD + 聊天。
 
 import { Scene } from './Scene.mjs';
+import { SelectCharScene } from '../ui/SelectCharScene.mjs';
 import { MapActor, FLOOR_FALLBACK } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
 import { getLib } from '../image/Images.mjs';
@@ -395,7 +396,7 @@ export class PlayScene extends Scene {
             { x: 309, icon: 128, tip: '编组', action: () => this._log('编组功能未开放。') },
             // 属性加点：原版只有「有可分配点数」时才显示（且会闪烁），当前没有属性点系统 → 默认隐藏
             { x: 339, icon: 140, tip: '属性加点', hidden: true, action: () => this._log('暂无可分配点数。') },
-            { x: 530, icon: 136, tip: '退出角色', action: () => this._logout() },
+            { x: 530, icon: 136, tip: '退出角色', action: () => this._backToSelect() },
             { x: 560, icon: 138, tip: '退出游戏', action: () => this._logout() },
         ];
         for (const b of botBtns) {
@@ -509,9 +510,14 @@ export class PlayScene extends Scene {
         this._log(on ? '[系统] 音效已开启。' : '[系统] 音效已关闭。');
     }
 
-    /** 退出到选择角色（原版 Alt-X / 退出角色）。 */
+    /** 返回人物选择（原版 Alt-X / 退出角色）：保持登录态与 WS 连接。 */
+    _backToSelect() {
+        this.conn.send('backToSelect');
+    }
+
+    /** 退出游戏：浏览器里没有「关闭客户端」，统一回人物选择，避免断连后卡在场景里。 */
     _logout() {
-        this.conn.send('logout');
+        this._backToSelect();
     }
 
     /** 经验/负重条：Prguse[7]（76×13），靠裁宽度表现比例。 */
@@ -816,6 +822,23 @@ export class PlayScene extends Scene {
         const run = e.button === 2;   // 左键走、右键跑
         const { mx, my } = this._mouseXY(e);
 
+        // 原版 ClMain.pas:2832-2845：按住 Alt + 左键点尸体 → SendButchAnimal，
+        // CM_BUTCH 带 actor id（Recog）+ x/y/dir；ButchAnimal 只取鼠标格 ±1 的尸体。
+        if (e.button === 0 && e.altKey) {
+            const { tx, ty } = this._gridFromMouse(e);
+            let target = null;
+            let best = 99;
+            for (const c of this.entities.values()) {
+                if (!c._corpse) continue;
+                const d = Math.max(Math.abs(c.x - tx), Math.abs(c.y - ty));
+                if (d <= 1 && d < best) { best = d; target = c; }
+            }
+            if (target) {
+                this.conn.send('butch', { actorId: target.id, x: tx, y: ty });
+                return;
+            }
+        }
+
         // Shift + 左键（原版 ClMain.pas:2546 `if (target <> nil) or (ssShift in Shift)`）：
         //   ① 点中目标（怪/玩家/NPC）→ 强制攻击该目标（绕过「只能打怪」的筛选，NPC 由服务端拒绝）
         //   ② 没点中任何目标 → 朝鼠标方向空挥，并进入「按住持续挥刀」状态（松开左键/Shift 停）
@@ -995,11 +1018,23 @@ export class PlayScene extends Scene {
 
     onMessage(type, msg) {
         switch (type) {
+            case 'backToSelectResult':
+                // 原版 Alt-X：服务端保留登录态与连接，客户端切回人物选择场景。
+                // 服务端随后发 characterList，会路由到新的 SelectCharScene。
+                if (msg.ok) this.manager.switchTo(new SelectCharScene(this.manager));
+                break;
             case 'entityAdd':
                 // 跳过自己：self 持有 enterGame 快照里的完整对象（toPlayerJson），
                 // 不能被 toBriefJson 的简化实体覆盖，否则 self 与 entities[id] 引用分离。
                 if (msg.entity && this.self && msg.entity.id !== this.self.id) {
+                    // 换图/后进入视野时直接看到的是已经躺好的尸体（原版 ActDeath 静止帧）
+                    if (msg.entity.corpse) {
+                        msg.entity._corpse = true;
+                        msg.entity._action = 'death';
+                        msg.entity._actionAt = Date.now();
+                    }
                     this.entities.set(msg.entity.id, msg.entity);
+                    if (msg.entity.corpse) this._sprite(msg.entity).prefetchDeathFrame(msg.entity);
                     this._registerSound(msg.entity);
                 }
                 break;
@@ -1126,8 +1161,25 @@ export class PlayScene extends Scene {
             case 'death': {
                 // 播死亡动画（普通怪物重生时 entityAdd 替换对象恢复；换图时清空）
                 const e = this.entities.get(msg.id);
-                if (e) { e._action = 'die'; e._actionAt = Date.now(); }
+                if (e) {
+                    e._action = 'die';
+                    e._actionAt = Date.now();
+                    if (msg.corpse) {
+                        // 可挖肉的动物：原版 SM_DEATH 保留 actor，倒地动画播完后
+                        // 停在 ActDeath 尸体帧，直到挖完/过期/重生才移除。
+                        e._corpse = true;
+                        e.alive = false;
+                        e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
+                        this._sprite(e).prefetchDeathFrame(e);
+                        this._log('[提示] 按住 Alt + 左键点击动物尸体可以挖肉', '#e8d9b0');
+                    }
+                }
                 if (this.castTarget === msg.id) this.castTarget = null;
+                break;
+            }
+            case 'butch': {
+                // RM_BUTCH → SM_BUTCH：别人看到的挖肉动作（本移植没有 sitdown 段）。
+                // 出肉时服务端还会给挖肉者发 system 消息 + bagUpdate。
                 break;
             }
             case 'spellCast': {
@@ -1334,15 +1386,21 @@ export class PlayScene extends Scene {
     /**
      * 加载小地图底图：直接用客户端资源 mmap.wil（原版 `FrmMain.WMMap`），
      * 索引来自服务端 MiniMap.txt（`mapSnapshot.miniMapIndex`，-1 = 该地图没有小地图）。
-     * 图是 1.5 像素/格（原版 DrawMiniMap 的 `XX*48 div 32`）。
+     * 图是 1.5 像素/格（原版 DrawMiniMap 的 `XX*48 div 32`、`YY*32 div 32`）。
+     *
+     * 注意：MiniMap.txt 是 **1-based**，原版 ClMain.pas 收 `SM_READMINIMAP_OK`
+     * 后以 `g_WMMapImages.Images[g_nMiniMapIndex-1]` 取图（Param-1）。
+     * 之前直接用 1-based 值取图，0 号比奇省登记的是 101，实际取到 index 101
+     * 那张 900×599 的别的地图；正确应是 index 100（1052×699 ≈ 700 格×1.5 /
+     * 700 格×1），这正是「大地图 / 小地图点位跟地形对不上」的根因。
      */
     async _loadMiniMapTexture(index) {
-        // 优先用 mmap.wil（原版 WMMap，1.5 像素/格，索引来自 MiniMap.txt）
-        if (index != null && index >= 0) {
+        // 优先用 mmap.wil（原版 WMMap，1.5 像素/格，索引来自 MiniMap.txt，需 -1）
+        if (index != null && index > 0) {
             const lib = getLib('mmap');
             if (lib) {
                 try {
-                    const tex = await lib.getTexture(index);
+                    const tex = await lib.getTexture(index - 1);
                     if (tex && tex.canvas) {
                         this._miniMapTex = tex.canvas;
                         this._miniMapScale = 1.5;
@@ -1420,11 +1478,10 @@ export class PlayScene extends Scene {
         const tex = this._miniMapTex;
         const p = this.self;
         const VIEW = 120;
-        // 原版 mmap 底图是 1.5 像素/格，但本资源包的 mmap.wil 与服务端 .map
-        // 尺寸并不严格对应（例：0 号比奇省 700×700 格，101 号底图只有 900×599）。
-        // 若仍按 1.5 px/格定位，玩家 y=480 → sy=660 > 599，裁剪高度变负数，
-        // 底图整块不画，半透明/不透明两态看起来完全一样（实测像素差 0/19600）。
-        // 这里改成「纹理像素 / 地图格数」归一化换算，保证坐标一定落在底图内。
+        // 取正确索引后（MiniMap.txt 1-based → mmap.wil 0-based），比奇省底图是
+        // 1052×699，正好对应 700×700 格的 `mx=x*1.5, my=y`。这里用
+        // 「纹理像素 / 地图格数」归一化，等价于原版公式，且对兜底自生成缩略图
+        // 同样成立；窗口起点钳制在底图内，保证 w/h 不会变负导致底图整块不画。
         const sm = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
         const sc = this._miniMapScale || 1.5;
         const mapW = Math.max(1, sm.width || tex.width / sc);
@@ -1574,8 +1631,9 @@ export class PlayScene extends Scene {
             ctx.fillText('该地图暂无地图资料', 12, 24);
             return;
         }
-        // 与小地图同一口径：优先用服务端地图格数做归一化，避免 mmap.wil 与 .map
-        // 尺寸不一致时（例：比奇省 700×700 / 底图 900×599）自己/怪物点跑出面板。
+        // 与小地图同一口径：用「纹理像素 / 地图格数」归一化，等价于原版
+        // `mx=x*48 div 32, my=y*32 div 32`（正确索引下 1052×699 ↔ 700×700 格）。
+        // 修正 MiniMap.txt 的 1-based off-by-one 后，点位才真正落在对应地形上。
         const sm0 = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
         const sc = this._miniMapScale || 1.5;
         const mapW = Math.max(1, sm0.width || tex.width / sc);
@@ -1671,7 +1729,7 @@ export class PlayScene extends Scene {
         mk('状态 (F10)', () => { this._closeSystemMenu(); this.statePage = 0; this._toggleStateWin(); });
         mk('技能 (F11)', () => { this._closeSystemMenu(); this._openSkillSetup(); });
         mk('快捷键说明', () => { this._closeSystemMenu(); this._showKeyHints(); });
-        mk('返回角色选择', () => { this._closeSystemMenu(); this._logout(); });
+        mk('返回角色选择', () => { this._closeSystemMenu(); this._backToSelect(); });
         const tip = document.createElement('div');
         tip.style.cssText = 'margin:6px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
         tip.textContent = 'Esc 关闭';
@@ -2938,6 +2996,11 @@ export class PlayScene extends Scene {
                 || Math.abs(this.self.y - this._viewY) > 0.02);
         const entities = [];
         for (const e of this.entities.values()) {
+            // 动物尸体：倒地动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
+            if (e._corpse && e._dieUntil && now >= e._dieUntil) {
+                e._action = 'death';
+                e._dieUntil = 0;
+            }
             // 移动停止超时回站立（所有实体：连续移动动画循环，停止后归位 stand）
             const stillScrolling = (e.id === this.self.id) && selfCatchingUp;
             if (!stillScrolling && (e._action === 'walk' || e._action === 'run')
@@ -2968,8 +3031,9 @@ export class PlayScene extends Scene {
             entities.push({
                 x: e.x, y: e.y,   // 逻辑位置（遮挡排序用）
                 offsetX: ox, offsetY: oy,
-                name: e.name, isSelf,
-                hp: e.hp, maxHp: e.maxHp, type: e.type,
+                // 尸体不显示名字/血条（原版 ActorDied 只降绘制层级，不画 HUD）
+                name: e._corpse ? '' : e.name, isSelf,
+                hp: e.hp, maxHp: e._corpse ? 0 : e.maxHp, type: e.type,
                 isTarget: this.castTarget != null && e.id === this.castTarget,
                 alpha: e._hidden ? 0.5 : undefined,   // 隐身半透明
                 poison: !!e._poison,                  // 红毒（掉血）绿色调
@@ -2978,9 +3042,11 @@ export class PlayScene extends Scene {
                 layers: sp.getLayers(now),
             });
         }
-        this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY);
+        // 掉落物交给 MapActor 按行调度，才能被同格/下一行的角色、树木、建筑正确遮挡
+        this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY,
+            (c, g, sx, sy) => this._drawGroundItem(c, g, sx, sy),
+            [...this.groundItems.values()]);
         this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
-        this._renderGroundItems(ctx);
         this._renderHud();
         this._renderMiniMap();
         this._renderBigMap();   // 大地图打开时逐帧刷新自己/怪物位置
@@ -3277,29 +3343,29 @@ export class PlayScene extends Scene {
         this.damageNumbers = nums;
     }
 
-    // 地面物品（照原版 DropedItemList：格子中心对齐；金币金色圆点，物品绿块 + 名字）
-    _renderGroundItems(ctx) {
+    // 单个地面物品（原版 PlayScn.pas 的 `for j` 行循环里绘制 DropedItemList）。
+    // 锚点 = 格中心：`ix + HALFX - Width/2`、`iy + HALFY - Height/2`
+    // （HALFX=24 / HALFY=16，Grobal2.pas）。sx/sy 由 MapActor 按行传入。
+    _drawGroundItem(ctx, g, sx, sy) {
         if (!this.self) return;
-        for (const g of this.groundItems.values()) {
-            const sx = this.mapActor.screenX(g.x);
-            const sy = this.mapActor.screenY(g.y);
-            if (g.gold > 0) {
-                // 金币堆：黄色圆点（原版用金币袋图，暂用圆点）
-                ctx.fillStyle = '#fbbf24';
-                ctx.beginPath();
-                ctx.arc(sx + 24, sy + 16, 5, 0, Math.PI * 2);
-                ctx.fill();
-            } else if (g.looks > 0) {
-                // 物品：DnItems[looks] 图标（原版掉落物贴图）
-                this._drawDropTex(ctx, g.looks, sx, sy);
-            }
-            if (g.name) {
-                ctx.font = '11px SimSun,serif';
-                ctx.textAlign = 'center';
-                ctx.fillStyle = '#fff';
-                ctx.fillText(g.name, sx + 24, sy + 6);
-            }
+        ctx.save();
+        if (g.gold > 0) {
+            // 金币堆：黄色圆点（原版用金币袋图，暂用圆点）
+            ctx.fillStyle = '#fbbf24';
+            ctx.beginPath();
+            ctx.arc(sx + 24, sy + 16, 5, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (g.looks > 0) {
+            // 物品：DnItems[looks] 图标（原版掉落物贴图）
+            this._drawDropTex(ctx, g.looks, sx, sy);
         }
+        if (g.name) {
+            ctx.font = '11px SimSun,serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#fff';
+            ctx.fillText(g.name, sx + 24, sy + 6);
+        }
+        ctx.restore();
     }
 
     // 绘制掉落物物品图标（DnItems 库，异步加载 + 缓存）

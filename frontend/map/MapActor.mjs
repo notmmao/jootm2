@@ -123,11 +123,14 @@ export class MapActor {
             new Promise(resolve => setTimeout(() => resolve('timeout'), 6000)),
         ]);
         if (result === 'timeout') {
-            // 超时的占位不能一直空着（否则 render 永远不会重画这一格）：
-            // 标记成过期失败，交给 _getTex 的 5 秒重试机制按需补加载。
+            // 冷缓存（首次登录）时首屏纹理常常超过 6 秒：这里只放行显示地图，
+            // **绝不把未完成的占位标成 failed**。旧实现标 failed 会让 _floorTex 立刻
+            // 删占位并重发请求，与仍在飞的原请求叠加成重复请求风暴，整片格子长时间
+            // 拿不到图，兜底色连成横条纹；重登时 HTTP 缓存已热才「恢复正常」。
+            // 原请求完成时上面 jobs 的 then 会直接写入同一个占位，无需重试。
             for (const k of seen) {
                 const e = this._texCache.get(k);
-                if (e && !e.canvas) { e.failed = true; e.failedAt = Date.now() - 6000; }
+                if (e && !e.canvas) e.pendingSince = Date.now();
             }
         }
     }
@@ -209,7 +212,14 @@ export class MapActor {
                 }
             }
         }
-        this._floor = { canvas, ctx: fctx, wx0, wy0, gw, gh, cells, lastPainted: f && f.lastPainted };
+        // sample 是「最近一格真实地砖」的 48×32 像素快照，与格子坐标解耦：
+        // 滚动搬运后 lastPainted 的 ix/iy 会失效，sample 不会。整行未就绪时用它铺满，
+        // 而不是退化成纯色（那正是用户截图里一条一条的横条纹）。
+        this._floor = {
+            canvas, ctx: fctx, wx0, wy0, gw, gh, cells,
+            lastPainted: f && f.lastPainted,
+            sample: (f && f.sample) || null,
+        };
         return this._floor;
     }
 
@@ -258,9 +268,15 @@ export class MapActor {
             if (copy(nx, ny)) return;
             break;
         }
-        // 整带未就绪：用最近一次真正画过地砖的格子，绝不留纯色暗带。
+        // 整带未就绪：先试最近一次真正画过地砖的格子。
         const lp = f.lastPainted;
         if (lp && f.cells[lp.iy * f.gw + lp.ix] && copy(lp.ix, lp.iy)) return;
+        // 坐标失效（滚动搬运过）或整窗口都还没画出来时，用与坐标无关的真实地砖快照。
+        // 这样整行未就绪也只是重复铺一格地砖，不会连成纯色横条纹。
+        if (f.sample) {
+            f.ctx.drawImage(f.sample, px, py);
+            return;
+        }
         // 首帧连一格都没画出来才用底色，且颜色也明显亮于纯黑。
         f.ctx.fillStyle = FLOOR_FALLBACK;
         f.ctx.fillRect(px, py, TILE_W, TILE_H);
@@ -312,7 +328,16 @@ export class MapActor {
                 if (mid.tex) f.ctx.drawImage(mid.tex.canvas, px, py);
                 f.cells[idx] = 1;
                 // 供 _borrowFloorCell 在「整行都未就绪」时借像素用
-                if (bng.tex || mid.tex) f.lastPainted = { ix, iy };
+                if (bng.tex || mid.tex) {
+                    f.lastPainted = { ix, iy };
+                    if (!f.sample) {
+                        f.sample = document.createElement('canvas');
+                        f.sample.width = TILE_W;
+                        f.sample.height = TILE_H;
+                    }
+                    f.sample.getContext('2d').drawImage(
+                        f.canvas, px, py, TILE_W, TILE_H, 0, 0, TILE_W, TILE_H);
+                }
             }
         }
     }
@@ -351,8 +376,10 @@ export class MapActor {
             bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 12)),
         };
         const cells = [];
-        for (let gx = r.left; gx <= r.right; gx++) {
-            for (let gy = r.top; gy <= r.bottom; gy++) {
+        // 行优先：每 24 格一批覆盖「一整行的连续列」，而不是一列里的 24 行。
+        // 旧顺序会让屏幕上连续多行同时处于未就绪状态，兜底像素连成横条纹。
+        for (let gy = r.top; gy <= r.bottom; gy++) {
+            for (let gx = r.left; gx <= r.right; gx++) {
                 const t = m.tiles[gx] && m.tiles[gx][gy];
                 if (!t) continue;
                 const loads = [];
@@ -380,26 +407,30 @@ export class MapActor {
         for (let i = 0; i < cells.length; i += 24) {
             await Promise.all(cells.slice(i, i + 24).map(loads =>
                 Promise.all(loads.map(({ k, lib, index }) => {
-                    const p = lib.getTexture(index).then(tex => ({ k, tex }))
-                        .catch(() => ({ k, tex: null }));
+                    // 写入放在原 promise 内部：8 秒超时只用于「不阻塞后续批次」，
+                    // 绝不把仍在飞的请求判成 failed（否则会重发请求、与原请求互相
+                    // 覆盖，冷缓存时整片格子长期拿不到图 → 横条纹）。原子性由
+                    // _paintFloorCells 的「bng/mid 同时 ready 才画整格」保证。
+                    const p = lib.getTexture(index).then(tex => {
+                        const e = this._texCache.get(k);
+                        if (e && tex) {
+                            e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
+                            this._texVersion++;
+                        } else if (e) {
+                            e.failed = true; e.failedAt = Date.now();
+                        }
+                        return tex;
+                    }).catch(() => {
+                        const e = this._texCache.get(k);
+                        if (e) { e.failed = true; e.failedAt = Date.now(); }
+                        return null;
+                    });
                     // 单个请求 8 秒兜底，避免某个挂住的 fetch 阻塞整批 / 后续批次
                     return Promise.race([
                         p,
-                        new Promise(res => setTimeout(() => res({ k, tex: null }), 8000)),
+                        new Promise(res => setTimeout(() => res(null), 8000)),
                     ]);
-                })).then(results => {
-                    // 按格原子提交：该格所有层都返回后才一次性写入
-                    for (const { k, tex } of results) {
-                        const e = this._texCache.get(k);
-                        if (!e) continue;
-                        if (tex) {
-                            e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
-                            this._texVersion++;
-                        } else {
-                            e.failed = true; e.failedAt = Date.now();
-                        }
-                    }
-                })
+                })).then(() => { /* 缓存已由各 promise 自行写入 */ })
             ));
             // 让出一帧给渲染，避免解包 512K chunk 时长时间占着主线程
             await new Promise(res => setTimeout(res, 0));
@@ -460,7 +491,7 @@ export class MapActor {
      * @param shiftX/shiftY 平滑卷动偏移（玩家从旧格滑向新格的插值，像素）
      * @param entities [{x,y,name,isSelf,hp,maxHp,isTarget,layers:[{canvas,px,py}]}]
      */
-    render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0) {
+    render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0, drawDrop = null, groundItems = null) {
         if (!this.map) return;
         const m = this.map;
         this._cx = cx;
@@ -490,6 +521,17 @@ export class MapActor {
         for (const e of entities) {
             if (!byRow.has(e.y)) byRow.set(e.y, []);
             byRow.get(e.y).push(e);
+        }
+        // 地面掉落物也按行调度（原版 PlayScn.pas 在 `for j` 行循环里画
+        // DropedItemList：`if j = DropItem.y - BlockTop`）。以前在整帧末尾统一画，
+        // 会盖在同格角色/树木/建筑之上，看起来像浮在半空、位置不对。
+        const dropsByRow = new Map();
+        if (drawDrop && groundItems) {
+            for (const g of groundItems) {
+                if (g.y < top || g.y > bottom) continue;
+                if (!dropsByRow.has(g.y)) dropsByRow.set(g.y, []);
+                dropsByRow.get(g.y).push(g);
+            }
         }
         for (let gy = top; gy <= bottom; gy++) {
             // 对象层（照 PlayScn.pas：普通对象左上+底对齐；blend 光效 x=格左+px-2, y=格顶+py-68）
@@ -525,6 +567,11 @@ export class MapActor {
                         ctx.drawImage(tex.canvas, px, py);
                     }
                 }
+            }
+            // 本行地面物品：先于实体绘制，后续行的对象/角色才能正确遮挡它
+            const drops = dropsByRow.get(gy);
+            if (drops) {
+                for (const g of drops) drawDrop(ctx, g, sx(g.x), sy(g.y));
             }
             // 实体（照原版：锚点 = 格子左上角，图左上 = 格左+px, 格顶+py）
             const row = byRow.get(gy);

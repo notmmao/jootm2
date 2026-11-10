@@ -21,7 +21,7 @@ from .handlers_items import ITEM_TYPES, ItemHandlers
 from .handlers_npc import NPC_TYPES, NpcHandlers
 from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
-from .world import GameWorld, Player, SIGHT_RANGE, encode, now_ms
+from .world import BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, encode, now_ms
 
 MAX_CHARS_PER_ACCOUNT = 2
 
@@ -29,6 +29,7 @@ MAX_CHARS_PER_ACCOUNT = 2
 MIGRATED_TYPES = frozenset({
     "ping", "login", "register", "listCharacters", "createCharacter",
     "deleteCharacter", "enterGame", "noticeOk", "move", "say", "logout",
+    "backToSelect", "butch",
 }) | ITEM_TYPES | NPC_TYPES | COMBAT_TYPES | SOCIAL_TYPES
 
 PENDING_TYPES: frozenset[str] = frozenset()
@@ -101,6 +102,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "move": self._move,
             "say": self._say,
             "logout": self._logout,
+            "backToSelect": self._back_to_select,
+            "butch": self._butch,
             # 物品 / 背包 / 装备 / 快捷栏
             "pickup": self._pickup,
             "useItem": self._use_item,
@@ -386,6 +389,63 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     def _logout(self, session: Any, msg: dict) -> None:
         self.on_disconnect(session)
         session.close()
+
+    def _back_to_select(self, session: Any, msg: dict) -> None:
+        """原版 Alt-X「退出角色」：离开游戏世界、保留登录态与连接，回到人物选择。
+
+        旧实现只有 ``_logout``（直接 ``session.close()``），客户端收到 close 后
+        没有任何场景切换，主菜单「返回角色选择」点了等于没反应。
+        """
+        self.on_disconnect(session)
+        session.send_json({"type": "backToSelectResult", "ok": True})
+        self._list_characters(session, msg)
+
+    def _butch(self, session: Any, msg: dict) -> None:
+        """原版 ``CM_BUTCH``（Grobal2.pas:1007）：Alt+左键点动物尸体挖肉。
+
+        客户端发 ``MakeDefaultMsg(CM_BUTCH, actorid, x, y, dir)``，带 actor id；
+        服务端 ``ClientGetButchItem``（ObjBase.pas:17458-17504）要求目标
+        ``m_boDeath and not m_boSkeleton and m_boAnimal``、距离 ≤2，挖够次数后
+        ``RM_SKELETON`` + ``TakeBagItems`` 把「肉」放进背包并广播 ``RM_BUTCH``。
+        """
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        w = self.world
+        m = w.actors.get(_int(msg, "actorId", -1))
+        if (not isinstance(m, Monster) or m.alive or not w.butchable(m)
+                or m.skeleton or m.corpse_until <= now_ms() or m.map is not p.map):
+            return
+        if max(abs(p.x - m.x), abs(p.y - m.y)) > 2:
+            w.send_system(p, "离尸体太远了。")
+            return
+        m.butch_count += 1
+        # 原版每次挖削减 m_nBodyLeathery / m_nMeatQuality，挖够才出肉；
+        # 这里用两次近似（m_nBodyLeathery 初值 50~150，本移植没有该字段）。
+        if m.butch_count < 2:
+            w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": False,
+                                       "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
+            w.send_system(p, "正在挖肉……")
+            return
+        m.skeleton = True
+        m.corpse_until = 0
+        # 肉名依据本地 MonItems：鸡.txt → 鸡肉（StdItems index 57），
+        # 狼.txt / 羊.txt → 肉（index 3）；鹿无掉落表，原版由类直接给肉。
+        name = "鸡肉" if "鸡" in (m.name or "") else "肉"
+        t = w.item_template_by_name(name)
+        if t is not None:
+            it = w.new_item_instance(t, max(1, t.duraMax))
+            if len(p.bag) < BAG_SIZE:
+                p.bag.append(it)
+                self.send_bag_update(p)
+                w.send_system(p, f"挖到了{t.name}。")
+            else:
+                w.drop_instance(p, it)
+                w.send_system(p, f"背包已满，{t.name}掉在地上。")
+        w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": True,
+                                   "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
+        w.broadcast_around(m.map, {"type": "entityRemove", "id": m.id},
+                           m.x, m.y, SIGHT_RANGE)
 
     def send_bag_update(self, p: Player) -> None:
         """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。"""

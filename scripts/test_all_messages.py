@@ -167,6 +167,8 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "tradeAddGold": {"type": "tradeAddGold", "amount": 10},
         "tradeConfirm": {"type": "tradeConfirm"},
         "tradeCancel": {"type": "tradeCancel"},
+        "butch": {"type": "butch", "actorId": -1, "x": p.x, "y": p.y, "dir": 0},
+        "backToSelect": {"type": "backToSelect"},
         "logout": {"type": "logout"},
     }
 
@@ -291,6 +293,54 @@ def run_success_paths() -> int:
         check("施法广播 spellCast",
               any(m.get("type") == "spellCast" for m in s1.messages), results)
         check("施法消耗 MP", p.mp < 9999, results)
+
+        # 掉落位置：原版 GetDropPosition 从半径 1 起环形扩散找空格
+        pos = w.scatter_pos(p.map, p.x, p.y)
+        check("掉落从尸体周围一圈开始扩散（不再全图随机撒 ±3）",
+              pos is not None and max(abs(pos[0] - p.x), abs(pos[1] - p.y)) <= 3,
+              results)
+
+        # 动物尸体 / 挖肉：原版 SM_DEATH 保留 actor、CM_BUTCH 带 actor id、
+        # 动物死亡不 ScatterBagItems（ObjBase.pas:20983）
+        animal = next((a for a in w.actors.values()
+                       if isinstance(a, Monster) and a.alive and w.butchable(a)), None)
+        if animal is not None:
+            animal.map = p.map
+            p.map.actors[animal.id] = animal
+            animal.x, animal.y = p.x + 1, p.y
+            before = len(w.ground_items)
+            w.kill_monster(animal, int(time.time() * 1000))
+            check("可挖肉动物死后保留尸体、不掉物品",
+                  animal.corpse_until > 0
+                  and animal.brief_json().get("corpse") is True
+                  and len(w.ground_items) == before, results)
+            check("尸体仍下发给视野内玩家（原版保留 actor）",
+                  animal.id in {a.id for a in w._sight_actors(p.map, p.x, p.y)},
+                  results)
+            check("战斗目标筛选不含尸体",
+                  animal.id not in {a.id for a in w.nearby(p.map, p.x, p.y)},
+                  results)
+            s1.messages.clear()
+            for _ in range(2):
+                h["butch"](s1, {"type": "butch", "actorId": animal.id,
+                                "x": animal.x, "y": animal.y})
+            got_meat = False
+            for it in p.bag:
+                t = w.item_templates.get(int(it.get("index", 0)))
+                if t is not None and t.name in ("肉", "鸡肉"):
+                    got_meat = True
+            check("Alt+左键挖够次数得到肉（原版 TakeBagItems）",
+                  animal.skeleton and got_meat, results)
+            check("挖肉后下发 bagUpdate",
+                  any(m.get("type") == "bagUpdate" for m in s1.messages), results)
+
+        # 返回人物选择：保留登录态与连接，不能像 logout 那样断开
+        s1.messages.clear()
+        h["backToSelect"](s1, {"type": "backToSelect"})
+        types = [m.get("type") for m in s1.messages]
+        check("返回角色选择下发结果 + 角色列表且不断线",
+              "backToSelectResult" in types and "characterList" in types
+              and not s1.closed, results)
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):
@@ -319,8 +369,9 @@ def run_offline() -> int:
         print(f"消息类型: {len(ALL_TYPES)}  registered={len(service._handlers)} "
               f"pending={len(PENDING_TYPES)}")
 
-        # logout 放最后，否则会话被清空导致后续 handler 空跑
-        order = [t for t in msgs if t != "logout"] + ["logout"]
+        # logout / backToSelect 放最后，否则会话被清空导致后续 handler 空跑
+        order = [t for t in msgs if t not in ("logout", "backToSelect")] \
+            + ["backToSelect", "logout"]
         print("\n=== 逐条 handler 调用 ===")
         for t in order:
             s1.messages.clear()

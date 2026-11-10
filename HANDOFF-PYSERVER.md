@@ -682,3 +682,35 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - `test_pyserver.py` **54/0**（新增 6 条商店列义用例）、`test_tick_systems.py` **53/0**、`test_all_messages.py --live 8080` **20/0 + ping→pong PASS**（新增「商店返回多种价格」「首个商品价格 = StdItems.Price × % 倍率」）。
 - `node scripts/test_audio.mjs` **19/19**、`convert_audio.py --self-test` **12/12**；`build_plan()` 与 `audio_map.json` 的 4 个 BGM 键逐项一致；全部改动文件 `node --check` / `py_compile` 通过。
 - `git diff --check` 通过；`HANDOFF.md` 零改动。注：`frontend/audio/audio_map.json` 从生成起**整文件就是 CRLF**（HEAD 与工作区均为 3654 行 CRLF），git 默认会把新增行行尾的 `\r` 判成 trailing whitespace；本仓已设置本地 `git config core.whitespace cr-at-eol`（只影响空白检查、不进版本库），否则可用 `git -c core.whitespace=cr-at-eol diff --check`。
+
+## 18. 对照 Delphi 原版的地图/掉落/尸体与登录动画（2026-11-10 第七轮，实测反馈）
+
+本轮起因：用户反馈「① 大地图位置不太对 ② 掉落位置似乎也不对 ③ 鹿等怪死后没有尸体、不能挖肉，需要参考 Delphi 原版对比」，随后补充「条纹还在，只是变浅了；再次登录就恢复了」「④ 主菜单返回人物选择无效 ⑤ 登录失败文字位置不对、登录成功应该有个开门动画」。
+
+**取证方式**：下载 `StarboyChina/MIR2-1` 的 `GameOfMir/MirClient/*.pas` 与 `M2Server/*.pas`（`ClMain / PlayScn / IntroScn / Actor / AxeMon / Grobal2 / MapUnit / FState / SoundUtil / ObjBase / M2Share`），逐条核对 Pascal 原文与常量号；调研笔记为临时文件，结论全部沉淀在本节。用户约定「找不到权威依据不硬改」，本轮每条改动都对应到具体行号。
+
+### 18.1 六项根因与修复
+
+| 反馈 | 权威依据 / 根因 | 修复 |
+|---|---|---|
+| 大地图（及小地图）位置不对 | `MiniMap.txt` 的索引是 **1-based**；原版 `ClMain.pas` 收 `SM_READMINIMAP_OK` 后以 `g_WMMapImages.Images[g_nMiniMapIndex-1]` 取图。我们直接拿 `0 101` 的 101 去 `mmap.wil` 取图，取到的是另一张 **900×599** 的地图；正确应为 index 100（**1052×699** ≈ 比奇省 700 格 ×1.5 / 700 格 ×1）。§17 里「底图尺寸与 .map 不匹配」其实是**取错图**的误判 | `_loadMiniMapTexture()` 改 `index - 1`（`index > 0` 才取），注释写明 1-based；归一化换算 `纹理像素/地图格数` 保留（等价于原版 `mx=x*48 div 32, my=y*32 div 32`，且兼容兜底自生成图）；同步修正 §17 的错误注释。大地图点位与底图现在真正对齐 |
+| 掉落位置不对 | 原版 `PlayScn.pas:1268-1297` 在**按行 `for j` 循环内**绘制 `DropedItemList`（`if j = DropItem.y - BlockTop`），锚点是格中心 `ix+HALFX-d.Width/2` / `iy+HALFY-d.Height/2`（`HALFX=24, HALFY=16`，Grobal2.pas）。我们以前在整帧末尾统一画，掉落物永远盖在同格角色/树木/建筑之上；服务端 `scatter_pos()` 又在 ±3 范围随机撒 50 次，物品常离尸体很远 | `MapActor.render()` 新增 `drawDrop + groundItems` 参数，按行调度（先于同行实体绘制）；`PlayScene._renderGroundItems()` 改为单格 `_drawGroundItem(ctx,g,sx,sy)` 并 `save/restore`。服务端 `scatter_pos()` 改为原版 `GetDropPosition`（ObjBase.pas:1534-1582）：半径 1 起逐圈环形扩散、避开已有掉落物，找不到才回退尸体格 |
+| 动物死后没尸体、不能挖肉 | 原版 `SM_DEATH=32 / SM_SKELETON=33 / SM_NOWDEATH=34 / CM_BUTCH=1007 / SM_BUTCH=637 / RM_BUTCH=10119`（Grobal2.pas）；`Actor.pas:1595` 死亡只置 `m_boDeath` + `PlayScene.ActorDied()` **降绘制层级、不 Free**，`ClMain.pas:6506` 在 `SM_HIDE` 后 60 s 才释放；帧分 `ActDie`（倒地动画）与 `ActDeath`（尸体静止帧 `start + dir`，**不**乘 `frame+skip`）。挖肉是 **Alt+左键**点 3×3 内尸体，`MakeDefaultMsg(CM_BUTCH, actorid, x, y, dir)` 带 actor id；服务端 `ObjBase.pas:17458` 要求 `m_boDeath && !m_boSkeleton && m_boAnimal`，鸡 51/鹿 52/狼 53（M2Share.pas:148-150），**动物死亡不走 ScatterBagItems**，肉由 `TakeBagItems` 给「肉」(StdMode 40)。我们 `update_sight()` 里 `a.alive` 过滤在死亡瞬间就发 `entityRemove`，尸体根本没机会显示 | 服务端：`Monster` 加 `corpse_until / butch_count / skeleton`；`kill_monster()` 对 `butchable()`（race 51/52/53 + 动物 appr 43/70/160/161，排除「护卫」）保留尸体 60 s 且**跳过 `drop_loot()`**；新增 `_sight_actors()` 让快照/视野包含未过期尸体（`nearby()` 仍只含活体，避免怪打尸体）；`brief_json()` 下发 `alive/corpse`；新增 `butch` handler（距离 ≤2、挖 2 次出肉、鸡→「鸡肉」/其他→「肉」依据本地 `MonItems`，下发 `bagUpdate` + 广播 `butch` / `entityRemove`）。前端：`ActorSprite` 加 `death` 动作段（`ActDeath.start + dir`）与 `prefetchDeathFrame()`（否则 `getLayers` 回退到站立帧，看着像「怪还站着」）；`PlayScene` 收 `death{corpse:true}` 先播 `die` 1.4 s 再切 `death`、尸体不画名字/血条、Alt+左键 3×3 找尸体会带 `actorId` 发 `butch` |
+| 条纹只是变浅、重登就恢复 | 用户这句定位了真因：冷缓存（首次登录）时首屏纹理常超 6 s，`_prefetchVisible()` 超时把**仍在飞的请求**标记 `failed`；`_floorTex()` 随即删占位重发，与增量预取 `Promise.race` 8 s 超时叠加成**重复请求风暴**，整片格子长期拿不到图 → 兜底色连成横带；重登时 HTTP 缓存已热才「恢复正常」。§17 只把兜底色改亮，所以条纹变浅但还在 | 超时**只放行显示、绝不判 failed**：原 promise 完成时自行写入同一个占位；`_prefetchAround()` 把缓存写入移进各 `getTexture().then()`，`Promise.race` 只用于不阻塞后续批次、结果不再覆盖；增量预取改**行优先**（24 格一批覆盖一整行而不是一列 24 行）；`_ensureFloor()` 增加与坐标解耦的 48×32 **真实地砖像素快照** `f.sample`，整行未就绪时铺真实地砖而非纯色（滚动搬运后 `lastPainted` 坐标会失效，sample 不会） |
+| 主菜单返回人物选择无效 | 旧 `_logout()` 只发 `logout`，服务端直接 `session.close()`；客户端收到 close 没有任何场景切换，点了等于没反应 | 新增 `backToSelect` 消息：服务端 `on_disconnect()` 清理世界但**保留登录态与连接**，回 `backToSelectResult` + `characterList`；前端切 `SelectCharScene`，HUD 两个退出按钮统一走回选角（浏览器里无法真正关客户端） |
+| 登录失败文字位置 / 缺开门动画 | 原版 `SM_PASSWD_FAIL` 走 `FrmDlg.DMessageDlg` **居中弹窗**（`FState.pas:2407` 白字黑边、`\` 分行、行距 14），`LoginScene.PassWdFail` 只重新显示输入框并不在登录框里画字。开门在 `IntroScn.pas::TLoginScene.OpenLoginDoor`：`m_nMaxFrame=10`、**300 ms/帧**，底图 `ChrSel[22]`，门帧 `ChrSel[23+frame]`（496×361），画在 `((800-w)/2+1, (600-h)/2-23)`，音 `s_rock_door_open=100`（SoundUtil.pas），播完淡出 `ChangeScene(stSelectChr)` | 登录失败改 `_showMsgDlg()` 居中模态框（320 px 宽、白字黑边、`\` 分行、确定按钮），删掉登录框底部 `left=24,top=224` 那行错位文字；登录成功改走 `_startDoor()`：隐藏登录框、播编号 100 音效、预取 10 帧门、逐帧绘制，10 帧后 300 ms 黑幕淡出再切选角 |
+
+### 18.2 验证（服务端/回归 `D:/Python310/python.exe`，Playwright `D:/Python39/python.exe`）
+
+- 浏览器端到端 **15/15 PASS**：登录失败弹窗文字与居中 `(400,300)`；登录成功 0.5 s 时仍在 `LoginScene` 且 `_door.active`、`frames=10`；3.3 s 后到 `SelectCharScene`；`_miniMapIndex=101 → _miniMapTex=[1052,699]`；小地图非零像素 `14400/14400`；大地图 `40965` 个亮像素、标题「比奇省 (296, 500)」；正常帧与「整片格子人为未就绪」两种情况下兜底纯色横带数均为 `0`、`f.sample=true`；主菜单返回后 `SelectCharScene` 且 `connected=true`、角色列表仍可用；`MapActor.render` 收到 `["function", true]`；`pageerrors: []`。
+- 尸体专项 **8/8 PASS**：倒地动画 → `death` 帧（鹿 `mon17/700`，与 die 帧 `mon17/360` 不同）、纹理已预取 `hasTex=true`、可绘制、无名字血条（截图目视确认侧躺鹿尸）、Alt+左键发出 `{actorId, x, y}`。
+- `test_pyserver.py` **54/0**、`test_tick_systems.py` **53/0**、`test_all_messages.py --live 8080` **27/0 + ping→pong PASS**（新增 8 条：掉落环形扩散、尸体保留/不掉物品、尸体在视野、战斗不含尸体、挖两次出肉、bagUpdate、backToSelect 不断线；消息类型 **46 → 48**，`messages_for()` 与执行顺序同步补齐）、`node scripts/test_audio.mjs` **19/19**、`convert_audio.py --self-test` **12/12**。
+
+### 18.3 边界（未硬改）
+
+- 只给**可挖肉动物**保留尸体；其他怪死亡仍按原逻辑移除（原版所有怪都有尸体，本移植为避免 actor id 与 15 s 重生冲突先不铺开）。尸体实际存活到重生（约 15 s）而非原版 60 s。
+- 挖肉次数简化为 2 次（原版 `m_nBodyLeathery` 50~150、`m_nMeatQuality` 递减，本移植无这两个字段）；未实现 `SM_BUTCH` 让别人看到蹲下（`CM_SITDOWN` 动作段本移植没有），肉品质也未写进 `Dura`。
+- 尸体帧按 `ActDeath.start + dir` 取一张；原版部分怪（骷髅类、`ActDeath.frame>1`）还有多帧，未逐怪适配。
+- 大地图仍是「整张 mmap 底图等比铺进 DOM 面板」的简化实现；原版 `MapUnit.DrawMiniMap`（`SCALE=4`、`MX=12/MY=8` 的 540×360 surface）是另一套遗留代码，`TAB` 实际绑定在原版是 `M` 键，未照搬。
+- 开门只做淡出，未做 `g_nFadeIndex` 的选角淡入；失败弹窗用 DOM 样式近似 `g_WMainImages[360/380/381]` 底图。
+- 条纹是冷缓存竞态：无头 Chromium 本地资源秒开，只能用「人为把整片纹理置为未就绪」验证 `sample` 生效；真实冷启动观感仍需用户 `Ctrl+F5` 自测。

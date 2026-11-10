@@ -546,6 +546,12 @@ class Monster(Actor):
     transformed: bool = False
     change_face_at: int = 0
     next_move_at: int = 0
+    # 原版 SM_DEATH 后 actor 不立即删除，而是保留为尸体（ClMain.pas 的
+    # g_FreeActorList 在 SM_HIDE 后 60s 才 Free）。只有可挖肉的动物留尸体，
+    # 重生时清空，避免与复用的同一 actor id 冲突。
+    corpse_until: int = 0
+    butch_count: int = 0
+    skeleton: bool = False
     next_attack_at: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
@@ -569,6 +575,9 @@ class Monster(Actor):
         o = Actor.brief_json(self)
         if self.master_id >= 0 and 0 <= self.slave_exp_level < len(SLAVE_COLORS):
             o["nameColor"] = SLAVE_COLORS[self.slave_exp_level]
+        # 尸体仍要作为实体下发给客户端（原版 SM_DEATH 保留 actor，画 ActDeath 帧）
+        o["alive"] = self.alive
+        o["corpse"] = (not self.alive and self.corpse_until > 0)
         return o
 
 
@@ -815,11 +824,28 @@ class GameWorld(WorldExtra):
         return [a for a in game_map.actors.values() if a.alive
                 and max(abs(a.x - x), abs(a.y - y)) <= radius]
 
+    @staticmethod
+    def _corpse_visible(a: Actor) -> bool:
+        """未过期的动物尸体：原版死亡后 actor 保留、可被 Alt+左键挖肉。"""
+        return (isinstance(a, Monster) and not a.alive
+                and a.corpse_until > now_ms())
+
+    def _sight_actors(self, game_map: GameMap, x: int, y: int,
+                      radius: int = SIGHT_RANGE) -> list[Actor]:
+        """视野内下发给客户端的实体 = 活体 + 未过期尸体。
+
+        只用于 map_snapshot / update_sight；战斗目标筛选仍用 nearby()（仅活体），
+        否则怪物会攻击自己同伴的尸体。
+        """
+        return [a for a in game_map.actors.values()
+                if (a.alive or self._corpse_visible(a))
+                and max(abs(a.x - x), abs(a.y - y)) <= radius]
+
     def map_snapshot(self, p: Player, msg_type: str) -> dict:
         game_map = p.map or self.default_map
         p.seen.clear()
         nearby = []
-        for a in self.nearby(game_map, p.x, p.y):
+        for a in self._sight_actors(game_map, p.x, p.y):
             if a.id != p.id:
                 nearby.append(a.brief_json())
                 p.seen.add(a.id)
@@ -840,8 +866,8 @@ class GameWorld(WorldExtra):
         if game_map is None or p.session is None:
             return
         now_seen: set[int] = set()
-        for a in game_map.actors.values():
-            if a.alive and a.id != p.id and max(abs(a.x - p.x), abs(a.y - p.y)) <= SIGHT_RANGE:
+        for a in self._sight_actors(game_map, p.x, p.y):
+            if a.id != p.id:
                 now_seen.add(a.id)
                 if a.id not in p.seen:
                     p.session.send_json({"type": "entityAdd", "entity": a.brief_json()})
@@ -1006,6 +1032,9 @@ class GameWorld(WorldExtra):
                 continue
             a.pending_respawn = False
             a.alive = True
+            a.corpse_until = 0
+            a.butch_count = 0
+            a.skeleton = False
             a.x, a.y = a.spawn_x, a.spawn_y
             a.hp = a.max_hp = a.template.hp if a.template else a.max_hp
             a.poison_ticks = 0

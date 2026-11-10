@@ -9,7 +9,7 @@ import * as A from './actorData.mjs';
 // 施法（spell）映射到 HA.spell 段（start 392, 6 帧×60ms），与普通攻击 hit 段不同（原版 ActSpell）
 // 冲撞（rush）映射到 run 段（原版 ActRushLeft/Right 即 run 段 128 起的 3 帧子段，见 Actor.pas）
 const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', rush: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die' };
-const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die' };
+const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die', death: 'death' };
 
 export class ActorSprite {
     constructor(entity) {
@@ -20,6 +20,22 @@ export class ActorSprite {
         this._loading = new Set();  // 已触发加载的 key（防重复）
         this._lastByLib = new Map();  // lib -> 最近成功纹理（当前帧未就绪时回退，避免人物消失一帧）
         this._lastLayers = null;      // 上一帧完整图层，纹理全缺时整体回退
+    }
+
+    /**
+     * 预取尸体静止帧（ActDeath.start + dir）。死亡动画与尸体帧在 WIL 里相隔
+     * 数百张图，_texture 只顺带预取后续 6 帧，倒地动画结束时尸体帧往往还没到，
+     * getLayers 会回退到 _lastByLib 的**站立帧** → 看起来像「怪还站着、没有尸体」。
+     */
+    prefetchDeathFrame(e) {
+        if (!e || e.type === 'player') return;
+        const segs = e.type === 'npc' ? A.npcAction(e.appr) : A.raceByPM(e.raceImg);
+        const seg = segs && (segs.death || segs.die);
+        if (!seg) return;
+        const cf = seg.start + (e.dir || 0);
+        const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
+        const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
+        this._texture(lib, offset + cf);
     }
 
     /** 返回当前帧的绘制层 [{canvas,px,py}]；未加载的层用上一帧纹理回退，绝不整人消失。 */
@@ -55,6 +71,18 @@ export class ActorSprite {
             segKey = MON_SEG[action] || 'stand';
         }
         if (!segs) return null;
+
+        // 尸体静止帧：原版 Actor.pas::CalcActorFrame 对 SM_SKELETON 用
+        // `ActDeath.start + m_btDir`，GetDefaultFrame 对 m_boDeath&&m_boSkeleton
+        // 用 ActDeath.start。这里按方向 +dir 偏移（**不**乘 frame+skip），
+        // 与 die 段（ActDie.start + dir*(frame+skip)）区分开。
+        if (action === 'death' && e.type !== 'player') {
+            const seg = segs.death || segs.die || segs.stand;
+            const cf = seg.start + dir;
+            const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
+            const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
+            return [{ lib, index: offset + cf }];
+        }
 
         // attack/spell/struck 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
         if (action === 'attack' || action === 'spell' || action === 'struck') {
