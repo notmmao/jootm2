@@ -25,8 +25,14 @@
         }
         #stage {
             position: relative;
+            /* flex 容器会默认压缩子项：窗口小于 800 时布局宽被压到 640，再叠加
+               scale 就会变成 512×480（比例失真）。必须禁止收缩。 */
+            flex: none;
             width: 800px;
             height: 600px;
+            /* 内部逻辑坐标恒为 800×600；由 main.mjs 按窗口等比 scale */
+            transform-origin: center center;
+            will-change: transform;
         }
         /* 游戏场景层（canvas 轮询绘制） */
         #screen {

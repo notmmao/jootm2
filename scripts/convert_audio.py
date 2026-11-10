@@ -59,11 +59,15 @@ BGM_ARGS = ["-ar", "44100", "-b:a", "96k", "-codec:a", "libmp3lame"]
 
 # Delphi SoundUtil.pas 的 bmg_* 常量 + 客户端里其余几首整曲。
 # 这些不在 sound.lst 里（原版由 PlayBGM 按文件名直接加载），所以单独编索引。
+# 注意：本资源包的 Log-in-long2.wav 与 Game-over2.wav（连字符）MD5 完全相同，
+# 实际是 34.3s 的「角色死亡」曲；空格版 Game over2.wav（68.6s）才是玩家记忆中的
+# 开场/登录曲（社区改包也正是把空格版改名当 Log-in-long2 用）。按用户试听结论
+# 交换 intro / gameover 的指向，不改 Delphi 常量、不重新转码。
 BGM_FILES = {
-    "intro": "log-in-long2.wav",
+    "intro": "game over2.wav",
     "select": "sellect-loop2.wav",
     "field": "Field2.wav",
-    "gameover": "game over2.wav",
+    "gameover": "log-in-long2.wav",
     "theme": "main_theme.wav",
     "heroLogin": "HeroLogin.wav",
     "heroLogout": "HeroLogout.wav",
@@ -376,8 +380,8 @@ def self_test(ffmpeg: str | None) -> int:
         ck("多编号共享一份 mp3", plan["sounds"]["1"]["mp3"] == plan["sounds"]["2"]["mp3"])
         ck("每个唯一 wav 只产出一份 mp3", len(plan["files"]) == 3)
         ck("编号优先命名", plan["sounds"]["1"]["mp3"] == "1.mp3")
-        ck("BGM 指向已编号引用的那份 mp3",
-           plan["bgm"]["gameover"]["mp3"] == plan["sounds"]["5"]["mp3"])
+        ck("BGM 指向已编号引用的那份 mp3（交换后由 intro 使用）",
+           plan["bgm"]["intro"]["mp3"] == plan["sounds"]["5"]["mp3"])
         ck("mp3 文件名唯一", len(set(plan["files"].values())) == 3)
         data = build_map(plan, missing, blanks, 8, 12345)
         ck("索引结构可被前端序列化", json.loads(json.dumps(data))["sounds"]["132"]["wav"]

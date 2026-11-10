@@ -2,10 +2,11 @@
 // 真实等距地图 + 实体（sprite）+ 鼠标按住移动（走/跑）+ HUD + 聊天。
 
 import { Scene } from './Scene.mjs';
-import { MapActor } from '../map/MapActor.mjs';
+import { MapActor, FLOOR_FALLBACK } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
 import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
+import { toLocal } from '../core/viewport.mjs';
 import { sound, itemClickSound, SFX } from '../audio/SoundManager.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
@@ -647,9 +648,8 @@ export class PlayScene extends Scene {
     // 朝目标点移动一步（原版 ProcessActionMessages：每步按当前坐标重算朝目标的方向）
     // 鼠标相对画面中心（人物）→ 逻辑 8 方向
     _dirFromMouse(e) {
-        const rect = this._canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        // 经 viewport 换算回 800×600 逻辑坐标（#stage 可能被等比放大）
+        const { x: mx, y: my } = toLocal(e.clientX, e.clientY, this._canvas);
         const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
         const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
         const dx = mx - (ox + 24);   // 人物格子中心 X
@@ -938,10 +938,10 @@ export class PlayScene extends Scene {
         return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
     }
 
-    // 鼠标事件 → canvas 内坐标
+    // 鼠标事件 → canvas 内 800×600 逻辑坐标
     _mouseXY(e) {
-        const rect = this._canvas.getBoundingClientRect();
-        return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
+        const { x, y } = toLocal(e.clientX, e.clientY, this._canvas);
+        return { mx: x, my: y };
     }
 
     // 贴图区域命中实体（原版 GetAttackFocusCharacter：贴图中间 40×70 判定）
@@ -1405,39 +1405,58 @@ export class PlayScene extends Scene {
         this._miniMapScale = scale;
     }
 
-    /** 绘制小地图：裁剪玩家周围 120×120 格 + 自己（白）/怪物（红）/NPC（黄）/其他玩家（蓝）点。 */
+    /** 绘制小地图：裁剪玩家周围 120×120 像素 + 自己（白）/怪物（红）/NPC（黄）/其他玩家（蓝）点。 */
     _renderMiniMap() {
         const cv = this.miniMapCanvas;
         if (!cv) return;
         if (!this._miniMapStyle || !this.self || !this._miniMapTex) {
             cv.style.display = 'none';
+            // 关掉时顺手清空，避免下次显示的第一帧还留着旧地图/旧坐标的点
+            cv.getContext('2d').clearRect(0, 0, 120, 120);
             return;
         }
         cv.style.display = 'block';
         const ctx = cv.getContext('2d');
         const tex = this._miniMapTex;
         const p = this.self;
-        // 原版 DrawMiniMap：mx = (XX*48) div 32（= 格坐标 × 1.5，mmap 底图）
-        // 兜底自生成图是 1 像素/格，用 _miniMapScale 区分
-        // rc.Left/Top = max(0, 格坐标*scale - 60)，rc.Right/Bottom = min(图宽高, +120)
-        // —— 不往右下钳制：玩家超出底图范围时该方向自然留空（原版同样）
+        const VIEW = 120;
+        // 原版 mmap 底图是 1.5 像素/格，但本资源包的 mmap.wil 与服务端 .map
+        // 尺寸并不严格对应（例：0 号比奇省 700×700 格，101 号底图只有 900×599）。
+        // 若仍按 1.5 px/格定位，玩家 y=480 → sy=660 > 599，裁剪高度变负数，
+        // 底图整块不画，半透明/不透明两态看起来完全一样（实测像素差 0/19600）。
+        // 这里改成「纹理像素 / 地图格数」归一化换算，保证坐标一定落在底图内。
+        const sm = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
         const sc = this._miniMapScale || 1.5;
-        const px = Math.round(p.x * sc);
-        const py = Math.round(p.y * sc);
-        const sx = Math.max(0, px - 60);
-        const sy = Math.max(0, py - 60);
-        const w = Math.min(120, tex.width - sx);
-        const h = Math.min(120, tex.height - sy);
-        ctx.clearRect(0, 0, 120, 120);
-        ctx.globalAlpha = this._miniMapStyle === 1 ? 0.75 : 1;
+        const mapW = Math.max(1, sm.width || tex.width / sc);
+        const mapH = Math.max(1, sm.height || tex.height / sc);
+        const kx = tex.width / mapW;
+        const ky = tex.height / mapH;
+        const px = Math.round(p.x * kx);
+        const py = Math.round(p.y * ky);
+        // 以玩家为中心取 120×120 窗口，越界时钳到底图边缘（不能再让 w/h 变负）。
+        const sx = Math.max(0, Math.min(tex.width - VIEW, px - VIEW / 2));
+        const sy = Math.max(0, Math.min(tex.height - VIEW, py - VIEW / 2));
+        const w = Math.min(VIEW, tex.width - sx);
+        const h = Math.min(VIEW, tex.height - sy);
+        const translucent = this._miniMapStyle === 1;
+        ctx.clearRect(0, 0, VIEW, VIEW);
+        // 不透明态垫深色底 + 描边；半透明态不垫底、只降 alpha，让游戏画面透出来，
+        // 两态才有肉眼可辨的差异（原版 ViewMiniMapStyle 1/2）。
+        if (!translucent) {
+            ctx.fillStyle = '#0b0d0a';
+            ctx.fillRect(0, 0, VIEW, VIEW);
+        }
+        ctx.globalAlpha = translucent ? 0.68 : 1;
         if (w > 0 && h > 0) {
             ctx.drawImage(tex, sx, sy, w, h, 0, 0, w, h);
         }
         ctx.globalAlpha = 1;
+        cv.style.outline = translucent ? '1px solid rgba(190,205,160,0.45)'
+            : '1px solid rgba(190,205,160,0.9)';
         const dot = (gx, gy, color) => {
-            const mx = Math.round(gx * sc) - sx;
-            const my = Math.round(gy * sc) - sy;
-            if (mx < 1 || my < 1 || mx >= 119 || my >= 119) return;
+            const mx = Math.round(gx * kx) - sx;
+            const my = Math.round(gy * ky) - sy;
+            if (mx < 1 || my < 1 || mx >= VIEW - 1 || my >= VIEW - 1) return;
             ctx.fillStyle = color;
             ctx.fillRect(mx - 1, my - 1, 3, 3);
         };
@@ -1555,9 +1574,12 @@ export class PlayScene extends Scene {
             ctx.fillText('该地图暂无地图资料', 12, 24);
             return;
         }
+        // 与小地图同一口径：优先用服务端地图格数做归一化，避免 mmap.wil 与 .map
+        // 尺寸不一致时（例：比奇省 700×700 / 底图 900×599）自己/怪物点跑出面板。
+        const sm0 = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
         const sc = this._miniMapScale || 1.5;
-        const mapW = Math.max(1, tex.width / sc);
-        const mapH = Math.max(1, tex.height / sc);
+        const mapW = Math.max(1, sm0.width || tex.width / sc);
+        const mapH = Math.max(1, sm0.height || tex.height / sc);
         const k = Math.min((cv.width - 16) / tex.width, (cv.height - 16) / tex.height);
         const w = Math.max(1, Math.floor(tex.width * k));
         const h = Math.max(1, Math.floor(tex.height * k));
@@ -1700,12 +1722,15 @@ export class PlayScene extends Scene {
         // 整个窗口按住拖动；超过 4px 阈值才算拖动（否则视为点击，不影响格子/按钮）
         let drag = null;
         win.addEventListener('mousedown', (e) => {
-            drag = { sx: e.clientX, sy: e.clientY, l: win.offsetLeft, t: win.offsetTop, moved: false };
+            // 拖拽差值也必须换算成逻辑像素，否则放大后窗口移动比鼠标快 k 倍
+            const p = toLocal(e.clientX, e.clientY);
+            drag = { sx: p.x, sy: p.y, l: win.offsetLeft, t: win.offsetTop, moved: false };
         });
         const mm = (e) => {
             if (!drag || !win.isConnected) return;   // 窗口已移除则忽略
-            const dx = e.clientX - drag.sx;
-            const dy = e.clientY - drag.sy;
+            const p = toLocal(e.clientX, e.clientY);
+            const dx = p.x - drag.sx;
+            const dy = p.y - drag.sy;
             if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
             drag.moved = true;
             win.style.left = Math.max(0, Math.min(SCREEN_WIDTH - win.offsetWidth, drag.l + dx)) + 'px';
@@ -2854,7 +2879,8 @@ export class PlayScene extends Scene {
             ctx.restore();
             return;
         }
-        ctx.fillStyle = '#000';
+        // 每帧清屏也不再用纯黑：地面层万一有一帧没盖满，露出来的是土地暗色而不是黑条。
+        ctx.fillStyle = FLOOR_FALLBACK;
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();

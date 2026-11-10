@@ -304,6 +304,8 @@ class SoundManager {
     /**
      * 切换 BGM：intro / select / play / field / gameover / theme / heroLogin / heroLogout。
      * `play` = 原版游戏主场景音乐（编号 102），`field` = 后期附加的 Field2 长曲（可手动切回试听）。
+     * `intro` / `gameover` 按本资源包的试听结论指在 audio_map.json 里交换过：
+     * intro = 68.6s 空格版 Game over2.wav（开场曲），gameover = 34.3s Log-in-long2.wav（死亡曲）。
      */
     setBgm(key) {
         if (!key) return false;

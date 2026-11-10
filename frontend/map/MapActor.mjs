@@ -12,9 +12,9 @@ import { PALETTE_RGBA } from '../gfx/palette.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
-// 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑会被看成「一条一条的黑条」，
-// 用接近地砖暗部的颜色 + 借用邻格像素，保证任何时刻都不会露出纯黑条带。
-const FLOOR_FALLBACK = '#1e1a12';
+// 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑/近黑会被看成「一条一条的黑条」，
+// 这里用明显亮于纯黑的地色，并且优先借用已绘制格像素，保证任何时刻都不会露出黑条带。
+export const FLOOR_FALLBACK = '#3a3222';
 
 export class MapActor {
     constructor(viewW, viewH) {
@@ -209,7 +209,7 @@ export class MapActor {
                 }
             }
         }
-        this._floor = { canvas, ctx: fctx, wx0, wy0, gw, gh, cells };
+        this._floor = { canvas, ctx: fctx, wx0, wy0, gw, gh, cells, lastPainted: f && f.lastPainted };
         return this._floor;
     }
 
@@ -238,18 +238,30 @@ export class MapActor {
     /**
      * 未就绪的格子先借用相邻已绘制格的像素，避免纯黑条带；不置 cells=1，
      * 纹理到达后下一帧会用真实内容覆盖。canvas 允许以自身为源 drawImage。
+     *
+     * 增量预取按 24 格分批提交，会出现「连续一整行都还没就绪」的窗口：这时四个
+     * 邻格也都没画，旧实现全部退化成纯色填充，连成一条近黑色横带（用户看到的
+     * 「黑色条纹」）。因此邻格全失败时再从缓存里任意已绘制格借像素。
      */
     _borrowFloorCell(f, ix, iy, px, py) {
+        const copy = (nx, ny) => {
+            try {
+                f.ctx.drawImage(f.canvas, nx * TILE_W, ny * TILE_H, TILE_W, TILE_H,
+                                px, py, TILE_W, TILE_H);
+                return true;
+            } catch (e) { return false; }
+        };
         const neighbours = [[ix - 1, iy], [ix, iy - 1], [ix + 1, iy], [ix, iy + 1]];
         for (const [nx, ny] of neighbours) {
             if (nx < 0 || ny < 0 || nx >= f.gw || ny >= f.gh) continue;
             if (!f.cells[ny * f.gw + nx]) continue;
-            try {
-                f.ctx.drawImage(f.canvas, nx * TILE_W, ny * TILE_H, TILE_W, TILE_H,
-                                px, py, TILE_W, TILE_H);
-                return;
-            } catch (e) { break; }
+            if (copy(nx, ny)) return;
+            break;
         }
+        // 整带未就绪：用最近一次真正画过地砖的格子，绝不留纯色暗带。
+        const lp = f.lastPainted;
+        if (lp && f.cells[lp.iy * f.gw + lp.ix] && copy(lp.ix, lp.iy)) return;
+        // 首帧连一格都没画出来才用底色，且颜色也明显亮于纯黑。
         f.ctx.fillStyle = FLOOR_FALLBACK;
         f.ctx.fillRect(px, py, TILE_W, TILE_H);
     }
@@ -262,8 +274,9 @@ export class MapActor {
                 const gx = f.wx0 + ix, gy = f.wy0 + iy;
                 const px = ix * TILE_W, py = iy * TILE_H;
                 if (gx < 0 || gy < 0 || gx >= m.width || gy >= m.height) {
-                    // 地图外沿用纯黑（原版边界），但同样锁定，避免每帧重涂
-                    f.ctx.fillStyle = '#000';
+                    // 地图外不再涂纯黑：靠边界走动时纯黑格会被看成一条条黑带，
+                    // 统一用与未就绪格相同的土地兜底色。
+                    f.ctx.fillStyle = FLOOR_FALLBACK;
                     f.ctx.fillRect(px, py, TILE_W, TILE_H);
                     f.cells[idx] = 1;
                     continue;
@@ -298,6 +311,8 @@ export class MapActor {
                 }
                 if (mid.tex) f.ctx.drawImage(mid.tex.canvas, px, py);
                 f.cells[idx] = 1;
+                // 供 _borrowFloorCell 在「整行都未就绪」时借像素用
+                if (bng.tex || mid.tex) f.lastPainted = { ix, iy };
             }
         }
     }

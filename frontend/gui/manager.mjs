@@ -2,6 +2,7 @@
 // 管理所有控件，分发鼠标/键盘事件（UI 优先），处理 z-index 置顶、模态、拖动
 
 import { DControl } from './control.mjs';
+import { toLocal, toClient } from '../core/viewport.mjs';
 
 export class DWinManager {
     constructor(container) {
@@ -68,10 +69,11 @@ export class DWinManager {
 
     // 用浏览器原生 elementFromPoint 找命中的控件（自动处理 z-index/坐标/裁剪/子控件）
     _hitTest(x, y) {
+        // x/y 是 800×600 逻辑坐标；elementFromPoint 需要真实屏幕坐标（#stage 可能已等比放大）
+        const client = toClient(x, y, this.container);
         if (this.modalWindow) {
             // 模态时只有模态窗口可交互
-            const rect = this.container.getBoundingClientRect();
-            const el = document.elementFromPoint(rect.left + x, rect.top + y);
+            const el = document.elementFromPoint(client.x, client.y);
             let node = el;
             while (node && node !== this.container) {
                 if (node.__control === this.modalWindow) return this.modalWindow;
@@ -79,8 +81,7 @@ export class DWinManager {
             }
             return null;
         }
-        const rect = this.container.getBoundingClientRect();
-        const el = document.elementFromPoint(rect.left + x, rect.top + y);
+        const el = document.elementFromPoint(client.x, client.y);
         let node = el;
         while (node && node !== this.container) {
             if (node.__control) return node.__control;
@@ -90,9 +91,7 @@ export class DWinManager {
     }
 
     _onMouseDown(e) {
-        const rect = this.container.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const { x, y } = toLocal(e.clientX, e.clientY, this.container);
 
         const hit = this._hitTest(x, y);
         if (!hit) return;   // 未命中 UI，事件交给场景（canvas）
@@ -110,18 +109,16 @@ export class DWinManager {
         e.stopPropagation();
     }
 
-    // 计算事件相对命中控件的本地坐标（用 getBoundingClientRect，兼容子控件相对父控件定位）
+    // 计算事件相对命中控件的本地坐标（换算回逻辑坐标，兼容子控件相对父控件定位）
     _localXY(hit, e) {
-        const hr = hit.el.getBoundingClientRect();
-        return { lx: e.clientX - hr.left, ly: e.clientY - hr.top };
+        const p = toLocal(e.clientX, e.clientY, hit.el);
+        return { lx: p.x, ly: p.y };
     }
 
     _onMouseMove(e) {
-        const rect = this.container.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+        const { x, y } = toLocal(e.clientX, e.clientY, this.container);
 
-        // 拖动
+        // 拖动（x/y 已是逻辑坐标，DWindow 直接用于 setBounds）
         if (this._dragWindow) {
             this._dragWindow.onGlobalMouseMove(x, y);
         }

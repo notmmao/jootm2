@@ -85,8 +85,14 @@ ck('132 号指向非数字文件名 M12-1.wav', () => {
     assert.equal(map.sounds['132'].wav, 'Wav/M12-1.wav');
 });
 ck('BGM 文件名大小写/空格按磁盘实际解析', () => {
-    assert.equal(map.bgm.gameover.wav, 'Wav/Game over2.wav');
     assert.equal(map.bgm.field.wav, 'Wav/Field2.wav');
+});
+ck('intro/gameover 按试听结论交换（不改 Delphi 常量、不重转码）', () => {
+    assert.equal(map.bgm.intro.mp3, 'game_over2.mp3');
+    assert.equal(map.bgm.intro.wav, 'Wav/Game over2.wav');
+    assert.equal(map.bgm.gameover.mp3, 'log-in-long2.mp3');
+    assert.equal(map.bgm.gameover.wav, 'Wav/Log-in-long2.wav');
+    assert.notEqual(map.bgm.intro.mp3, map.bgm.gameover.mp3);
 });
 
 const handlers = [];

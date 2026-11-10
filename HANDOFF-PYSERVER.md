@@ -655,3 +655,30 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 发型左右箭头只有「按下态」贴图，`Prguse[73]` 底图本身没有对应常态图案，所以不选中时看不见箭头；`hair` 参数服务端已接收但外观未逐发型区分。
 - 真实带 GPU 浏览器的建角立绘切换观感、连点手感、黑条是否彻底消失仍需用户 `Ctrl+F5` 自测确认；本轮为无头 Chromium 定量 + 截图像素对比。
 - 其余历史边界见 §13.3（PvP 永不 miss、逐技能施法音近似、rush 无专属身位动画等），本轮未动。
+
+## 17. 六项实测反馈（BGM 交换 / 小地图 / 界面缩放 / 商店价格 / 选角文字 / 残留黑条）（2026-11-10 第六轮）
+
+用户连续追加 6 条反馈，逐项定位后一次性落地。`HANDOFF.md` 仍保持零改动。
+
+| 反馈 | 根因 | 改动 | 文件 |
+| --- | --- | --- | --- |
+| `__sound.setBgm('intro')` 听着像死亡曲、`gameover` 才像开场 | 本资源包 `Log-in-long2.wav` 与 `Game-over2.wav`（连字符）**MD5 完全相同**（34.3 s 死亡曲），空格版 `Game over2.wav`（68.6 s）才是玩家记忆中的开场曲；社区改包也正是把空格版改名当 `Log-in-long2` 用。Delphi `SoundUtil.pas` 常量本身仍是 `bmg_intro='wav\log-in-long2.wav'` | 按用户试听结论**只交换两个语义键指向的文件**，不改 Delphi 常量、不重新转码：`intro → game over2.wav / game_over2.mp3`，`gameover → log-in-long2.wav / log-in-long2.mp3`；同步自检断言与注释 | `scripts/convert_audio.py`、`frontend/audio/audio_map.json`、`scripts/test_audio.mjs`、`frontend/audio/SoundManager.mjs` |
+| 小地图半透明和不透明「一样、都看不清」 | 0 号比奇省 700×700 格，101 号 mmap 底图只有 900×599；按写死的 1.5 px/格算，玩家 y=480 → `sy=660 > 599`，裁剪高度 **-61**，底图整块不画，两态只剩几个实体点（实测像素差 `0/19600`） | 改「纹理像素 / 地图格数」归一化换算，裁剪窗口以玩家为中心并**钳到底图边界**；不透明态垫深色底 + 描边，半透明态只降 alpha（`0.68`）让游戏画面透出；关闭时清空画布。大地图点位换算同步用同一口径 | `frontend/scene/PlayScene.mjs` |
+| 整个界面能否等比例放大 | 原来 `#stage` 固定 800×600，窗口更大时四周留黑；且 flex 默认会压缩子项 | `#stage` 加 `flex:none` + `transform-origin:center`，`fitStage()` 按 `min(vw/800, vh/600)` 等比缩放（4:3 居中）；新增 `frontend/core/viewport.mjs` 统一换算，所有 `clientX/clientY` 与 `elementFromPoint` 都按 `rect.width/800` 折算；`window.__setUiScale(k)` / `localStorage['jootm2.uiScale']` 可固定倍率 | `frontend/index.html`、`frontend/main.mjs`、`frontend/core/viewport.mjs`（新）、`frontend/scene/PlayScene.mjs`、`frontend/gui/manager.mjs`、`frontend/gui/window.mjs` |
+| 所有商店都是 10 块钱 | M2 `Market_Def` 脚本头 `%100` 才是「按 StdItems 原价出售」的倍率，`[goods]` 每行是 `物品名 库存数量 刷新时间`；**Java 版把第二列库存当成单价**直出，Python 直译后一样错，于是武器/首饰店清一色 10 | `NpcScript` 解析脚本头 `%N`（默认 100），`goods()` 价格改 `StdItems.Price × rate%`、第二列落到 `stock`；`_buy_price()` 沿用 goods 价。真实数据实测从「10 种价」变成 **49 种价**（木剑 50、青铜剑 900、金创药 80、强效金创药 540…） | `pyserver/npc_script.py`、`scripts/test_pyserver.py`、`scripts/test_all_messages.py` |
+| 选角名字/职业/等级文字有偏移 | Delphi `IntroScn.pas` 的 `BoldTextOut` → Windows `TextOut(x,y)` 以**字顶**为 y；canvas 默认 `textBaseline='alphabetic'`，整行文字上浮约 10 px，正好压在背景虚线框上边框上 | `_text()` 显式 `textBaseline='top'` + `save/restore`，坐标改回 Delphi 原值：左槽 `117,493/522/552`、右槽 `671,495/524/554`（原代码各 +1）；建角预览同步 | `frontend/ui/SelectCharScene.mjs` |
+| 地图还是有黑色条纹 | 第一轮 `failed` 锁死已修，但增量预取按 24 格分批提交，会出现**连续一整行纹理都未就绪**的窗口：四个邻格也都没画，`_borrowFloorCell()` 全部退化成 `#1e1a12` 近黑纯色填充，连成暗带；地图外格子仍涂 `#000`；每帧清屏也是 `#000` | 兜底地色调亮为 `#3a3222`；邻格都不可用再从 `f.lastPainted`（最近真正画过地砖的格）借像素；地图外改用地色；PlayScene 清屏改用地色；关闭/清空小地图画布 | `frontend/map/MapActor.mjs`、`frontend/scene/PlayScene.mjs` |
+
+### 17.1 依据与边界
+
+- `[goods]` 列义与 `%N` 倍率来自 M2 商人脚本文档（`Market_Def` 头 `%100` = 原价、`%150` = 1.5 倍；`[goods]` 行是 `物品名 数量 刷新时间`）+ 本仓库 283 个商店脚本每行都有 `%100` 的自证；**不是**凭空改数据。Java 源码 `NpcScriptEngine.goods()` 的 `// 物品名 价格 数量` 注释本身是错的，本轮未改 Java 源码（分支只维护 Python 端）。
+- BGM 交换只动索引指向，Delphi 常量、`sound.lst` 编号 49 / 102 与 723 份 mp3 全部未改；如换回原版语义只需交换 `BGM_FILES` 两行。
+- 界面缩放是 CSS transform，canvas 逻辑分辨率恒为 800×600，`image-rendering:pixelated` 保留像素味；DOM 文字会随缩放变平滑。缩放上限 4、下限 0.5。
+- 黑条属于**纹理分批到达的瞬态**，无头 Chromium 正常帧无法复现；本轮用「人为把连续 4 行标记为未就绪」复现并验证不再出现暗带，真实 GPU 浏览器观感仍需用户 `Ctrl+F5` 自测确认。
+
+### 17.2 验证（全部按 §14.5 用 `D:/Python310/python.exe` 跑服务端/回归，Playwright 用 `D:/Python39/python.exe`）
+
+- 浏览器端到端 **23/23 PASS**：选角 `textBaseline=top` + 六个 Delphi 坐标；`intro/gameover` 索引与 `play=102.mp3`；小地图两态 `nonzero=14400/14400`、平均 alpha `173 vs 255`、关闭态 `0`；地面缓存纯黑像素 `0`，连续 4 行未就绪时纯黑 `0`、深色横带 `0`、20 格保持未锁定；商店面板显示 `50/900/1000/80 金币`；1200×900 缩放为 `[0,0,1200,900]`、鼠标换算 `(400,300)→(266.7,200)`、等价物理点方向一致；640×480 缩放为 `[640,480]`；两页面 `pageerrors: []`。
+- `test_pyserver.py` **54/0**（新增 6 条商店列义用例）、`test_tick_systems.py` **53/0**、`test_all_messages.py --live 8080` **20/0 + ping→pong PASS**（新增「商店返回多种价格」「首个商品价格 = StdItems.Price × % 倍率」）。
+- `node scripts/test_audio.mjs` **19/19**、`convert_audio.py --self-test` **12/12**；`build_plan()` 与 `audio_map.json` 的 4 个 BGM 键逐项一致；全部改动文件 `node --check` / `py_compile` 通过。
+- `git diff --check` 通过；`HANDOFF.md` 零改动。注：`frontend/audio/audio_map.json` 从生成起**整文件就是 CRLF**（HEAD 与工作区均为 3654 行 CRLF），git 默认会把新增行行尾的 `\r` 判成 trailing whitespace；本仓已设置本地 `git config core.whitespace cr-at-eol`（只影响空白检查、不进版本库），否则可用 `git -c core.whitespace=cr-at-eol diff --check`。

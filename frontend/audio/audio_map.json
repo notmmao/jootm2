@@ -2868,8 +2868,8 @@
  },
  "bgm": {
   "intro": {
-   "mp3": "log-in-long2.mp3",
-   "wav": "Wav/Log-in-long2.wav"
+   "mp3": "game_over2.mp3",
+   "wav": "Wav/Game over2.wav"
   },
   "select": {
    "mp3": "sellect-loop2.mp3",
@@ -2880,8 +2880,8 @@
    "wav": "Wav/Field2.wav"
   },
   "gameover": {
-   "mp3": "game_over2.mp3",
-   "wav": "Wav/Game over2.wav"
+   "mp3": "log-in-long2.mp3",
+   "wav": "Wav/Log-in-long2.wav"
   },
   "theme": {
    "mp3": "main_theme.mp3",

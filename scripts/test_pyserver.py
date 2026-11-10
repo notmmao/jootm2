@@ -29,10 +29,11 @@ from pyserver import config as config_mod  # noqa: E402
 from pyserver.db import Database, hash_password, new_salt  # noqa: E402
 from pyserver.gamedata import (  # noqa: E402
     _TILE_12, _TILE_14, generate_resources_index, map_tile_stride,
-    parse_map_info, parse_mini_map, parse_mon_gen, parse_start_point, read_map,
+    parse_map_info, parse_mini_map, parse_mon_gen, parse_start_point, read_lines, read_map,
 )
 from pyserver.net import cache_control, content_type, parse_range, ws_frame  # noqa: E402
 from pyserver.templates import ItemTemplate, MagicTemplate, MonsterTemplate  # noqa: E402
+from pyserver.npc_script import NpcScript, NpcScriptEngine  # noqa: E402
 from pyserver.world import direction_delta, exp_for_level  # noqa: E402
 
 PASS, FAIL = [], []
@@ -221,6 +222,43 @@ def test_live(port: int) -> None:
         check("WS ping→pong", False, str(e))
 
 
+def test_shop_goods() -> None:
+    """M2 [goods] 列义：第二列是库存，价格 = StdItems.Price × 脚本头 % 倍率。"""
+    print("\n[商店价格] Market_Def / NpcScriptEngine.goods")
+    import types
+
+    script = NpcScript.parse([
+        "; 商店脚本头", "%150", "+5", "+6",
+        "[@main]", "需要什么？",
+        "[goods]", "木剑 10 10", "青铜剑 5 3",
+    ])
+    check("脚本头 %150 解析为价格倍率", script.price_rate == 150,
+          f"rate={script.price_rate}")
+    check("[goods] 行按空白切分", script.goods_rows() == [["木剑", "10", "10"],
+                                                        ["青铜剑", "5", "3"]])
+
+    t1, t2 = ItemTemplate(), ItemTemplate()
+    t1.index, t1.name, t1.price = 1, "木剑", 50
+    t2.index, t2.name, t2.price = 2, "青铜剑", 900
+    world = types.SimpleNamespace(
+        item_template_by_name=lambda n: {"木剑": t1, "青铜剑": t2}.get(n))
+    npc = types.SimpleNamespace(script=script)
+    goods = NpcScriptEngine(world).goods(npc)
+    check("价格取 StdItems.Price × 倍率，不再把库存 10 当单价",
+          [g["price"] for g in goods] == [75, 1350],
+          str([(g["name"], g["price"], g["stock"]) for g in goods]))
+    check("第二列落到 stock", [g["stock"] for g in goods] == [10, 5])
+
+    # 真实脚本：每个商店都有 %100，且价格不再全部相同
+    real = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-0103.txt"
+    if real.is_file():
+        rs = NpcScript.parse(read_lines(real))
+        check("真实武器店脚本头为 %100", rs.price_rate == 100,
+              f"rate={rs.price_rate}")
+        check("真实武器店 [goods] 有货", len(rs.goods_rows()) >= 10,
+              f"{len(rs.goods_rows())} 行")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="pyserver 离线自检")
     ap.add_argument("--live", type=int, metavar="PORT", help="额外探测运行中的服务端端口")
@@ -236,6 +274,7 @@ def main() -> int:
     test_resources_index()
     test_http_ws_helpers()
     test_misc()
+    test_shop_goods()
     if a.live:
         test_live(a.live)
     print("\n" + "=" * 64)

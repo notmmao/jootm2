@@ -443,13 +443,19 @@ export class SelectCharScene extends Scene {
     // ---- 渲染 ---------------------------------------------------------------
 
     _text(ctx, text, x, y) {
+        // 原版 IntroScn.pas 用 BoldTextOut → Windows TextOut(x, y)，y 是「字顶」。
+        // canvas 默认 alphabetic 基线会让文字整体上浮约 10px，压在背景虚线框上边框上；
+        // 必须显式改成 top，再把坐标对齐 Delphi 的 493/522/552 与 495/524/554。
+        ctx.save();
         ctx.font = 'bold 13px SimSun,serif';
         ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
         ctx.lineWidth = 3;
         ctx.strokeStyle = '#000';
         ctx.strokeText(text, x, y);
         ctx.fillStyle = '#fff';
         ctx.fillText(text, x, y);
+        ctx.restore();
     }
 
     render(ctx) {
@@ -511,15 +517,16 @@ export class SelectCharScene extends Scene {
             const tex = this._chrTex(img, n);
             if (tex) ctx.drawImage(tex, x, y);
 
-            // 名字/等级/职业（照 BoldTextOut 位置）
+            // 名字/等级/职业：Delphi IntroScn.pas::TSelectChrScene.PlayScene 的 BoldTextOut 原坐标
+            // 左槽 117,493 / 117,522 / 117,552；右槽 671,495 / 671,524 / 671,554。
             if (n === 0) {
-                this._text(ctx, c.name, 117, 494);
-                this._text(ctx, String(c.level), 117, 523);
-                this._text(ctx, JOB_NAMES[c.job] || '', 117, 553);
+                this._text(ctx, c.name, 117, 493);
+                this._text(ctx, String(c.level), 117, 522);
+                this._text(ctx, JOB_NAMES[c.job] || '', 117, 552);
             } else {
-                this._text(ctx, c.name, 671, 496);
-                this._text(ctx, String(c.level), 671, 525);
-                this._text(ctx, JOB_NAMES[c.job] || '', 671, 555);
+                this._text(ctx, c.name, 671, 495);
+                this._text(ctx, String(c.level), 671, 524);
+                this._text(ctx, JOB_NAMES[c.job] || '', 671, 554);
             }
         }
 
@@ -538,8 +545,8 @@ export class SelectCharScene extends Scene {
                 const tex = this._chrTex(img, n);
                 if (tex) ctx.drawImage(tex, pos.fx + dx, pos.fy + dy);
                 const lx = n === 0 ? 117 : 671;
-                this._text(ctx, this._nameInput ? this._nameInput.value.trim() : '', lx, n === 0 ? 494 : 496);
-                this._text(ctx, JOB_NAMES[job], lx, n === 0 ? 553 : 555);
+                this._text(ctx, this._nameInput ? this._nameInput.value.trim() : '', lx, n === 0 ? 493 : 495);
+                this._text(ctx, JOB_NAMES[job], lx, n === 0 ? 552 : 554);
             }
         }
     }

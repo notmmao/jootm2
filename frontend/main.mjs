@@ -11,6 +11,18 @@ import { loadResources } from './gfx/resource.mjs';
 import { scheduler } from './gfx/scheduler.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
+import { fitStage } from './core/viewport.mjs';
+
+// 整个 800×600 界面等比放大到当前窗口（4:3 居中，不改变内部逻辑坐标）。
+// 想固定倍率：localStorage.setItem('jootm2.uiScale','1.5') 后刷新；
+// 调试：window.__setUiScale(1.25) / __setUiScale('auto')。
+fitStage();
+window.addEventListener('resize', fitStage);
+window.__setUiScale = (k) => {
+    if (k === 'auto') localStorage.removeItem('jootm2.uiScale');
+    else localStorage.setItem('jootm2.uiScale', String(k));
+    return fitStage();
+};
 
 const canvas = document.getElementById('screen');
 canvas.width = SCREEN_WIDTH;

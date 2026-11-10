@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,9 @@ def _decode(line: str) -> Cmd:
 class NpcScript:
     def __init__(self):
         self.sections: dict[str, Section] = {}
+        # M2 商人脚本头的 ``%100`` = 按 StdItems 原价出售（%150 = 1.5 倍）。
+        # 见 Market_Def/*.txt：每个商店第二行都是 %100，紧随 +N 分类行。
+        self.price_rate: int = 100
 
     def section(self, label: str) -> Section | None:
         sec = self.sections.get(label)
@@ -127,7 +131,12 @@ class NpcScript:
                 script.sections[label] = cur
                 state = "NONE"
                 continue
+            # 脚本头的价格倍率行（`%100` / `(@buy @sell) %100 +5 +6`），位于首个段之前。
+            # 原版 M2 用它乘 StdItems 的 Price；Java 版与之前的 Python 版都没解析。
             if cur is None:
+                m = re.search(r"%\s*(\d+)", line)
+                if m:
+                    script.price_rate = max(1, min(1000, int(m.group(1))))
                 continue
             if line.startswith("#"):
                 upper = line.upper()
@@ -387,23 +396,29 @@ class NpcScriptEngine:
             r.moved_x, r.moved_y = x, y
 
     def goods(self, npc) -> list[dict]:
-        """返回 ``[{"index","name","price","stock"}]``，与 Java GoodsEntry 一致。"""
+        """返回 ``[{"index","name","price","stock"}]``。
+
+        M2 ``Market_Def`` 的真实列义（见脚本头 ``%100`` 与 +N 分类行）是：
+        ``[goods]`` 每行 = ``物品名 库存数量 刷新时间``，**第二列不是单价**；
+        购买价 = ``StdItems.csv 的 Price × 脚本头 % 倍率``（%100 即原价）。
+        Java 版把第二列当成 price 直出，导致武器店/首饰店清一色「10 金币」；
+        这里按 M2 语义纠正，倍率仍由各商店脚本自己决定。
+        """
         out: list[dict] = []
         if npc is None or npc.script is None:
             return out
+        rate = getattr(npc.script, "price_rate", 100) or 100
         for parts in npc.script.goods_rows():
-            if len(parts) < 2:
+            if not parts:
                 continue
             t = self.world.item_template_by_name(parts[0])
             if t is None:
                 continue
             try:
-                price = int(parts[1])
-            except ValueError:
-                price = 0
-            try:
-                stock = int(parts[2]) if len(parts) > 2 else 0
+                stock = int(parts[1]) if len(parts) > 1 else 0
             except ValueError:
                 stock = 0
+            # 物品模板里的 price 就是 M2 的 StdItems.Price（原价）
+            price = max(1, round(t.price * rate / 100))
             out.append({"index": t.index, "name": t.name, "price": price, "stock": stock})
         return out

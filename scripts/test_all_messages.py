@@ -228,6 +228,26 @@ def run_success_paths() -> int:
         check("NPC 脚本返回 npcSay",
               any(m.get("type") == "npcSay" for m in s1.messages), results)
 
+        # 商店价格：M2 [goods] 第二列是库存，价格应为 StdItems.Price × 脚本头 % 倍率，
+        # 不能像 Java 版那样把库存 10 当单价（用户反馈「所有商店都是 10 块钱」）。
+        merchant = next((n for n in w.npcs.values() if w.goods(n)), None)
+        if merchant is not None:
+            merchant.x, merchant.y = p.x, p.y
+            s1.messages.clear()
+            h["npcSelect"](s1, {"type": "npcSelect", "npcId": merchant.id, "value": "@buy"})
+            say = next((m for m in s1.messages if m.get("type") == "npcSay"), None)
+            goods = (say or {}).get("goods") or []
+            prices = [g["price"] for g in goods]
+            check("商店返回多种价格，不再是清一色 10",
+                  len(goods) > 0 and len(set(prices)) > 1 and max(prices) > 100,
+                  results)
+            if goods:
+                t0 = w.item_templates.get(goods[0]["index"])
+                check("首个商品价格 = StdItems.Price × % 倍率",
+                      t0 is not None and goods[0]["price"]
+                      == max(1, round(t0.price * (merchant.script.price_rate or 100) / 100)),
+                      results)
+
         # 行会 / 组队 / 仓库
         h["createGuild"](s1, {"type": "createGuild", "name": "验收行会"})
         check("创建行会成功", w.guild_of(p.name) is not None, results)
