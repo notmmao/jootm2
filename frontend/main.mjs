@@ -9,9 +9,11 @@ import { SCREEN_WIDTH, SCREEN_HEIGHT } from './core/config.mjs';
 import { DWinManager } from './gui/manager.mjs';
 import { loadResources } from './gfx/resource.mjs';
 import { scheduler } from './gfx/scheduler.mjs';
+import { assetCache } from './gfx/assetCache.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
 import { fitStage } from './core/viewport.mjs';
+import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState } from './core/boot.mjs';
 
 // 整个 800×600 界面等比放大到当前窗口（4:3 居中，不改变内部逻辑坐标）。
 // 想固定倍率：localStorage.setItem('jootm2.uiScale','1.5') 后刷新；
@@ -47,24 +49,32 @@ const guiEl = document.getElementById('gui');
 const winManager = new DWinManager(guiEl);
 
 async function init() {
-    // 先加载资源索引（图片/地图/音频 URL）
-    await loadResources();
+    boot.begin();
+    // 1) 资源清单 + 素材版本指纹并行取；版本决定 IndexedDB 缓存命名空间
+    boot.step('正在读取资源清单…');
+    const [version] = await Promise.all([fetchAssetVersion(), loadResources()]);
 
+    // 2) 打开持久缓存（版本变化时自动清空旧素材）
+    boot.step('正在检查本地缓存…');
+    await assetCache.init(version);
+
+    // 3) WebSocket 与音频索引并行就绪
     const conn = new Connection('/ws');
     // 音频模块：'*' 通配监听 WS 消息 + 按钮点击 + 首次手势解锁（服务端零改动）
     sound.install(conn);
     try {
-        await conn.connect();
+        await Promise.all([conn.connect(), sound.ready]);
     } catch (e) {
         console.error('[init] WebSocket 连接失败', e);
-        const el = document.createElement('div');
-        el.textContent = '无法连接服务器';
-        el.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;'
-            + 'color:#ff6b5e;font-size:16px;font-family:SimSun,serif;';
-        guiEl.appendChild(el);
+        boot.fail('无法连接服务器');
         return;
     }
     console.log('[init] WebSocket 已连接');
+
+    // 4) 登录/选角首屏纹理预取（有进度条；命中缓存时几乎瞬间完成）
+    await preloadEssentials((done, total, label) => boot.progress(label, done, total));
+    await assetCache.flush();
+    boot.finish();
 
     const sceneManager = new SceneManager(conn, backCtx, winManager);
     sceneManager.switchTo(new LoginScene(sceneManager));
@@ -77,6 +87,10 @@ async function init() {
     });
     loop.start();
 
+    // 5) 登录界面空闲后低优先级预热：开门/选角纹理 + 全部 WIX + 出生地图字节
+    warmInBackground();
+    window.__warmDone = warmState.done;   // 调试：await __warmDone 等后台预取结束
+
     // 调试接口
     window.__conn = conn;
     window.__sceneManager = sceneManager;
@@ -84,6 +98,10 @@ async function init() {
     window.__scheduler = scheduler;
     window.__getLib = getLib;
     window.__sound = sound;   // 调试：__sound.play(103) / status() / toggle()
+    window.__assetCache = assetCache;   // 调试：__assetCache.stats() / await __assetCache.clear()
 }
 
-init().catch(e => console.error('[init]', e));
+init().catch(e => {
+    console.error('[init]', e);
+    boot.fail('初始化失败：' + (e && e.message ? e.message : String(e)));
+});

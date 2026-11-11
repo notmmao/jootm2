@@ -4,7 +4,8 @@
 - 静态文件 + 路径穿越防护 + MIME + CORS(``*``)
 - Range 请求返回 206 + ``Content-Range: bytes s-e/total`` + ``Accept-Ranges``，
   且用流式分块发送（WIL 图库 10MB+、20 并发不整包入内存）
-- 缓存：``.mjs/.html/.json`` = ``no-cache``，大资源 = ``immutable`` 一年
+- 缓存：HTML = ``no-cache``，代码/JSON 短缓存 + ETag，大资源 = ``immutable`` 一年；
+  支持 ``If-None-Match`` / ``If-Modified-Since`` → 304、HEAD、gzip 预压缩缓存
 - WebSocket：RFC6455 握手、文本帧/分片/ping-pong/close、客户端掩码校验，
   只走纯文本 JSON，与 Java 侧一致（BinaryFrame 不使用）
 - 每个连接一个发送队列做背压，慢连接不会阻塞游戏 tick
@@ -13,9 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import hashlib
+import os
 import struct
+import time
 from dataclasses import dataclass, field
+from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -31,9 +36,17 @@ CHUNK = 64 * 1024
 
 STATUS_TEXT = {
     200: "OK", 204: "No Content", 206: "Partial Content",
-    400: "Bad Request", 404: "Not Found", 416: "Range Not Satisfiable",
-    500: "Internal Server Error",
+    304: "Not Modified", 400: "Bad Request", 404: "Not Found",
+    416: "Range Not Satisfiable", 500: "Internal Server Error",
 }
+
+# 只对高重复度的文本/表格/地图做 gzip；WIL/WIX/MP3 已是二进制紧凑格式，
+# 且 Range 分片响应绝对不能压缩（Content-Range 描述的是编码后的字节）。
+GZIP_EXTS = (".html", ".mjs", ".js", ".css", ".json", ".txt", ".csv",
+             ".svg", ".xml", ".map")
+GZIP_MAX_BYTES = 8 << 20        # 超过 8MB 不压（CPU / 内存）
+GZIP_CACHE_MAX = 64 << 20       # 进程内压缩结果上限 64MB
+GZIP_LEVEL = 1                  # 低压缩级别：首次请求延迟优先，压缩率次优
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
@@ -133,6 +146,7 @@ class Response:
     file_path: Path | None = None
     file_start: int = 0
     file_count: int = 0
+    head_only: bool = False     # HEAD 请求 / 304：只发响应头
 
     async def send(self, writer: asyncio.StreamWriter, keep_alive: bool) -> None:
         head = [f"HTTP/1.1 {self.status} {STATUS_TEXT.get(self.status, '')}"]
@@ -142,7 +156,7 @@ class Response:
         for k, v in headers.items():
             head.append(f"{k}: {v}")
         writer.write(("\r\n".join(head) + "\r\n\r\n").encode("latin-1"))
-        if self.status != 204:
+        if self.status not in (204, 304) and not self.head_only:
             if self.file_path is not None:
                 try:
                     with self.file_path.open("rb") as f:
@@ -183,10 +197,67 @@ def content_type(name: str) -> str:
 
 
 def cache_control(name: str) -> str:
+    """入口 HTML 必须保持新鲜；代码/索引短缓存 + ETag；素材资源长缓存一年。
+
+    素材（WIL/WIX/MP3/MAP）不会改动，``immutable`` 让浏览器跳过重新校验。
+    注意 206 Partial Content 在 Chromium 里不进 HTTP 缓存，光靠这个头不够，
+    WIL 分片还要靠前端 IndexedDB 持久缓存（见 frontend/gfx/assetCache.mjs）。
+    """
     n = name.lower()
-    if n.endswith((".mjs", ".html", ".json")):
+    if n.endswith(".html"):
         return "no-cache"
+    if n.endswith((".mjs", ".js", ".css", ".json")):
+        return "public, max-age=300, must-revalidate"
     return "public, max-age=31536000, immutable"
+
+
+class GzipCache:
+    """按 (路径, size, mtime_ns) 缓存 gzip 结果，避免每次请求重复压缩。"""
+
+    def __init__(self) -> None:
+        self._data: dict[tuple[str, int, int], tuple[int, bytes]] = {}
+        self._bytes = 0
+
+    def get(self, path: Path, st: os.stat_result) -> bytes | None:
+        if not path.name.lower().endswith(GZIP_EXTS) or st.st_size > GZIP_MAX_BYTES:
+            return None
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        hit = self._data.get(key)
+        if hit is not None:
+            return hit[1]
+        try:
+            raw = path.read_bytes()
+            zipped = gzip.compress(raw, compresslevel=GZIP_LEVEL, mtime=0)
+        except OSError:
+            return None
+        # 压缩后反而更大（已经压过的二进制）就别用
+        if len(zipped) >= len(raw):
+            return None
+        self._data[key] = (len(zipped), zipped)
+        self._bytes += len(zipped)
+        if self._bytes > GZIP_CACHE_MAX:
+            # 简单 LRU 近似：整体清掉一半最早插入的项
+            for k in list(self._data)[: len(self._data) // 2]:
+                self._bytes -= self._data.pop(k)[0]
+        return zipped
+
+
+def _etag_matches(header: str, etag: str) -> bool:
+    h = header.strip()
+    if not h:
+        return False
+    if h == "*":
+        return True
+    return etag in (part.strip().removeprefix("W/") for part in h.split(","))
+
+
+def _not_modified_since(header: str, mtime: float) -> bool:
+    if not header:
+        return False
+    try:
+        return parsedate_to_datetime(header).timestamp() >= int(mtime)
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def parse_range(header: str, file_size: int) -> tuple[int, int] | None:
@@ -245,6 +316,8 @@ class Server:
         self.service = service
         self._server: asyncio.AbstractServer | None = None
         self._tasks: list[asyncio.Task] = []
+        self._gzip = GzipCache()
+        self._asset_ver: tuple[str, float] = ("", 0.0)
 
     # ---- HTTP 路由 ------------------------------------------------------
 
@@ -252,6 +325,35 @@ class Server:
         text = STATUS_TEXT.get(status, "Error").encode("utf-8")
         return Response(status, {"Content-Type": "text/plain; charset=utf-8",
                                  "Content-Length": str(len(text))}, body=text)
+
+    def asset_version(self) -> str:
+        """客户端素材指纹：前端 IndexedDB 缓存用它做版本命名空间。
+
+        只覆盖真正会被持久缓存的 WIL/WIX/MAP（排除每次启动重写的
+        resources.json / audio_map.json，否则一重启就全量失效）。
+        结果缓存 60 秒，避免每次请求都 stat 两千多个文件。
+        """
+        ver, at = self._asset_ver
+        if ver and time.monotonic() - at < 60:
+            return ver
+        h = hashlib.sha1()
+        root = self.config.resources_root
+        try:
+            paths = sorted(p for p in root.rglob("*")
+                           if p.is_file() and p.suffix.lower() in
+                           (".wil", ".wix", ".map"))
+        except OSError:
+            paths = []
+        for p in paths:
+            try:
+                st = p.stat()
+                h.update(str(p.relative_to(root)).encode("utf-8", "replace"))
+                h.update(f":{st.st_size}:{st.st_mtime_ns};".encode("ascii"))
+            except OSError:
+                continue
+        ver = h.hexdigest()[:16]
+        self._asset_ver = (ver, time.monotonic())
+        return ver
 
     def _serve_file(self, req: Request, path: str, root: Path,
                     prefix: str, default_name: str) -> Response:
@@ -268,9 +370,26 @@ class Server:
         except (OSError, ValueError):
             return self._error(404)
 
-        size = file.stat().st_size
+        st = file.stat()
+        size = st.st_size
+        etag = f'"{st.st_size:x}-{st.st_mtime_ns:x}"'
         ct, cache = content_type(file.name), cache_control(file.name)
-        common = {"Content-Type": ct, "Accept-Ranges": "bytes", "Cache-Control": cache}
+        common = {
+            "Content-Type": ct,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": cache,
+            "ETag": etag,
+            "Last-Modified": formatdate(st.st_mtime, usegmt=True),
+            "Vary": "Accept-Encoding",
+        }
+        head_only = req.method == "HEAD"
+
+        # 条件请求 → 304（响应体为空；公网只花一个 RTT，不再重复传文件内容）
+        inm = req.headers.get("if-none-match", "")
+        ims = req.headers.get("if-modified-since", "")
+        if _etag_matches(inm, etag) or (not inm and _not_modified_since(ims, st.st_mtime)):
+            return Response(304, common)
+
         rng = parse_range(req.headers.get("range", ""), size)
         if rng is not None:
             start, end = rng
@@ -278,21 +397,41 @@ class Server:
             headers = dict(common)
             headers["Content-Range"] = f"bytes {start}-{end}/{size}"
             headers["Content-Length"] = str(count)
-            return Response(206, headers, file_path=file, file_start=start, file_count=count)
+            # Range 响应不压缩：Content-Range 必须描述真实文件字节偏移
+            return Response(206, headers, file_path=file, file_start=start,
+                            file_count=count, head_only=head_only)
+
+        # 完整响应：可压缩类型走进程内 gzip 缓存
+        zipped = None
+        if "gzip" in req.headers.get("accept-encoding", "").lower():
+            zipped = self._gzip.get(file, st)   # HEAD 也要算出同样的 Content-Length
         headers = dict(common)
+        if zipped is not None:
+            headers["Content-Encoding"] = "gzip"
+            headers["Content-Length"] = str(len(zipped))
+            return Response(200, headers, body=zipped, head_only=head_only)
         headers["Content-Length"] = str(size)
-        return Response(200, headers, file_path=file, file_start=0, file_count=size)
+        return Response(200, headers, file_path=file, file_start=0,
+                        file_count=size, head_only=head_only)
 
     def handle_http(self, req: Request) -> Response:
         if req.method == "OPTIONS":
             return Response(204, {"Content-Length": "0"})
+        if req.path == "/api/asset-version":
+            body = encode({"version": self.asset_version()}).encode("utf-8")
+            return Response(200, {
+                "Content-Type": "application/json; charset=utf-8",
+                "Content-Length": str(len(body)),
+                "Cache-Control": "no-store",
+            }, body=body, head_only=req.method == "HEAD")
         if req.path.startswith("/api/"):
             text = self.service.handle_admin(req.method, req.path, req.query, req.body)
             if text is None:
                 return self._error(404)
             body = text.encode("utf-8")
             return Response(200, {"Content-Type": "application/json; charset=utf-8",
-                                  "Content-Length": str(len(body))}, body=body)
+                                  "Content-Length": str(len(body))}, body=body,
+                            head_only=req.method == "HEAD")
         if _is_under(req.path, self.config.resources_prefix):
             return self._serve_file(req, req.path, self.config.resources_root,
                                     self.config.resources_prefix, "resources.json")

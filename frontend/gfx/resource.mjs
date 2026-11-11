@@ -15,6 +15,11 @@ export async function loadResources() {
     return data;
 }
 
+/** 全部图库 key（启动阶段后台预热 WIX 索引用）。 */
+export function imageKeys() {
+    return _images ? Object.keys(_images) : [];
+}
+
 // 取图片库 URL（key 如 'tiles'/'hum'/'mon1'）
 export function imageUrls(key) {
     const img = _images?.[key];

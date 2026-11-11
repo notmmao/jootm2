@@ -2,6 +2,7 @@
 // 解析出每个 tile 的地砖/小地砖/对象层索引 + 可行走标记。
 
 import { mapUrl } from '../gfx/resource.mjs';
+import { assetCache } from '../gfx/assetCache.mjs';
 
 const loadedMaps = new Map();   // mapId -> {width,height,tiles}
 
@@ -10,9 +11,18 @@ export async function loadMap(mapId) {
     const url = mapUrl(mapId);
     if (!url) throw new Error(`地图 ${mapId} 未在 resources.json 中`);
 
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`加载 ${url} 失败`);
-    const buf = await resp.arrayBuffer();
+    // .map 单文件常有几 MB，公网重下代价高；按资源版本持久缓存整份字节。
+    const key = assetCache.key('MAP', url);
+    const hit = assetCache.ready ? await assetCache.get(key) : null;
+    let buf;
+    if (hit && hit.buf) {
+        buf = hit.buf;
+    } else {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`加载 ${url} 失败`);
+        buf = await resp.arrayBuffer();
+        assetCache.set(key, { buf }, buf.byteLength);
+    }
     const view = new DataView(buf);
 
     const width = view.getUint16(0, true);

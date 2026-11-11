@@ -31,7 +31,10 @@ from pyserver.gamedata import (  # noqa: E402
     _TILE_12, _TILE_14, generate_resources_index, map_tile_stride,
     parse_map_info, parse_mini_map, parse_mon_gen, parse_start_point, read_lines, read_map,
 )
-from pyserver.net import cache_control, content_type, parse_range, ws_frame  # noqa: E402
+from pyserver.net import (  # noqa: E402
+    GzipCache, Request, Server, _etag_matches, _not_modified_since,
+    cache_control, content_type, parse_range, ws_frame,
+)
 from pyserver.templates import ItemTemplate, MagicTemplate, MonsterTemplate  # noqa: E402
 from pyserver.npc_script import NpcScript, NpcScriptEngine  # noqa: E402
 from pyserver.world import direction_delta, exp_for_level  # noqa: E402
@@ -172,9 +175,61 @@ def test_http_ws_helpers() -> None:
     check("Range 900-", parse_range("bytes=900-", 1000) == (900, 999))
     check("Range -50 后缀", parse_range("bytes=-50", 1000) == (950, 999))
     check("Range 越界返回 None", parse_range("bytes=2000-", 1000) is None)
-    check("mjs no-cache", cache_control("x.mjs") == "no-cache")
+    check("html no-cache", cache_control("x.html") == "no-cache")
+    check("mjs 短缓存 + 可校验", "max-age=300" in cache_control("x.mjs")
+          and "must-revalidate" in cache_control("x.mjs"))
     check("wil immutable", "immutable" in cache_control("x.wil"))
     check("MIME mjs", "javascript" in content_type("a.mjs"))
+    check("ETag 精确匹配", _etag_matches('"10-ab", "10-cd"', '"10-cd"'))
+    check("ETag 弱校验匹配", _etag_matches('W/"10-ab"', '"10-ab"'))
+    check("ETag 不匹配", not _etag_matches('"10-ff"', '"10-ab"'))
+    import time as _time
+    from email.utils import formatdate as _fd
+    check("If-Modified-Since 未来时间命中",
+          _not_modified_since(_fd(_time.time() + 3600, usegmt=True), 1))
+    check("If-Modified-Since 过去时间不命中",
+          not _not_modified_since(_fd(1, usegmt=True), _time.time()))
+
+    # 静态文件：304 / gzip / HEAD / Range 不压缩 / 素材版本指纹
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        payload = b'{"padding":"' + b"A" * 4000 + b'"}'
+        (root / "a.json").write_bytes(payload)
+        stub = type("S", (), {
+            "_gzip": GzipCache(), "_error": Server._error,
+            "_asset_ver": ("", 0.0),
+            "config": type("C", (), {"resources_root": root})(),
+        })()
+        hdr = {"accept-encoding": "gzip, deflate"}
+        get = Server._serve_file(stub, Request("GET", "/a.json", {}, hdr, b""),
+                                 "/a.json", root, "", "index.html")
+        check("GET 返回 ETag / Last-Modified", "ETag" in get.headers
+              and "Last-Modified" in get.headers)
+        check("GET 文本走 gzip", get.headers.get("Content-Encoding") == "gzip"
+              and get.body[:2] == b"\x1f\x8b")
+        check("gzip 体积显著变小", len(get.body) < len(payload) // 4,
+              f"{len(payload)} -> {len(get.body)}")
+        etag = get.headers["ETag"]
+        cond = Server._serve_file(stub, Request("GET", "/a.json", {},
+                                                {"if-none-match": etag}, b""),
+                                  "/a.json", root, "", "index.html")
+        check("If-None-Match -> 304", cond.status == 304 and not cond.body)
+        head = Server._serve_file(stub, Request("HEAD", "/a.json", {}, hdr, b""),
+                                  "/a.json", root, "", "index.html")
+        check("HEAD 与 GET 同 Content-Length", head.head_only
+              and head.headers.get("Content-Length") == get.headers.get("Content-Length"))
+        rng = Server._serve_file(stub, Request("GET", "/a.json", {},
+                                               {"range": "bytes=0-99"}, b""),
+                                 "/a.json", root, "", "index.html")
+        check("Range 206 绝不压缩", rng.status == 206
+              and "Content-Encoding" not in rng.headers)
+        ver1 = Server.asset_version(stub)
+        (root / "b.wil").write_bytes(b"x" * 32)
+        stub._asset_ver = ("", 0.0)
+        ver2 = Server.asset_version(stub)
+        check("素材版本为 16 位 hex 且随资源变化", len(ver1) == 16
+              and ver1 != ver2 and Server.asset_version(stub) == ver2)
+
     for size in (5, 200, 70000):
         f = ws_frame(b"x" * size)
         head = 2 if size < 126 else (4 if size < 65536 else 10)

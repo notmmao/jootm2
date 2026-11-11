@@ -4,6 +4,7 @@
 
 import { PALETTE_RGBA, widthBytes, skipBytes } from './palette.mjs';
 import { scheduler } from './scheduler.mjs';
+import { assetCache } from './assetCache.mjs';
 
 const CHUNK_SIZE = 512 * 1024;   // 单次请求最大字节数
 
@@ -42,9 +43,19 @@ export class WIL {
         if (this.indexLoaded) return Promise.resolve();
         if (this._indexLoading) return this._indexLoading;
         this._indexLoading = (async () => {
-            const resp = await fetch(this.wixUrl);
-            if (!resp.ok) throw new Error(`加载 ${this.wixUrl} 失败`);
-            const buf = await resp.arrayBuffer();
+            // WIX 索引走持久缓存：虽然浏览器能缓存 200 响应，但公网上仍要一个
+            // RTT 做校验；索引只有几 KB，命中后连这个 RTT 都省掉。
+            const key = assetCache.key('WIX', this.wixUrl);
+            const hit = assetCache.ready ? await assetCache.get(key) : null;
+            let buf;
+            if (hit && hit.buf) {
+                buf = hit.buf;
+            } else {
+                const resp = await fetch(this.wixUrl);
+                if (!resp.ok) throw new Error(`加载 ${this.wixUrl} 失败`);
+                buf = await resp.arrayBuffer();
+                assetCache.set(key, { buf }, buf.byteLength);
+            }
             const view = new DataView(buf);
             this.imageCount = view.getUint32(44, true);
             for (let i = 0; i < this.imageCount; i++) {

@@ -800,3 +800,80 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - 两个坑：① rsync 会跟随 NTFS junction，把 `resources/Map` 204MB 复制进 `gamedata/Mir200/Map`（已在服务器删除，compose 嵌套挂载遮住该路径，无影响）；② 传前实测 `ss -tln` 确认 8080 空闲。
 - 验证（全绿）：启动日志 `445 map defs / 2173 gates`、monsters=704；`/api/migration` 48/48 pending 0；`resources.json`/mp3 200、WIL Range 206；容器 `healthy`；从本机走 LAN `/api/status` 31ms、`smoke_ws.py --host gp-bench-3.hil` **8/8**。
 - 更新部署：在开发机改完代码后 `rsync` 增量代码（compose 的嵌套挂载让 resources 无需重传）→ `docker-compose up -d --build` 即可，SQLite 数据在 `~/jootm2/data/`。
+
+### 21.6 已部署到阿里云 root@aliyun.notmmao.com + 镜像推送 ACR（2026-11-11）
+
+- 服务器：Alibaba Cloud Linux 3 / Docker 25.0.3 / **Compose v2（`docker compose`）**；磁盘剩 7.4G（81%）、**内存仅 1.8G**（纯 asyncio 服务端实测正常，容器运行后宿主剩 ~920M available）；部署在 `/root/jootm2`，8080 空闲（部署前 `ss -tln` 实测）。
+- **镜像构建的坑**：服务器 `/etc/docker/daemon.json` 配的加速源 `d.notmmao.com` 对 `python:3.12-slim` 返回 **429**，备用 aliyuncs 个人源未走通，直连 `registry-1.docker.io` 超时 → 服务器上 `docker compose build` **不可用**。解法：本机 `docker save jootm2:python | gzip`（122MB → 42MB）→ `rsync` → `docker load`。
+- 资源传输同 §21.5（rsync 跟随 junction 多复制 204MB 地图，同样已删）；`docker compose up -d` 后验证全绿：445 map defs / 2173 gates、monsters=704、migration 48/48、Range 206、公网 `/api/status` 75ms、`smoke_ws.py --host aliyun.notmmao.com` **8/8**。
+- **镜像已推送阿里云 ACR**（个人版，上海）：`crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python`，标签 `a5784cc` 与 `latest`（digest `sha256:9d25ee3141…`，与本地 `jootm2:python` 同 ID `d5237ece2fc0`）。镜像**不含客户端素材**（resources 不打入），无版权问题。已验证阿里云 ECS 可直接 `docker pull`。
+- **以后部署/更新的推荐路径**（绕开 429，无需在服务器上构建）：
+  ```bash
+  # 开发机：代码改动后构建并推送（版本号用 git 短 hash）
+  docker build -t crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python:<hash> .
+  docker push ...  # 或按 §21.5 的 rsync + 服务器构建路径（gp-bench-3 可构建）
+  # 服务器（任一台）：
+  docker pull crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python:latest
+  docker tag  crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python:latest jootm2:python
+  cd ~/jootm2 && docker compose up -d     # resources/data 已就位则无需重传
+  ```
+  compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名即可复用现有 compose 文件，无需改动。
+
+---
+
+## §22 公网加载速度：持久缓存 + 启动预加载（2026-11-11 晚）
+
+### 22.1 定量基线（改之前）
+
+用 CDP 抓同一个浏览器上下文里两次页面加载的响应：
+
+| | 第 1 次（冷） | 第 2 次（应命中） |
+|---|---|---|
+| `.mjs` 模块 | 23 个 **200 全量** | 23 个 **200 全量**（`no-cache` 且服务端没有 ETag，无法 304） |
+| WIL 分片（206） | 3 个 | **3 个，0 命中** |
+| WIX 索引（200） | 2 个 | 2 个全部命中磁盘缓存 |
+
+**根因**：WIL 纹理走 HTTP Range → 206 Partial Content，**Chromium 不把 206 写进 HTTP 缓存**，所以服务端给的 `Cache-Control: immutable, max-age=31536000` 对分片完全无效。加上 `.mjs/.json` 是 `no-cache` 且无校验器，每次都全量回源。进游戏后有 120+ 个 512KB 分片，公网（ECS 带宽 + RTT）下就是几十秒。
+
+### 22.2 三层改动
+
+**① 服务端 HTTP（`pyserver/net.py`）**
+- 所有静态文件加 `ETag`（`size-mtime_ns`）+ `Last-Modified`；`If-None-Match` / `If-Modified-Since` → **304**；支持 **HEAD**。
+- `cache_control()` 细分：`.html` = `no-cache`；`.mjs/.js/.css/.json` = `public, max-age=300, must-revalidate`；素材 = `immutable` 一年。开发期改代码用 Ctrl+F5 强刷即可。
+- 文本/JSON/`.map` 走进程内 **gzip 预压缩缓存**（`GzipCache`，`gzip.compress(level=1, mtime=0)`，上限 64MB，`Vary: Accept-Encoding`）。实测 `main.mjs` 4635B → 2390B，`resources.json` 这类索引省得更多。
+- **Range 206 绝不压缩**：`Content-Range` 描述的是真实文件字节偏移，压缩会破坏 WIL 解包。
+- 新接口 `GET /api/asset-version`：对 `resources_root` 下所有 `.wil/.wix/.map` 的 `(相对路径, size, mtime_ns)` 求 sha1 前 16 位，进程内缓存 60s。**故意排除 `resources.json` / `audio_map.json`**（每次启动 `generate_resources_index` 会重写它们，纳入会导致一重启就全量失效）。实测服务重启前后版本都是 `5246e4b3c930fe8b`。
+
+**② 前端持久缓存（新增 `frontend/gfx/assetCache.mjs`）**
+- IndexedDB `jootm2-assets` / `chunks` store，按 `assetVersion` 做命名空间；版本变化自动清空。
+- 接入三处：`scheduler.mjs` 的 Range 分片（缓存 `{buf,total}`，`total` 必须存，WIL 末张图位深判定依赖它）、`wil.mjs` 的 WIX 索引、`Maps.mjs` 的 `.map` 字节。
+- 两级结构：同步内存 Map（同会话复用，24MB 上限）+ IndexedDB（384MB 上限，按 `byTs` 索引淘汰到 80%）；写队列 150ms / 16 条批量事务，`pagehide` 兜底 flush。
+- **任何异常（隐私模式 / 配额 / IDB 被禁）静默降级**，绝不阻塞启动。
+- 调试：`window.__assetCache.stats()` / `await window.__assetCache.clear()` / `window.__scheduler.stats()`。
+
+**③ 启动 Loading + 分阶段预加载（新增 `frontend/core/boot.mjs`、`index.html` 内联层、`main.mjs`）**
+- `index.html` 内联 `#boot-layer`（HTML 一到就显示，JS 没下载完也不黑屏），真实进度条 + 状态文字，完成后 450ms 淡出。
+- 阻塞阶段：`/api/asset-version` ∥ `resources.json` → `assetCache.init()` → WS 连接 ∥ 音频索引 → **登录首屏必需纹理** → flush → 淡出。
+- 后台阶段（登录界面出现 400ms 后，低优先级）：① 开门/选角/立绘纹理（并发 8）→ ② 全部 58 个 WIX 索引（合计仅 **0.98MB**，并发 2）→ ③ `0.map` 字节（5.88MB，**只暖字节不解析**，700×700 tile 对象解析会卡主线程）→ flush。
+- **关键取舍**：开门动画 `ChrSel[23..32]` 是 10 张 800×600 大图，每张独占一个 512KB 分片。一开始把它们放进阻塞阶段，模拟公网冷启动要下 8 个分片 / 9.27s；挪到后台后降到 6 个 / **6.17s**，而登录成功后才需要这些帧（输账号的几秒足够预热）。
+- 开关：`localStorage['jootm2.preload'] = '0'` 关闭后台预热；`window.__warmDone` 可等待后台完成。
+
+### 22.3 验证（全绿）
+
+| 项目 | 结果 |
+|---|---|
+| 二次打开（同一浏览器，等后台预热完成） | 资源响应 99 → 28；**206 12 → 0**；网络分片 12 → 0；IndexedDB 命中 71 次，省 13.6MB；首屏 1.24s → 0.64s |
+| 两轮完整「登录→选角→公告→进游戏」 | 首次进游戏 125 个网络分片 → **二次 0 个**（命中 128）；地图 `0` 700×700 就绪；**0 个 JS 错误** |
+| 模拟公网 100ms RTT / 4Mbps | 冷启动 **8.95s → 6.17s**（调整预加载后），缓存命中 **1.00s**，206 12 → 0，提速 **89%** |
+| HTTP 层 | `/api/asset-version` 200 `no-store`；`main.mjs` gzip + ETag + 304 + HEAD 同长度；206 无 `Content-Encoding`；`index.html` `no-cache` |
+| 回归 | `test_pyserver` **67/0**（新增 12 条缓存用例）、`test_tick_systems` 53/0、`test_all_messages --live 8081` 27/0 + ping→pong |
+| 版本稳定性 | 杀掉并重开 8081 服务后 `/api/asset-version` 不变 |
+
+### 22.4 部署与已知边界
+
+- **必须重新构建镜像**：`Dockerfile` 把 `frontend/` 和 `pyserver/` 都 `COPY` 进镜像，8080 上跑的是 Docker 容器（本机 8080 端口属 `com.docker.backend.exe` 转发），改代码后要按 §21.6 重新 `docker build` → 推 ACR → 服务器 `docker pull` → `docker compose up -d`，仅刷新浏览器无效。
+- Java/Netty 版没有 `/api/asset-version`，前端自动回退 `version='default'`，IndexedDB 缓存照常工作但**不会随资源更新自动失效**，需 `await __assetCache.clear()`。
+- 素材版本含 `mtime_ns`：用不保留时间戳的方式重传资源（如不带 `-a` 的 rsync）会让版本变化、缓存重下一次；属预期行为。
+- 音频 MP3 / BGM 仍靠浏览器 HTTP 缓存（`immutable`），未纳入 IndexedDB；首次播放仍会产生一次下载。
+- 缓存只覆盖 `/resources/` 的不可变素材，不含任何账号/角色/游戏状态；`window.__assetCache.clear()` 可随时清空。
+- 未做：206 分片压缩（需自定义非 Range 端点绕开 `Content-Range` 语义，风险高）、HTTP/2、Service Worker（`http://` 非安全上下文不可用，且 IndexedDB 已够用）。

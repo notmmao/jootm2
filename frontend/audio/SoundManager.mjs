@@ -136,6 +136,7 @@ class SoundManager {
         this.mapError = null;
         this.unlocked = false;      // 浏览器手势解锁（autoplay 策略）
         this.installed = false;
+        this.ready = Promise.resolve();   // 启动加载层等待音频索引就绪
 
         this.templates = new Map(); // url -> HTMLAudioElement 播放模板
         this.voices = new Set();    // 正在播放的短音效
@@ -174,7 +175,7 @@ class SoundManager {
         document.addEventListener('keydown', unlock, { capture: true, once: true });
         document.addEventListener('click', (e) => this._onClick(e), true);
         this.setBgm('intro');       // 解锁后自动起播
-        this._loadMap();
+        this.ready = this._loadMap();
         console.info('[sound] 音频模块已挂载（默认开启，首次点击/按键后出声）；'
             + '调试用 window.__sound');
         return this;
