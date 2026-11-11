@@ -847,7 +847,7 @@ export class PlayScene extends Scene {
                 || this._actorAtScreen(mx, my, 'player')
                 || this._actorAtScreen(mx, my, 'npc');
             if (target && target.id !== this.self.id) {
-                this.castTarget = target.id;   // 红框高亮
+                this.castTarget = target.id;   // 锁定目标（原版 g_TargetCret，无高亮）
                 if (target.type === 'monster' || target.type === 'player') {
                     this.chaseTargetId = target.id;   // 锁定（NPC 不追）
                 }
@@ -869,7 +869,7 @@ export class PlayScene extends Scene {
             const monster = this._actorAtScreen(mx, my, 'monster');
             if (monster && monster.hp > 0) {
                 const d = this._dist(this.self, monster);
-                this.castTarget = monster.id;    // 红框高亮
+                this.castTarget = monster.id;    // 锁定目标（原版 g_TargetCret，无高亮）
                 this.chaseTargetId = monster.id; // 锁定（原版 TargetCret：相邻砍、远了自动走过去）
                 // 1 格正常攻击；2 格且刺杀开关开启 → 隔位刺杀（忽视防御）；更远则由 _tickChase 走过去
                 if (d <= 1 || (d === 2 && this.self._longHit)) {
@@ -3034,7 +3034,9 @@ export class PlayScene extends Scene {
                 // 尸体不显示名字/血条（原版 ActorDied 只降绘制层级，不画 HUD）
                 name: e._corpse ? '' : e.name, isSelf,
                 hp: e.hp, maxHp: e._corpse ? 0 : e.maxHp, type: e.type,
-                isTarget: this.castTarget != null && e.id === this.castTarget,
+                // 悬停目标（原版 g_FocusCret / g_MagicTarget）只让 sprite 变亮，不画框；
+                // 点击锁定的 castTarget（原版 g_TargetCret）在原版没有任何视觉标记。
+                isFocus: this.magicTarget != null && e.id === this.magicTarget.id,
                 alpha: e._hidden ? 0.5 : undefined,   // 隐身半透明
                 poison: !!e._poison,                  // 红毒（掉血）绿色调
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调

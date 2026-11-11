@@ -489,7 +489,7 @@ export class MapActor {
     /**
      * 绘制地图 + 实体（含对象层遮挡）。
      * @param shiftX/shiftY 平滑卷动偏移（玩家从旧格滑向新格的插值，像素）
-     * @param entities [{x,y,name,isSelf,hp,maxHp,isTarget,layers:[{canvas,px,py}]}]
+     * @param entities [{x,y,name,isSelf,hp,maxHp,isFocus,layers:[{canvas,px,py}]}]
      */
     render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0, drawDrop = null, groundItems = null) {
         if (!this.map) return;
@@ -584,6 +584,9 @@ export class MapActor {
                         ctx.save();
                         // 隐身术：半透明
                         if (e.alpha != null && e.alpha < 1) ctx.globalAlpha = e.alpha;
+                        // 悬停/施法目标高亮：原版 Actor.pas:2044 的 ceBright（DrawEffSurface 调色），
+                        // g_FocusCret / g_MagicTarget 只让 sprite 变亮，不画任何边框。
+                        if (e.isFocus) ctx.filter = 'brightness(1.28)';
                         // 红毒（掉血）绿色调 / 绿毒（减防）红色调：在每个 sprite 自己的离屏画布上染色
                         // （source-atop 的 destination 只有 sprite 像素 → 颜色精确跟随实体轮廓，不会盖到地图上）
                         const tint = e.poison ? 'rgba(60,255,60,0.35)' : (e.poisonArmor ? 'rgba(255,60,60,0.35)' : null);
@@ -607,13 +610,6 @@ export class MapActor {
                         ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
                         ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
                         ctx.fillRect(bx0, by0, 40 * hp / e.maxHp, 4);
-                    }
-
-                    // 施法目标高亮（框住 sprite 区域，固定大小）
-                    if (e.isTarget) {
-                        ctx.strokeStyle = '#ff3b3b';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(anchorX + 4, anchorY - 70, 40, 100);
                     }
 
                     // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）

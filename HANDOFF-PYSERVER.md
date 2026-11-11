@@ -714,3 +714,28 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 - 大地图仍是「整张 mmap 底图等比铺进 DOM 面板」的简化实现；原版 `MapUnit.DrawMiniMap`（`SCALE=4`、`MX=12/MY=8` 的 540×360 surface）是另一套遗留代码，`TAB` 实际绑定在原版是 `M` 键，未照搬。
 - 开门只做淡出，未做 `g_nFadeIndex` 的选角淡入；失败弹窗用 DOM 样式近似 `g_WMainImages[360/380/381]` 底图。
 - 条纹是冷缓存竞态：无头 Chromium 本地资源秒开，只能用「人为把整片纹理置为未就绪」验证 `sample` 生效；真实冷启动观感仍需用户 `Ctrl+F5` 自测。
+
+## 19. 怪物伤害观感排查 + 目标红框对齐原版 ceBright（2026-11-11 第八轮，实测反馈）
+
+### 19.1 反馈与结论
+
+用户反馈：①「怪物打我似乎不掉血，但有被击中的声音和动画帧」；②「选中怪物外面一圈红色边框是调试用的么？原版没有」。
+
+**① 结论：不存在不掉血 bug，是伤害数值太小 + 自然回血抵消造成的观感问题。**
+
+- 服务端链路完整：`_monster_ai` → `_apply_hit_to_player`（`target.hp -= dmg`）→ `_send_hits`（广播 `attack` + 单播 `stats`）→ 死亡走 `kill_player`。3.10 离线定量复现（新建 26 HP 角色、鸡贴身）连续 6 次：`hp 26→25→24→23→22→21→20`，每次成对下发 `attack(damage=1, targetId)` 与 `stats(id, hp, maxHp)`，无丢消息。
+- 伤害公式 `max(1, m.roll_attack() - p.combat.acMax)`：新手怪实测区间 **鸡 1 / 稻草人 1-2 / 鹿 2-4 / 多钩猫 2-4 / 钉耙猫 2-4 / 半兽人 4-9 / 毒蜘蛛 6-9**；新建角色 29 HP、acMax=0，一次挨打血条（40 px 宽）只掉 **1.4~5.5 px**，血球约 2~6 px。
+- 前端 `case 'attack'` 只负责攻击者动作、命中帧（170 ms）、受击动作与伤害飘字；**HP 由 `stats` 单播更新**——与原版一致：本地 `MirClient/Actor.pas:1550` 的 `SM_STRUCK` 分支里 `Abil.HP := msg.x` 等三行是被注释掉的，HP 走 `HealthSpellChanged()` 单独同步。
+- Playwright（3.9）端到端验证：`entities.get(self.id) === self`（引用未分离）；注入 `stats(hp-10)` 后 `self.hp 29→19`、`_hudKey` 变化、`vitalsCanvas.toDataURL()` 像素变化；注入 `attack(damage=7)` 后 `damageNumbers` +1。全链路正常。
+- 放大观感的是**自然回血**：`world.py::_regen` 每 `REGEN_INTERVAL_MS=2000` 回 1 HP，而鸡攻击间隔约 1000 ms、单次仅 1 点 → 净血量几乎不动，看起来「永远满血」。原版回复由 `m_nIncHealth/m_nPerHealth/m_dwIncHealthSpellTick` 控制（`M2Server/ObjBase.pas:3780-3861`，间隔 `600 - min(400, level*10)` ms），机制不同；本轮按「无充分依据不硬改」**未改回血逻辑**，只报告。另发现 `_regen` 的 `last_regen_at` 是 world 级共享计时（多玩家会互相抑制），同样留待后续。
+
+### 19.2 目标红框：确认是移植期自加的调试可视化，已按原版替换
+
+- 原版依据（本地 `D:\work\me\game\传奇\MIR2\GameOfMir`）：`MirClient/Actor.pas:2044` `if (g_FocusCret = self) or (g_MagicTarget = self) then ceff := ceBright;`；`cliUtil.pas:17` 定义 `TColorEffect` 含 `ceBright`、:1141 映射到 `BrightColorLevel`；`PlayScn.pas:1281` 地面焦点物品同样用 `DrawEffect(..., ceBright)`。**原版只让 sprite 变亮，从不画矩形框**；点击锁定的 `g_TargetCret` 没有任何视觉标记。
+- 改动：`frontend/map/MapActor.mjs` 删除 `strokeStyle='#ff3b3b'` + `strokeRect(anchorX+4, anchorY-70, 40, 100)`；sprite 绘制时若 `e.isFocus` 用 `ctx.filter='brightness(1.28)'` 近似 ceBright（在 `save/restore` 内，只作用于精灵，不影响血条/名字）。`frontend/scene/PlayScene.mjs` 的 `isTarget`（点击锁定 `castTarget`）改为 `isFocus`（鼠标悬停 `magicTarget`，对应 `g_FocusCret`）；`castTarget` 逻辑保留用于锁定攻击/施法，只是不再画框。
+- 验证：`node --check` 两文件通过；Playwright **PASS**——`MapActor.render` 收到的实体含 `isFocus`、无 `isTarget`；设置 `magicTarget` 后 `focusCount=1`；画面 `#ff3b3b` 近似像素 19 个（HUD 贴图，远少于 40×100 框至少 80 个），`castTarget` 与悬停两态均无红框；HP 回归 29→24 正常。
+- 回归：`test_pyserver.py` 54/0、`test_tick_systems.py` 53/0、`test_all_messages.py --live 8080` 27/0 + ping→pong。
+
+### 19.3 排障工具更新
+
+- 用户提供本地 Delphi 源码 `D:\work\me\game\传奇\MIR2\GameOfMir`（已同步，GBK 编码），项目级 skill `jootm2-original-debug` 已改为**本地优先**：新增 `scripts/pas_lookup.py`（GBK 自动转码、目录/文件过滤、上下文输出），SKILL.md 第 3 步与 `references/delphi-lookup.md` 同步更新，GitHub raw 仅作兜底。本轮两条原版依据均由该脚本秒级定位，无需联网。
