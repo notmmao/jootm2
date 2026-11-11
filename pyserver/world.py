@@ -32,6 +32,9 @@ from .util import (
 from .world_extra import WorldExtra
 
 SIGHT_RANGE = 12
+# 旁观者血条同步间隔（ms）：玩家 hp 变化后最多延迟这么久才广播给周围玩家。
+# 太小会放大广播量（每次回血/中毒都要发），太大血条看起来迟滞。绑定 100ms tick 的整数倍。
+HP_SYNC_MS = 400
 BAG_SIZE = 46
 RESPAWN_MS = 15_000
 HP_GROWTH, MP_GROWTH = 3, 2
@@ -594,6 +597,9 @@ class GameWorld(WorldExtra):
         self.maps: dict[str, GameMap] = {}
         self.actors: dict[int, Actor] = {}
         self.players_by_name: dict[str, Player] = {}
+        # 旁观者血条同步：玩家 hp 变化时向周围广播（见 _sync_player_hp）
+        self._hp_sync_cache: dict[int, tuple[int, int]] = {}
+        self._hp_sync_at = 0
         self.ground_items: dict[int, dict] = {}
         self._id_gen = itertools.count(1)
         self._item_seq = itertools.count(max(1_000_000, db.max_item_make_index() + 1))
@@ -894,8 +900,36 @@ class GameWorld(WorldExtra):
         self._close_timed_out_doors(now)
         self._tick_fire_walls(now)
         self._tick_pending_ranged_hits(now)
+        self._sync_player_hp(now)
         self.tick_extra(now)          # 地面物品过期 + 攻城计时
         self._respawn_dead(now)
+
+    def _sync_player_hp(self, now: int) -> None:
+        """把玩家血量变化同步给周围玩家，否则旁观者看到的血条永远不动。
+
+        原版依据：``Actor.pas:1550`` 里 ``SM_STRUCK`` 的 HP 字段被注释掉了，
+        自己的血量走 ``SM_HEALTHSPELLCHANGED``（只发给本人）。多人时别人的血条
+        在原版也是靠 ``SM_STRUCK`` 的 hp 才更新的，这里补一条只带血量的轻量消息
+        （``entityHp``），按 ``HP_SYNC_MS`` 合批，避免每次扣血都广播。
+        """
+        if now - self._hp_sync_at < HP_SYNC_MS:
+            return
+        self._hp_sync_at = now
+        cache = self._hp_sync_cache
+        alive: set[int] = set()
+        for p in self.players():
+            if p.session is None:
+                continue
+            aid = p.id
+            alive.add(aid)
+            key = (p.hp, p.max_hp)
+            if cache.get(aid) == key:
+                continue
+            cache[aid] = key
+            self.broadcast_around(p.map, {"type": "entityHp", "id": aid,
+                                          "hp": p.hp, "maxHp": p.max_hp}, p.x, p.y)
+        for aid in [k for k in cache if k not in alive]:
+            cache.pop(aid, None)
 
     # -- 玩家状态：回血 / buff / 毒 ---------------------------------------
 

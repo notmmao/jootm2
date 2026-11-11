@@ -1064,6 +1064,18 @@ export class PlayScene extends Scene {
                 }
                 break;
             }
+            case 'entityHp': {
+                // 旁观者血条：服务端把「玩家血量变化」合批广播给周围玩家
+                // （原版 SM_STRUCK 的 HP 字段被注释，自己那份走 SM_HEALTHSPELLCHANGED，
+                // 这里补的 entityHp 只带 hp，不动其它属性）。
+                if (msg.id === this.self?.id) break;   // 自己的血量以 stats 为准
+                const e = this.entities.get(msg.id);
+                if (e) {
+                    if (msg.hp !== undefined) e.hp = msg.hp;
+                    if (msg.maxHp) e.maxHp = msg.maxHp;
+                }
+                break;
+            }
             case 'stats': {
                 const e = this.entities.get(msg.id);
                 if (e) {

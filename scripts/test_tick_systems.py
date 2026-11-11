@@ -412,6 +412,51 @@ def test_map_quest(w, p, sess):
     p.quest_params.pop(505, None)
 
 
+def test_hp_sync(w, p, sess):
+    """旁观者血条：玩家扣血后要广播 entityHp，且按 HP_SYNC_MS 合批、无变化不重发。"""
+    print("\n[10] 旁观者血条同步（entityHp）")
+    gm = p.map or w.default_map
+    other_sess = Session()
+    other = Player(id=990001, name="Observer", hp=50, max_hp=50, session=other_sess)
+    other.x, other.y = p.x + 2, p.y + 2
+    other.map = gm
+    gm.add(other)
+    w.players_by_name[other.name] = other
+    old_hp = p.hp
+    try:
+        w._hp_sync_at = 0
+        w._hp_sync_cache.clear()
+        other_sess.drain()
+
+        p.hp = max(1, p.hp - 7)
+        w._sync_player_hp(now_ms() + 10_000)
+        got = [m for m in other_sess.messages
+               if m.get("type") == "entityHp" and m.get("id") == p.id]
+        check("扣血后向周围玩家广播 entityHp", bool(got) and got[0]["hp"] == p.hp,
+              f"hp={p.hp} got={got[:1]}")
+        check("entityHp 只带血量（不泄露其它属性）",
+              bool(got) and set(got[0]) == {"type", "id", "hp", "maxHp"},
+              f"{sorted(got[0]) if got else '-'}")
+
+        other_sess.drain()
+        w._hp_sync_at = 0
+        w._sync_player_hp(now_ms() + 20_000)
+        dup = [m for m in other_sess.messages if m.get("type") == "entityHp"]
+        check("血量未变不重复广播", not dup, f"{dup[:1]}")
+
+        p.hp = max(1, p.hp - 1)
+        other_sess.drain()
+        w._sync_player_hp(w._hp_sync_at + 100)     # 距上次 100ms < HP_SYNC_MS
+        check("HP_SYNC_MS 内合批（本次不广播）",
+              not [m for m in other_sess.messages if m.get("type") == "entityHp"])
+    finally:
+        p.hp = old_hp
+        gm.remove(other.id)
+        w.players_by_name.pop(other.name, None)
+        w._hp_sync_at = 0
+        w._hp_sync_cache.clear()
+
+
 def test_full_tick(w, p):
     print("\n[9] 完整 tick 与各子系统串联")
     try:
@@ -438,6 +483,7 @@ def main() -> int:
     test_ai_targeting(w, p)
     test_summon(w, p, sess)
     test_map_quest(w, p, sess)
+    test_hp_sync(w, p, sess)
     test_full_tick(w, p)
     print("\n" + "=" * 64)
     print(f"结果: {PASS} PASS / {FAIL} FAIL")

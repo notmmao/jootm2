@@ -996,3 +996,28 @@ CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步�
 - 首帧若地面纹理全未到（极端），仍是 24 格样本池拼出的「假地面」——观感是地砖花纹不对但不出现色带；纹理到达后逐格替换为真图。
 - `assetCache` 内存缓存 24MB 会淘汰；淘汰后相邻图请求要走一次 IndexedDB 反序列化（仍不走网络）。
 - 未做：把 WIL 解包搬进 Worker（`createImageBitmap` + transfer）；HTTP/2；`.map` 解析仍在主线程（首进图 100~300ms 一次性开销）。
+
+---
+
+## §25 多人旁观者血条不减少（2026-11-12）
+
+用户反馈：多人时别人被怪打、身上确实在播受击动作，但我这边看到他的血条不动。
+
+### 25.1 原因
+
+`World.send_stats()` 对 `Player` 只发给**本人 session**（`:817 if isinstance(a, Player) and a.session is not None: a.session.send_json(o)`），怪物才广播给周围。而原版 `Actor.pas:1550` 里 `SM_STRUCK` 的 HP 字段是被注释掉的，自己那份走 `SM_HEALTHSPELLCHANGED`——于是在我们的实现里，**旁观者永远拿不到别人的血量变化**，`entityAdd` 时那份 hp 就定了终身。
+
+### 25.2 改动
+
+- 服务端 `world.py` 新增 `HP_SYNC_MS = 400` 与 `_sync_player_hp(now)`，在 `tick()` 里 `_tick_pending_ranged_hits` 之后调用：按 `_hp_sync_cache[id] = (hp, max_hp)` 比对，变化就向周围 `broadcast_around` 一条 `{type:'entityHp', id, hp, maxHp}`；**只带血量**（不带 ac/dc/exp，避免泄露他人面板），按 400ms 合批，无变化不重发，玩家下线时清缓存。
+- 客户端 `PlayScene.onMessage` 新增 `case 'entityHp'`：更新对应实体的 `hp/maxHp`（`msg.id === self.id` 时忽略，自己以 `stats` 为准）。
+- 回归 `scripts/test_tick_systems.py` 新增 `[10] 旁观者血条同步`（4 条）：广播内容与字段集合、无变化不重发、`HP_SYNC_MS` 内合批。
+
+### 25.3 验证
+
+`test_tick_systems` **57/0**（原 53 + 新 4）、`test_pyserver` 72/0、`test_all_messages --live 8081` 28/0 + `ping→pong`。
+
+### 25.4 边界
+
+- 血条最大延迟 400ms（一个 tick 周期的整数倍），原版同样不是逐帧同步。
+- 别人的 MP / 经验 / 面板仍不同步（原版也不给）。宠物/召唤物的血量仍走怪物 `stats` 广播，不受影响。
