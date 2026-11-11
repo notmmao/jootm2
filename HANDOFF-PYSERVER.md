@@ -1021,3 +1021,33 @@ CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步�
 
 - 血条最大延迟 400ms（一个 tick 周期的整数倍），原版同样不是逐帧同步。
 - 别人的 MP / 经验 / 面板仍不同步（原版也不给）。宠物/召唤物的血量仍走怪物 `stats` 广播，不受影响。
+
+---
+
+## §26 鸡/鹿不主动攻击 + 怪物伤害的 0 门槛（2026-11-12）
+
+用户反馈：鸡、鹿这些不该主动攻击人，现在会；而且会在城里咬人。
+
+### 26.1 原版依据（本地源码）
+
+- `M2Server/M2Share.pas:148-150`：`ANIMAL_CHICKEN = 51`、`ANIMAL_DEER = 52`、`ANIMAL_WOLF = 53`。
+- `M2Server/UsrEngn.pas` 的建怪派发：`ANIMAL_CHICKEN` → `TMonster` + `m_boAnimal:=True`；`ANIMAL_DEER` → 1/30 概率 `TChickenDeer`（只会 `m_boRunAwayMode:=True` 逃跑，`m_nViewRange:=5`），否则 `TMonster`；`ANIMAL_WOLF` → `TATMonster`（会攻击）。
+- 鸡/鹿在原版服务端表里 DC 为 0，`ObjBase.pas:22470 StruckDamage` 开头就是 `if nDamage <= 0 then Exit`；`TSpitSpider.SpitAttack` 同样是 `if nDamage <= 0 then Exit` 才发飞矢。所以它们**造不成任何伤害**。
+
+### 26.2 改动
+
+- `util.py` 新增 `PASSIVE_ANIMAL_RACES = frozenset({51, 52})`（鸡/鹿；**不含 53 狼**）。
+- `world._resolve_target`：race 命中该集合直接返回 `None`（不锁玩家，只自己晃悠）——原版它们即使锁定也打不动，这里省掉「鸡追着人咬」的观感。
+- `world._ranged_damage` 去掉 `max(1, …)`，返回原始 `DC 掷点 − acMax`，可能 <= 0：
+  - 近战：`dmg <= 0` 时仍广播 `attack`（原版 RM_HIT 照发，有挥击动作）但带 `noDamage: true`，不结算、不飘字；
+  - 远程：`dmg <= 0` 直接 `return`（原版 `SpitAttack` 不发飞矢）。
+- 客户端 `PlayScene` 的 `attack` 分支：`msg.noDamage` 时只播攻击者挥击，目标不播受击、不出伤害数字。
+
+### 26.3 验证
+
+`test_tick_systems` **61/0**（新增 4 条：鸡 51 / 鹿 52 不锁玩家、狼 53 仍锁玩家、DC 0 怪对 AC5 玩家 `_ranged_damage <= 0`）、`test_pyserver` 72/0。
+
+### 26.4 边界
+
+- 鹿的「1/30 概率只会逃跑」这一分支没有单独建模：现在 51/52 一律不锁定玩家，行为上等价于「无害」。
+- 城里为什么会有怪：`MonGen` 刷怪点若落在城墙内，仍会刷出来（本项目的刷怪表来自原版 `Mongen.txt`，比奇省的部分刷怪点靠近城门）。目前只保证它们不会主动咬人，没有做「城内禁刷/禁攻」的额外规则（原版靠刷怪表本身避开城内）。

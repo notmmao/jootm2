@@ -25,6 +25,11 @@ EQUIP_SLOTS = 13
 # 怪物 AI（对齐 Java GameWorld 常量 / ObjMon2.pas）
 RANGED_RACES = frozenset({82, 87, 93, 94, 104, 112, 20})
 GUARD_RACES = frozenset({20, 112})
+# 家畜（不主动攻击玩家）。原版依据 M2Share.pas:148-150
+# （ANIMAL_CHICKEN=51 / ANIMAL_DEER=52 / ANIMAL_WOLF=53）与 UsrEngn.pas 的建怪派发：
+# 51=鸡、52=鹿（1/30 概率是只会逃跑的 TChickenDeer），二者原版 DC 为 0，永远不会
+# 造成伤害；53=狼 走 TATMonster，是会攻击的，不能一起算进来。
+PASSIVE_ANIMAL_RACES = frozenset({51, 52})
 RANGED_ATTACK_RANGE = 7
 RANGED_KEEP_AWAY = 4
 RANGED_CHASE_RANGE = 11

@@ -341,6 +341,47 @@ def test_ai_targeting(w, p):
     check("麻痹期间不移动", (normal.x, normal.y) == (ox, oy))
     normal.paralyzed_until = 0
 
+    # 家畜：鸡(race 51)/鹿(52) 不锁玩家（M2Share.pas ANIMAL_CHICKEN/ANIMAL_DEER）
+    chicken_t = replace(base_t, name="鸡测试", race=51, dc=1, maxDc=1,
+                        hp=5, level=1, walkSpeed=1400, attackSpeed=3000)
+    chicken = Monster(id=w.new_id(), name=chicken_t.name, x=p.x + 1, y=p.y,
+                      hp=5, max_hp=5, level=1, race=51, template=chicken_t,
+                      spawn_x=p.x + 1, spawn_y=p.y)
+    w.add_actor(chicken, p.map)
+    p.hide_until = 0
+    p.pk_point = 0
+    check("鸡(race 51)不主动锁定玩家", w._resolve_target(chicken, now) is None)
+    deer_t = replace(chicken_t, name="鹿测试", race=52, dc=2, maxDc=4, hp=25)
+    deer = Monster(id=w.new_id(), name=deer_t.name, x=p.x + 1, y=p.y + 1,
+                   hp=25, max_hp=25, level=12, race=52, template=deer_t,
+                   spawn_x=p.x + 1, spawn_y=p.y + 1)
+    w.add_actor(deer, p.map)
+    check("鹿(race 52)不主动锁定玩家", w._resolve_target(deer, now) is None)
+    wolf_t = replace(chicken_t, name="狼测试", race=53, dc=6, maxDc=8, hp=48)
+    wolf = Monster(id=w.new_id(), name=wolf_t.name, x=p.x + 2, y=p.y + 1,
+                   hp=48, max_hp=48, level=16, race=53, template=wolf_t,
+                   spawn_x=p.x + 2, spawn_y=p.y + 1)
+    w.add_actor(wolf, p.map)
+    check("狼(race 53)仍会锁定玩家", w._resolve_target(wolf, now) is p)
+    for mon in (chicken, deer, wolf):
+        w.remove_actor(mon.id) if hasattr(w, "remove_actor") else w.actors.pop(mon.id, None)
+        if mon.map is not None:
+            mon.map.remove(mon.id)
+
+    # 伤害门槛：DC 掷点不破防时按原版直接 Exit（不再 max(1)）
+    weak_t = replace(base_t, name="弱怪", race=1, dc=0, maxDc=0, hp=10)
+    weak = Monster(id=w.new_id(), name=weak_t.name, x=p.x + 1, y=p.y,
+                   hp=10, max_hp=10, level=1, race=1, template=weak_t,
+                   spawn_x=p.x + 1, spawn_y=p.y)
+    w.add_actor(weak, p.map)
+    p.combat["acMax"] = 5
+    check("DC 0 怪对 AC5 玩家伤害 <= 0", w._ranged_damage(weak, p) <= 0,
+          f"dmg={w._ranged_damage(weak, p)}")
+    w.actors.pop(weak.id, None)
+    if weak.map is not None:
+        weak.map.remove(weak.id)
+    p.combat["acMax"] = 0
+
 
 def test_summon(w, p, sess):
     print("\n[7] 宠物 AI / 升级")

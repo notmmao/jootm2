@@ -23,6 +23,7 @@ from .gamedata import (
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
     AGGRO_RANGE, DOOR_OPEN_MS, GUARD_RACES, HEALING_INTERVAL_MS, HSET_SHAPES,
+    PASSIVE_ANIMAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
     SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING, SHAPE_SUCK_HEALTH,
@@ -1125,7 +1126,17 @@ class GameWorld(WorldExtra):
                 if now >= m.next_attack_at:
                     m.next_attack_at = now + attack_ms
                     m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
-                    self._apply_hit_to_player(m, target, self._ranged_damage(m, target))
+                    dmg = self._ranged_damage(m, target)
+                    if dmg <= 0:
+                        # 原版：RM_HIT 照发（有挥击动作），但 StruckDamage 因
+                        # nDamage<=0 直接返回 —— 目标不播受击动作、不掉血、不飘字。
+                        self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
+                                                      "targetId": target.id, "damage": 0,
+                                                      "noDamage": True,
+                                                      "x": target.x, "y": target.y},
+                                              m.x, m.y)
+                    else:
+                        self._apply_hit_to_player(m, target, dmg)
             elif now >= m.next_move_at:
                 m.next_move_at = now + walk_ms
                 m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
@@ -1231,6 +1242,10 @@ class GameWorld(WorldExtra):
 
     def _resolve_target(self, m: Monster, now: int) -> Player | None:
         is_guard = m.template is not None and m.template.race in GUARD_RACES
+        # 家畜（鸡/鹿）不主动锁定玩家：原版它们的 DC 为 0，攻击也造不成伤害，
+        # 这里直接不取目标，避免「鸡在城里追着人咬」的观感。
+        if m.template is not None and m.template.race in PASSIVE_ANIMAL_RACES:
+            return None
         cur = self.actor(m.target_id) if m.target_id >= 0 else None
         if (isinstance(cur, Player) and cur.alive and cur.hide_until <= now
                 and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE
@@ -1252,11 +1267,20 @@ class GameWorld(WorldExtra):
         return p.id == m.last_hiter_id or p.pk_point > 0
 
     def _ranged_damage(self, m: Monster, target: Player) -> int:
-        return max(1, m.roll_attack() - target.combat.get("acMax", 0))
+        """怪物对玩家的原始伤害（DC 掷点 − AC），可能 <= 0。
+
+        原版 ``TBaseObject.AttackDir`` 的伤害结算在 ``nDamage <= 0`` 时直接 Exit
+        （``ObjBase.pas:22470 StruckDamage``），``TSpitSpider.SpitAttack`` 也先
+        ``if nDamage <= 0 then Exit`` 才发飞矢。旧实现套了 ``max(1, …)``，让
+        DC=1 的鸡也能稳定打掉 1 点血，看起来就是「鸡会攻击人」。
+        """
+        return m.roll_attack() - target.combat.get("acMax", 0)
 
     def _ranged_attack(self, m: Monster, target: Player, now: int) -> None:
         """广播飞矢，按距离延迟结算伤害（原版 SendDelayMsg）。"""
         dmg = self._ranged_damage(m, target)
+        if dmg <= 0:
+            return                      # 原版 SpitAttack：伤害不足不发飞矢
         self.broadcast_around(m.map, {"type": "flyAxe", "attackerId": m.id,
                                       "targetId": target.id, "dir": m.dir,
                                       "x": target.x, "y": target.y}, m.x, m.y)

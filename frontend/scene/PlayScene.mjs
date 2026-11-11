@@ -1138,7 +1138,9 @@ export class PlayScene extends Scene {
                     }
                 }
                 const t = this.entities.get(msg.targetId);
-                if (t) {
+                // noDamage：怪物 DC 不足以破防（原版 nDamage<=0）——攻击方照播挥击，
+                // 目标不受击、不飘字（StruckDamage 直接 Exit）
+                if (t && !msg.noDamage) {
                     // 命中帧对齐：原版在挥砍第 2~3 帧（武器接触点，约 170ms）才触发目标受击 /
                     // 伤害飘字 / 命中特效，而非 attack 消息到达即触发，避免“先爆后砍”。
                     setTimeout(() => {
