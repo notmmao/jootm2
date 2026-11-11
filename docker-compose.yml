@@ -15,6 +15,10 @@ services:
       - ./resources:/app/resources
       # 服务端游戏数据：镜像内已内置一份；挂载出来是为了可热改 CSV / 补 .map。
       - ./gamedata:/app/gamedata
+      # 服务器上没有 Windows junction：把 resources/Map 挂成服务端地图目录，
+      # 保证服务端 .map（阻挡/门）与前端 /resources/Map 同源。
+      # 若你在服务器上单独维护 gamedata/Mir200/Map，删除本行即可。
+      - ./resources/Map:/app/gamedata/Mir200/Map
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=2)"]
       interval: 30s
@@ -38,4 +42,5 @@ services:
       - ./data:/app/data
       - ./resources:/app/resources
       - ./gamedata:/app/gamedata
+      - ./resources/Map:/app/gamedata/Mir200/Map
     restart: "no"

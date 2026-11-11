@@ -739,3 +739,64 @@ node scripts/test_audio.mjs                          # 18/18，mock DOM/Audio �
 ### 19.3 排障工具更新
 
 - 用户提供本地 Delphi 源码 `D:\work\me\game\传奇\MIR2\GameOfMir`（已同步，GBK 编码），项目级 skill `jootm2-original-debug` 已改为**本地优先**：新增 `scripts/pas_lookup.py`（GBK 自动转码、目录/文件过滤、上下文输出），SKILL.md 第 3 步与 `references/delphi-lookup.md` 同步更新，GitHub raw 仅作兜底。本轮两条原版依据均由该脚本秒级定位，无需联网。
+
+## 20. 1.76 / 1.80 客户端资源差异分析（2026-11-11，只读分析）
+
+用户在 `client_original/` 新放入 1.76 客户端，与 `resources/`（1.80 提取）做全量对比。产出 `docs/CLIENT_176_VS_180_DIFF.md`、`scripts/compare_client_versions.py`、`data/client_diff_176_180.json`；**本轮未改动任何运行代码或资源**。
+
+- 来源校验：7-Zip 列两个 rar 清单，与磁盘三组资源目录按文件名+大小逐项核对，`rar 独有 0 / 磁盘独有 0 / 大小不符 0` → `resources/` 确为 1.80 的完整提取。
+- 总体：1.76 是 1.80 的严格子集（**0 个 1.76 独有文件**）；1167→1509 文件、955.4→1558.6 MB。1.80 新增 16 组图库 / 128 张地图 / 179 个音效，改动 14 组图库 / 2 张地图 / 5 个音频；**28 组图库 + 526 张地图 + 540 个音效 MD5 完全相同**。
+- 结论①（不能换）：`verify_resources.py` 判 1.76「不可用」——缺 `prguse3`（F10 装备页底图）、缺 `mon19/20/21`、`Weapon.wix` 比 `48+count*4` 短 4 B（前端 `loadIndex()` 读末项会越界），关键帧 3/4；1.80「可用」4/4。项目 `resources.json`、UI 帧号、怪物 appr→图库/叫声映射、小地图 1-based 索引均按 1.80 写死。
+- 结论②（帧号）：`hum / tiles / magic2 / magicon` 是尾部追加、旧帧号兼容（`hum` 10799/10800 帧字节不变）；`npc / effect / mmap / mon18 / prguse / prguse2 / items / dnitems / stateitem` 为重排重绘，`mon18` 帧数 3707→1630（部分怪迁到 `mon19~23`），`prguse` 帧数不变但 290/510 帧尺寸改变。项目关键帧 `prguse[370]`、`mon5[2669]`、`mon18[821]` 在 1.76 仍命中，`prguse3[29]` 缺库。
+- 结论③（BGM 根因）：1.80 把两组曲子**内容对调了文件名**（MD5 交叉验证）：`log-in-long2.wav` ↔ `game over2.wav`（68.6 s ↔ 34.3 s）、`main_theme.wav` ↔ `sellect-loop2.wav`（43.9 s ↔ 36.0 s），`sound.lst` 14155→18660 B。这就是 §17「intro/gameover 索引对调」的根因：Delphi 曲目编号常量没变，变的是文件内容；若改用 1.76 Wav 必须把该对调还原。
+- 结论④（地图）：仅 `0.map/1.map` 改动，尺寸不变、4831/1955 字节、2040/872 个 tile，差异落在 12B tile 的 0/1/4/5/10 字节（图层索引字段）；新增 128 张多为 `em000~em063` 活动模板图，均不在 `MapInfo.txt` 登记内，两版都缺同样 71 张，覆盖率无提升。
+- 用法：1.76 保留为「1.80 资源是否被私服魔改」的字节级校验基准，不作运行资源；复跑 `D:/Python310/python.exe scripts/compare_client_versions.py`。
+
+## 21. Docker 真机构建与部署（2026-11-11，第九轮）
+
+§5.1 遗留的「Docker daemon 未启动、只做过等价目录模拟」在本轮补齐：用户本机 Docker 24.0.7 + Compose v2.23.3 真机构建并全量验证通过。**本轮只动 `.dockerignore` 与 `docker-compose.yml`，`Dockerfile` / 代码 / 协议零改动。**
+
+### 21.1 resources 是否打入镜像的评估结论：**不打，维持卷挂载**
+
+- 打入：镜像 122MB → ~1.8GB（resources 1.6G = Data 1.2G + Map 204M + Wav 191M + Audio 16M），且每次 build 都要把 1.6G 打包进 build context 传 daemon，构建极慢；换资源要重建镜像；镜像分享会把客户端素材带出去（版权边界）。
+- 挂载：镜像保持 122MB；部署时 rsync 一次资源到服务器；资源与代码独立更新。`Dockerfile` 注释「resources/ 由卷挂载（客户端素材不随镜像分发）」的设计意图不变。
+
+### 21.2 修掉的 3 个部署坑
+
+| 坑 | 修复 |
+|---|---|
+| `.dockerignore` 未排除 `client_original/`（441MB 原始客户端存档）→ build context 被打进 daemon | `.dockerignore` 加 `client_original`、`docs` |
+| `gamedata/Mir200/Map` 是 NTFS junction → Docker CLI 打包 context 会跟随 junction 把 204MB `.map` 打进镜像；且 **Linux 服务器 checkout 没有 junction**（gitignore 不跟踪），镜像内该目录为空 → 服务端回退 256×256 全通行图、阻挡/门失效（§5.3 的坑在容器里复现） | `.dockerignore` 加 `gamedata/Mir200/Map`（context 不带地图）；compose 嵌套挂载 `./resources/Map:/app/gamedata/Mir200/Map`，服务端 `.map` 与前端 `/app/resources/Map` 同源，服务器零手工操作。想单独维护服务器地图时删掉该挂载行即可 |
+| Java 对照服务同样读 gamedata 地图 | `jootm2-java` 补同一行嵌套挂载 |
+
+### 21.3 真机验证（全绿）
+
+- `docker compose build` 成功，镜像 `jootm2:python` **122MB**。
+- 启动日志：`445 map defs, 2173 gates`、`spawned monsters=704`（与 §5.3 本机直跑数字一致，证明嵌套挂载生效、非回退图）；`resources.json` 生成 images=58 / maps=656 / wavs=723。
+- HTTP：`/api/status`（monsters=704）、`/api/migration` **48/48** pending=0、`resources.json` 200、`Hum.wil` Range 分片 **206**、`audio_map.json` 200、`Audio/103.mp3` 200 audio/mpeg、`Map/0.map` 200。
+- WS：`smoke_ws.py --port 8080` **8/8**；`test_all_messages.py --live 8080` **27/0 + ping→pong**（按 §14.5 用 `D:/Python310/python.exe`）。
+- 健康检查 `healthy`；`docker compose restart` 后 SQLite 数据持久（`./data` bind mount）、资源索引重建正常。
+- 注：容器 `./data:/app/data` 与本机开发共用同一 `data/jootm2.db`，本轮冒烟在库里新增了测试账号；服务器部署不受影响。
+
+### 21.4 服务器部署步骤（Linux）
+
+```bash
+# 1. 传代码（不含 resources/data/client_original）+ 资源
+rsync -a --exclude resources --exclude data --exclude client_original --exclude target ./ user@server:/opt/jootm2/
+rsync -a ./resources/ user@server:/opt/jootm2/resources/     # 1.6G，一次即可
+# 2. 服务器上构建并启动
+cd /opt/jootm2 && docker compose up -d --build
+# 3. 验证
+curl http://localhost:8080/api/migration    # 48/48
+docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
+```
+
+带宽紧张时可先不传 `resources/Wav/` 内容（保留空目录）：音效走 `resources/Audio/*.mp3`（16MB），wav 仅是 404 回退；`Data/` 里 19 个未引用图库 476MB 也可先不传（见 §6.1.5，但 `verify_resources.py` 会告警）。
+
+### 21.5 已实际部署到 gp-bench-3.hil（2026-11-11）
+
+- 服务器：Ubuntu 22.04 / Docker 27.5.1 / **docker-compose v1（1.29.2，无 `docker compose` 插件，用 `docker-compose` 命令）**，compose 文件无 `version` 键 v1 可直接解析；磁盘 94% 已用（剩 15G），部署占 ~2.5G。
+- 步骤：`rsync` 代码（排除 resources/data/client_original/target/.git）→ `docker-compose build` → `rsync resources/`（1.65G / 2233 文件）→ 部署在 `~/jootm2`，`docker-compose up -d`。
+- 两个坑：① rsync 会跟随 NTFS junction，把 `resources/Map` 204MB 复制进 `gamedata/Mir200/Map`（已在服务器删除，compose 嵌套挂载遮住该路径，无影响）；② 传前实测 `ss -tln` 确认 8080 空闲。
+- 验证（全绿）：启动日志 `445 map defs / 2173 gates`、monsters=704；`/api/migration` 48/48 pending 0；`resources.json`/mp3 200、WIL Range 206；容器 `healthy`；从本机走 LAN `/api/status` 31ms、`smoke_ws.py --host gp-bench-3.hil` **8/8**。
+- 更新部署：在开发机改完代码后 `rsync` 增量代码（compose 的嵌套挂载让 resources 无需重传）→ `docker-compose up -d --build` 即可，SQLite 数据在 `~/jootm2/data/`。

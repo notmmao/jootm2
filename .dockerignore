@@ -1,6 +1,12 @@
 target
 data
 resources
+# 原始客户端存档与文档不进 build context
+client_original
+docs
+# NTFS junction 指向 resources/Map：不进 context（约 204MB），
+# 运行时由 compose 把 ./resources/Map 挂到 /app/gamedata/Mir200/Map
+gamedata/Mir200/Map
 .git
 .gitignore
 .workbuddy
