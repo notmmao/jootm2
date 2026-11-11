@@ -819,6 +819,13 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
   ```
   compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名即可复用现有 compose 文件，无需改动。
 
+### 21.7 e8b8f62 更新部署 + ICP 备案拦截坑（2026-11-11）
+
+- `e8b8f62`（IndexedDB 分片缓存 + ETag/304/gzip + Loading 预加载）已推送 ACR（标签 `e8b8f62` + `latest`，digest `sha256:a24227e39b…`，image `31b1f7db8cd3`）并按 §21.6 推荐路径部署到阿里云（pull → tag → `compose up -d`）。
+- 新功能实测（服务器本机）：ETag/`If-None-Match` 二次请求 **304 (0B)**；gzip 后 `main.mjs` 4751B → 2440B。
+- ⚠️ **重要坑：阿里云 ECS 的 ICP 备案拦截**。`notmmao.com` 未备案，阿里云大陆节点会拦截未备案域名在 80/443/8080 的 HTTP 流量：公网所有请求返回 `403 Forbidden` + `Server: Beaver` + 「Non-compliance ICP Filing」拦截页（HTML iframe 指向 beian-block）。**且拦截有延迟**——刚部署完域名访问是通的（还做了 8/8 冒烟），约一小时后才生效，极易误判成代码 bug（本次就先怀疑了新 net.py）。判别方法：服务器本机 `curl localhost:8080` 始终 200 即为链路拦截；响应头 `Server: Beaver` 不是 pyserver 发的。
+- **约定：访问阿里云服务一律用 IP `139.224.24.88:8080`，不用域名**（用户明确要求）。冒烟/回归用 `--host 139.224.24.88`；SSH `root@aliyun.notmmao.com` 不受影响。恢复域名访问需 ICP 备案，或改用非拦截端口（未验证）。
+
 ---
 
 ## §22 公网加载速度：持久缓存 + 启动预加载（2026-11-11 晚）
@@ -876,4 +883,53 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - 素材版本含 `mtime_ns`：用不保留时间戳的方式重传资源（如不带 `-a` 的 rsync）会让版本变化、缓存重下一次；属预期行为。
 - 音频 MP3 / BGM 仍靠浏览器 HTTP 缓存（`immutable`），未纳入 IndexedDB；首次播放仍会产生一次下载。
 - 缓存只覆盖 `/resources/` 的不可变素材，不含任何账号/角色/游戏状态；`window.__assetCache.clear()` 可随时清空。
-- 未做：206 分片压缩（需自定义非 Range 端点绕开 `Content-Range` 语义，风险高）、HTTP/2、Service Worker（`http://` 非安全上下文不可用，且 IndexedDB 已够用）。
+- 未做：206 分片压缩（需自定义非 Range 端点绕开 `Content-Range` 语义，风险高）、HTTP/2、Service Worker（`http://` 非安全上下文不可用，且 IndexedDB 已够用）。§23 已用「应用层协商头」把 206 分片压缩做掉，无需新端点。
+
+---
+
+## §23 进游戏后的「正在加载地图资源」：首屏纹理预载 + 206 分片压缩（2026-11-11 深夜）
+
+用户反馈：§22 之后登录/首屏明显变快，但**进游戏后仍长时间显示「正在加载地图资源 x/y」**。公网实测地址按 §21.7 用 IP `http://139.224.24.88:8080/`。
+
+### 23.1 定量诊断（连真实公网 + 离线复算）
+
+| 观测 | 数据 |
+|---|---|
+| `MapActor.enter()` 分解 | `prefetch` 每次都精确 **6003/6008ms** —— 即必然命中 6 秒超时兜底；`loadMap()` 另占 6~14s（现下 `0.map`） |
+| 超时瞬间的调度器 | `active=20 / queue=79`、`deduped=259`，即放行时仍有近百个请求在排队，地图出来后继续一块块冒 |
+| 首屏帧集合（离线按 `0.map` @ (289,618) 复算） | 23×49 格 → **244 个不同纹理帧** → 约 **16 个 512KB 分片 / 7.7MB**（`objects` 5.6MB、`tiles` 1.5MB、`smtiles` 0.09MB） |
+| 冷启动两次进游戏 | 第 1 次 9.6s、第 2 次 10.4s，仍各下 10 / 4 个 206 分片；`assetCache.hits` 几乎不涨是因为超时前没下完的分片根本没写进缓存 |
+| 公网分片速度 | 单个 512KB WIL 分片 **4~16 秒**；`Prguse/Prguse3` 的 HUD/开门帧与 `Objects` 分片互相抢 6 条 HTTP/1.1 连接 |
+| WIL 分片 gzip 率（实测样本） | `Tiles` 2.07x、`SmTiles` 1.94x、`Objects` 1.66x、`Prguse` 1.97x、level 1 已接近 level 6 |
+
+**结论**：不是「缓存没生效」，而是这 7.7MB 纹理 + 5.9MB `.map` 从来没在进游戏之前开始下载；§22 的后台预热只做了 WIX 索引和 `0.map` 字节，且排在开门帧之后，公网窗口期根本轮不到。
+
+### 23.2 改动
+
+**服务端**
+- `/api/asset-version` 响应增加 `start: {map,x,y,miniMapIndex}`（取 `GameWorld.default_map/start_x/start_y/map_mini_index`），前端 Loading 阶段就知道该暖哪张图。无 `world` 时降级为空对象。
+- `characterList` 每个角色附带 `map/x/y`（角色上次下线位置），选角界面可精确预载；老前端忽略新字段，协议兼容。
+- **206 分片应用层协商压缩**：前端带 `X-Jootm2-Gzip: 1` 时，服务端把该 Range 的原始字节 `gzip(level=1)` 放进 body，返回 `X-Jootm2-Gzip: 1` + `Content-Length`（压缩后），`Content-Range` 仍描述**解压后**的真实文件偏移。**故意不用 `Content-Encoding`**，避开 206 + `Content-Range` 在代理上的语义歧义（§22「206 绝不 gzip」的旧结论由此被取代，但只限这条自定义协商路径）。仅 `.wil/.wix/.map` 且分片 ≤2MB、压缩率 >10% 才启用；不带头的客户端原样返回。
+
+**前端**
+- `MapActor.mjs` 导出 `visibleRange()` / `collectVisibleTextures()`；`_prefetchVisible` 与新增预载模块**共用同一个帧集合函数**，杜绝「预载了一堆用不上的帧」。
+- 新增 `frontend/core/mapPreload.mjs`：`preloadMapTextures(map,x,y)` 无超时全量预取首屏纹理 + HUD 常驻帧（`Prguse[1,4..15,30..39,128..142,370,371]`、`Prguse3[29,30,32,33,207]`）+ `mmap[index-1]`；并发 6；同 key 复用、不同 key 让位（精确坐标优先于默认出生点）；`preloadState` / `waitIdle()` / 进度回调；`localStorage['jootm2.preload']='0'` 可关。
+- `boot.mjs`：`warmMapBytes(mapId)` 在 Loading 阶段**不 await** 地发起 `.map` 下载（gzip 后约 600KB，进游戏时 `loadMap` 直接命中 IDB）；后台顺序改为 开门/选角帧 → 等 `.map` 字节 → **首屏地图纹理** → 全量 WIX → flush。
+- `SelectCharScene.mjs`：`characterList` 到达 / 切换角色时按真实坐标触发预载（旧服务端无坐标则用 `start` 兜底）；点「开始」时若预载已过半，最多再等 5 秒并显示 `正在载入地图资源 x/y`，**进度不足一半就放行**（慢网首开白等无益）。
+- `scheduler.mjs`：发 `X-Jootm2-Gzip: 1`（有 `DecompressionStream` 时），收到响应头才用 `DecompressionStream('gzip')` 解压；`assetCache` 仍缓存解压后的原始字节，缓存 key 不变。**旧服务端不回该头 → 自动走未压缩路径**，前后端可分批部署。
+
+### 23.3 验证
+
+| 场景 | 结果 |
+|---|---|
+| 本地 3.10 直连，新前端 + 新服务端 | 预载 **244/244 完成**、纹理就绪 261/318、`gzip` 分片 61、**进游戏→地图就绪 0.03s**（原 6s+）、0 JS 错误 |
+| 模拟慢网 500KB/s + 80ms RTT，gzip 关 / 开 | 预载进度 48/244 → **176/244**；首屏纹理就绪 158/318 → **234/318**；线上 206 字节 16.42MB → 14.82MB |
+| 真实公网 A/B（旧服务端，用 `page.route` 注入新前端模块） | 进游戏→地图就绪 **24.33s → 6.01s**，点开始→地图就绪 24.78s → **11.34s**，206 分片 27→19、13.4MB→9.7MB，0 JS 错误（旧服务端仍触发 6s 超时兜底，因其无 gzip 与角色坐标） |
+| 回归 | `test_pyserver` **72/0**（新增 5 条：`start` 字段、降级、206 协商压缩解压一致性等）、`test_tick_systems` 53/0、`test_all_messages` 离线 28/0、live 8081 **28/0 + ping→pong** |
+
+### 23.4 部署与边界
+
+- **必须重新 build 镜像**（§21.7 / §22.4）。本轮公网 A/B 只注入了前端模块，服务端 `start`/`characterList`/206 gzip **尚未上线**；重新部署后预载会再快约 2 倍，本地直连已验证可做到进游戏零等待。
+- 旧服务端完全兼容：无 `start` → 后台暖 `0.map` 字节；`characterList` 无坐标 → 用 `start` 兜底；不识别 `X-Jootm2-Gzip` → 原样返回 206。
+- 未做 / 保留边界：`changeMap` 换到新地图仍会现下新图的纹理（服务端可在接近传送点时预告，待做）；`_prefetchVisible` 的 6 秒超时兜底保留（防极端慢网卡死）；动画对象的全帧预取、WIX 全量索引仍可能与其他请求抢 6 条 HTTP/1.1 连接（HTTP/2 / 多域名未做）；音频 MP3 仍只靠浏览器 HTTP 缓存。
+- 新增调试接口：`window.__mapPreload`（预载进度）、`await window.__warmDone`、`__scheduler.stats().gzip/gzipSaved`。

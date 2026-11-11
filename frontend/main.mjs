@@ -13,7 +13,8 @@ import { assetCache } from './gfx/assetCache.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
 import { fitStage } from './core/viewport.mjs';
-import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState } from './core/boot.mjs';
+import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState,
+         warmMapBytes, getBootInfo } from './core/boot.mjs';
 
 // 整个 800×600 界面等比放大到当前窗口（4:3 居中，不改变内部逻辑坐标）。
 // 想固定倍率：localStorage.setItem('jootm2.uiScale','1.5') 后刷新；
@@ -57,6 +58,11 @@ async function init() {
     // 2) 打开持久缓存（版本变化时自动清空旧素材）
     boot.step('正在检查本地缓存…');
     await assetCache.init(version);
+
+    // 2.5) 立刻并行开下出生地图的 .map 字节（不 await）：进游戏 loadMap()
+    // 若现下这份文件，公网上常要等 6~14 秒。此时 Loading 还在，进度条可见。
+    const start = getBootInfo().start;
+    if (start) warmMapBytes(start.map);
 
     // 3) WebSocket 与音频索引并行就绪
     const conn = new Connection('/ws');

@@ -40,10 +40,15 @@ STATUS_TEXT = {
     416: "Range Not Satisfiable", 500: "Internal Server Error",
 }
 
-# 只对高重复度的文本/表格/地图做 gzip；WIL/WIX/MP3 已是二进制紧凑格式，
-# 且 Range 分片响应绝对不能压缩（Content-Range 描述的是编码后的字节）。
+# 只对高重复度的文本/表格/地图做完整响应的 gzip；WIL/WIX/MP3 已压过的不碰。
+# Range 分片用「应用层协商压缩」：前端带 X-Jootm2-Gzip 时服务端把该分片的
+# 原始字节 gzip 后放在 body 里，Content-Range 仍描述解压后的真实文件偏移。
+# 故意不使用 Content-Encoding（避免 206 + Content-Range 在代理上的语义歧义），
+# 由前端 DecompressionStream 解压；旧客户端不带此头则原样返回，完全兼容。
 GZIP_EXTS = (".html", ".mjs", ".js", ".css", ".json", ".txt", ".csv",
              ".svg", ".xml", ".map")
+RANGE_GZIP_EXTS = (".wil", ".wix", ".map")
+RANGE_GZIP_MAX = 2 << 20        # 单个分片最多压 2MB，避免大请求拖住事件循环
 GZIP_MAX_BYTES = 8 << 20        # 超过 8MB 不压（CPU / 内存）
 GZIP_CACHE_MAX = 64 << 20       # 进程内压缩结果上限 64MB
 GZIP_LEVEL = 1                  # 低压缩级别：首次请求延迟优先，压缩率次优
@@ -396,8 +401,26 @@ class Server:
             count = end - start + 1
             headers = dict(common)
             headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+            zipped = None
+            if (req.headers.get("x-jootm2-gzip") == "1"
+                    and file.suffix.lower() in RANGE_GZIP_EXTS
+                    and count <= RANGE_GZIP_MAX):
+                try:
+                    with file.open("rb") as f:
+                        f.seek(start)
+                        raw = f.read(count)
+                    if len(raw) == count:
+                        z = gzip.compress(raw, compresslevel=GZIP_LEVEL, mtime=0)
+                        if len(z) < len(raw) * 0.9:   # 压不动就别压
+                            zipped = z
+                except OSError:
+                    zipped = None
+            if zipped is not None:
+                headers["X-Jootm2-Gzip"] = "1"
+                headers["Vary"] = "X-Jootm2-Gzip, Accept-Encoding"
+                headers["Content-Length"] = str(len(zipped))
+                return Response(206, headers, body=zipped, head_only=head_only)
             headers["Content-Length"] = str(count)
-            # Range 响应不压缩：Content-Range 必须描述真实文件字节偏移
             return Response(206, headers, file_path=file, file_start=start,
                             file_count=count, head_only=head_only)
 
@@ -418,7 +441,17 @@ class Server:
         if req.method == "OPTIONS":
             return Response(204, {"Content-Length": "0"})
         if req.path == "/api/asset-version":
-            body = encode({"version": self.asset_version()}).encode("utf-8")
+            # 附带默认出生点：客户端在 Loading 阶段就能按 (map,x,y) 精确预取首屏
+            # 地图纹理，不必等进游戏快照到达才现下 7~8MB 的 WIL 分片。
+            start = {}
+            try:
+                w = self.service.world
+                name = w.default_map.name
+                start = {"map": name, "x": w.start_x, "y": w.start_y,
+                         "miniMapIndex": w.map_mini_index.get(name, -1)}
+            except (AttributeError, TypeError):
+                pass
+            body = encode({"version": self.asset_version(), "start": start}).encode("utf-8")
             return Response(200, {
                 "Content-Type": "application/json; charset=utf-8",
                 "Content-Length": str(len(body)),

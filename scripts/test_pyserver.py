@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import gzip
 import json
 import os
 import struct
@@ -221,14 +222,51 @@ def test_http_ws_helpers() -> None:
         rng = Server._serve_file(stub, Request("GET", "/a.json", {},
                                                {"range": "bytes=0-99"}, b""),
                                  "/a.json", root, "", "index.html")
-        check("Range 206 绝不压缩", rng.status == 206
+        check("Range 206 无 Content-Encoding", rng.status == 206
               and "Content-Encoding" not in rng.headers)
+
+        # Range 分片应用层 gzip：协商头 + 解压后字节必须与原始分片一致
+        wil = (b"ABCD" * 4096 + b"\x00" * 8192) * 20
+        (root / "c.wil").write_bytes(wil)
+        plain = Server._serve_file(stub, Request("GET", "/c.wil", {},
+                                                 {"range": "bytes=100-2099"}, b""),
+                                   "/c.wil", root, "", "index.html")
+        zreq = Request("GET", "/c.wil", {},
+                       {"range": "bytes=100-2099", "x-jootm2-gzip": "1"}, b"")
+        zr = Server._serve_file(stub, zreq, "/c.wil", root, "", "index.html")
+        check("Range 分片默认不压缩", plain.status == 206
+              and plain.headers.get("X-Jootm2-Gzip") is None
+              and plain.headers.get("Content-Length") == "2000")
+        check("协商后 206 带 X-Jootm2-Gzip 且 Content-Range 不变",
+              zr.status == 206 and zr.headers.get("X-Jootm2-Gzip") == "1"
+              and zr.headers.get("Content-Range") == f"bytes 100-2099/{len(wil)}"
+              and "Content-Encoding" not in zr.headers)
+        check("gzip 分片解压后字节一致且体积变小",
+              len(zr.body) < 2000 and gzip.decompress(zr.body) == wil[100:2100]
+              and zr.headers.get("Content-Length") == str(len(zr.body)))
         ver1 = Server.asset_version(stub)
         (root / "b.wil").write_bytes(b"x" * 32)
         stub._asset_ver = ("", 0.0)
         ver2 = Server.asset_version(stub)
         check("素材版本为 16 位 hex 且随资源变化", len(ver1) == 16
               and ver1 != ver2 and Server.asset_version(stub) == ver2)
+
+        # /api/asset-version 附带默认出生点，供客户端在 Loading 阶段预载首屏纹理
+        world = type("W", (), {
+            "default_map": type("M", (), {"name": "0"})(),
+            "start_x": 289, "start_y": 618, "map_mini_index": {"0": 101},
+        })()
+        stub.service = type("Svc", (), {"world": world})()
+        stub.asset_version = lambda: "0123456789abcdef"
+        api = Server.handle_http(stub, Request("GET", "/api/asset-version", {}, {}, b""))
+        data = json.loads(api.body.decode("utf-8"))
+        check("asset-version 附带默认出生点",
+              data.get("start") == {"map": "0", "x": 289, "y": 618, "miniMapIndex": 101},
+              str(data.get("start")))
+        stub.service = None
+        api2 = Server.handle_http(stub, Request("GET", "/api/asset-version", {}, {}, b""))
+        check("无 world 时出生点降级为空对象",
+              json.loads(api2.body.decode("utf-8")).get("start") == {})
 
     for size in (5, 200, 70000):
         f = ws_frame(b"x" * size)

@@ -9,6 +9,18 @@ import { assetCache } from './assetCache.mjs';
 
 const MAX_CONCURRENT = 20;   // 进游戏后地图瓦片瞬间触发 200+ 请求，5 并发消化太慢导致 UI 图标排队数十秒
 
+/**
+ * 应用层协商的分片解压。WIL 虽是二进制，但 8bit 调色板 + 大片透明区让
+ * 512KB 分片能压到 250~320KB（公网实测 1.7~2.1x），这是慢网下最划算的优化。
+ * 服务端只在收到 X-Jootm2-Gzip:1 时才压缩并在响应里回同一个头；旧服务端
+ * 不回这个头，这里就原样使用，自动兼容。
+ */
+async function inflateRange(buf) {
+    if (typeof DecompressionStream === 'undefined') return buf;
+    const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).arrayBuffer();
+}
+
 class RangeScheduler {
     constructor() {
         this.active = [];   // { url, start, end, consumers: [{start,end,resolve,reject}] }
@@ -16,6 +28,8 @@ class RangeScheduler {
         this.totalRequests = 0;    // 实际发起的 fetch 数（调试统计）
         this.dedupedRequests = 0;  // 被去重复用的请求数（调试统计）
         this.cacheHits = 0;        // 命中 IndexedDB 的分片数
+        this.compressedResponses = 0;  // 走应用层 gzip 的分片数
+        this.savedBytes = 0;      // gzip 省下的传输字节
     }
 
     /**
@@ -70,9 +84,9 @@ class RangeScheduler {
             }
 
             this.totalRequests++;
-            const resp = await fetch(item.url, {
-                headers: { Range: `bytes=${item.start}-${item.end}` },
-            });
+            const headers = { Range: `bytes=${item.start}-${item.end}` };
+            if (typeof DecompressionStream !== 'undefined') headers['X-Jootm2-Gzip'] = '1';
+            const resp = await fetch(item.url, { headers });
             if (!resp.ok && resp.status !== 206) throw new Error(`HTTP ${resp.status}`);
             // 从 Content-Range 提取文件总大小（"bytes 0-1023/267372" -> 267372）
             let total = 0;
@@ -81,7 +95,14 @@ class RangeScheduler {
                 const m = cr.match(/\/(\d+)\s*$/);
                 if (m) total = parseInt(m[1], 10);
             }
-            const buffer = await resp.arrayBuffer();
+            let buffer = await resp.arrayBuffer();
+            if (resp.headers.get('x-jootm2-gzip') === '1') {
+                const wire = Number(resp.headers.get('content-length')) || buffer.byteLength;
+                buffer = await inflateRange(buffer);
+                this.compressedResponses = (this.compressedResponses || 0) + 1;
+                this.savedBytes = (this.savedBytes || 0)
+                    + Math.max(0, buffer.byteLength - wire);
+            }
             assetCache.set(key, { buf: buffer, total }, buffer.byteLength);
             this._resolve(item, { start: item.start, buffer, total });
         } catch (err) {
@@ -102,6 +123,7 @@ class RangeScheduler {
             active: this.active.length, queue: this.queue.length,
             total: this.totalRequests, totalRequests: this.totalRequests,
             deduped: this.dedupedRequests, cacheHits: this.cacheHits,
+            gzip: this.compressedResponses, gzipSaved: this.savedBytes,
         };
     }
 }

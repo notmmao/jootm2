@@ -16,6 +16,51 @@ const TILE_H = 32;
 // 这里用明显亮于纯黑的地色，并且优先借用已绘制格像素，保证任何时刻都不会露出黑条带。
 export const FLOOR_FALLBACK = '#3a3222';
 
+/** 与 render 完全一致的可见格范围（导出供启动阶段预加载复用，保证集合一模一样）。 */
+export function visibleRange(m, cx, cy, viewW, viewH) {
+    const halfW = Math.ceil(viewW / 2 / TILE_W) + 2;
+    const halfH = Math.ceil(viewH / 2 / TILE_H) + 2;
+    return {
+        left: Math.max(0, Math.floor(cx - halfW)),
+        top: Math.max(0, Math.floor(cy - halfH)),
+        right: Math.min(m.width - 1, Math.ceil(cx + halfW)),
+        bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 30)),
+    };
+}
+
+/**
+ * 算出首屏可见格需要的全部纹理（大地砖 / 小地砖 / 对象含动画帧），去重后返回。
+ * 进游戏时 MapActor._prefetchVisible 与后台 mapPreload 共用这个函数，
+ * 避免「预加载了一堆用不上的帧、真正要用的却没下」。
+ * @returns {{lib:string,index:number,key:string}[]}
+ */
+export function collectVisibleTextures(m, cx, cy, viewW = 800, viewH = 445) {
+    const r = visibleRange(m, cx, cy, viewW, viewH);
+    const jobs = [];
+    const seen = new Set();
+    const add = (base, fileIdx, index) => {
+        if (index == null || index < 0) return;
+        const lib = fileIdx ? base + fileIdx : base;
+        const key = lib + '/' + index;
+        if (seen.has(key)) return;
+        seen.add(key);
+        jobs.push({ lib, index, key });
+    };
+    for (let gx = r.left; gx <= r.right; gx++) {
+        for (let gy = r.top; gy <= r.bottom; gy++) {
+            const t = m.tiles[gx] && m.tiles[gx][gy];
+            if (!t) continue;
+            if (t.bng >= 0 && gx % 2 === 0 && gy % 2 === 0) add('tiles', t.bngFile, t.bng);
+            if (t.mid >= 0) add('smtiles', t.midFile, t.mid);
+            if (t.obj >= 0) {
+                const frames = t.hasAni ? Math.max(1, Math.min(32, t.aniFrame)) : 1;
+                for (let f = 0; f < frames; f++) add('objects', t.objFile, t.obj + f);
+            }
+        }
+    }
+    return jobs;
+}
+
 export class MapActor {
     constructor(viewW, viewH) {
         this.viewW = viewW;   // 可视画布宽
@@ -60,32 +105,22 @@ export class MapActor {
 
     /** 与 render 完全一致的可见格范围。 */
     _visibleRange(m, cx, cy) {
-        const halfW = Math.ceil(this.viewW / 2 / TILE_W) + 2;
-        const halfH = Math.ceil(this.viewH / 2 / TILE_H) + 2;
-        return {
-            left: Math.max(0, Math.floor(cx - halfW)),
-            top: Math.max(0, Math.floor(cy - halfH)),
-            right: Math.min(m.width - 1, Math.ceil(cx + halfW)),
-            bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 30)),
-        };
+        return visibleRange(m, cx, cy, this.viewW, this.viewH);
     }
 
     /** 预取首屏地面 / 对象（含动画对象的全部帧）纹理；6 秒超时兜底。 */
     async _prefetchVisible(m, cx, cy, onProgress) {
-        const r = this._visibleRange(m, cx, cy);
         const jobs = [];
         const seen = new Set();
-        const add = (base, fileIdx, index) => {
-            if (index == null || index < 0) return;
-            const key = this._libKey(base, fileIdx);
-            const k = key + '/' + index;
-            if (seen.has(k) || this._texCache.has(k)) return;
-            seen.add(k);
-            const lib = getLib(key);
-            if (!lib) return;
-            this._texCache.set(k, { canvas: null, px: 0, py: 0 });  // 占位，避免 render 重复发起
+        for (const { lib: libKey, index, key } of
+             collectVisibleTextures(m, cx, cy, this.viewW, this.viewH)) {
+            if (this._texCache.has(key)) continue;
+            seen.add(key);
+            const lib = getLib(libKey);
+            if (!lib) continue;
+            this._texCache.set(key, { canvas: null, px: 0, py: 0 });  // 占位，避免 render 重复发起
             jobs.push(lib.getTexture(index).then(tex => {
-                const e = this._texCache.get(k);
+                const e = this._texCache.get(key);
                 if (e && tex) {
                     e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
                     this._texVersion++;
@@ -93,22 +128,9 @@ export class MapActor {
                     e.failed = true; e.failedAt = Date.now();
                 }
             }).catch(() => {
-                const e = this._texCache.get(k);
+                const e = this._texCache.get(key);
                 if (e) { e.failed = true; e.failedAt = Date.now(); }
             }));
-        };
-
-        for (let gx = r.left; gx <= r.right; gx++) {
-            for (let gy = r.top; gy <= r.bottom; gy++) {
-                const t = m.tiles[gx] && m.tiles[gx][gy];
-                if (!t) continue;
-                if (t.bng >= 0 && gx % 2 === 0 && gy % 2 === 0) add('tiles', t.bngFile, t.bng);
-                if (t.mid >= 0) add('smtiles', t.midFile, t.mid);
-                if (t.obj >= 0) {
-                    const frames = t.hasAni ? Math.max(1, Math.min(32, t.aniFrame)) : 1;
-                    for (let f = 0; f < frames; f++) add('objects', t.objFile, t.obj + f);
-                }
-            }
         }
 
         const total = jobs.length;

@@ -222,9 +222,16 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     def _list_characters(self, session: Any, msg: dict) -> None:
         if session.account_id <= 0:
             return
-        chars = [{"name": c["name"], "sex": c["sex"], "hair": c["hair"],
-                  "job": c["job"], "level": c["level"]}
-                 for c in self.db.list_characters(session.account_id)]
+        # 附带角色上次下线的地图坐标：客户端在选角界面就能预取该图首屏纹理，
+        # 避免 enterGame 之后才临时下载几十个 WIL 分片（公网卡 6 秒超时兜底）。
+        chars = []
+        for c in self.db.list_characters(session.account_id):
+            x, y = c.get("x"), c.get("y")
+            chars.append({"name": c["name"], "sex": c["sex"], "hair": c["hair"],
+                          "job": c["job"], "level": c["level"],
+                          "map": c.get("map_name") or self.world.default_map.name,
+                          "x": self.world.start_x if x is None else x,
+                          "y": self.world.start_y if y is None else y})
         session.send_json({"type": "characterList", "characters": chars})
 
     def _create_character(self, session: Any, msg: dict) -> None:

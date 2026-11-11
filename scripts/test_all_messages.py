@@ -341,6 +341,11 @@ def run_success_paths() -> int:
         check("返回角色选择下发结果 + 角色列表且不断线",
               "backToSelectResult" in types and "characterList" in types
               and not s1.closed, results)
+        cl = next((m for m in s1.messages if m.get("type") == "characterList"), {})
+        chars = cl.get("characters") or []
+        check("角色列表附带上次地图坐标（供选角界面预载纹理）",
+              bool(chars) and all(set(("map", "x", "y")) <= set(c) for c in chars),
+              results)
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):

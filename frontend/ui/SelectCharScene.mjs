@@ -9,6 +9,8 @@ import { PlayScene } from '../scene/PlayScene.mjs';
 import { NoticeScene } from './NoticeScene.mjs';
 import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from '../core/config.mjs';
+import { preloadMapTextures, preloadState, waitIdle } from '../core/mapPreload.mjs';
+import { getBootInfo } from '../core/boot.mjs';
 
 const JOB_NAMES = ['武士', '魔法师', '道士'];   // GetJobName
 
@@ -232,17 +234,72 @@ export class SelectCharScene extends Scene {
     _select(n) {
         if (this.chars[n] && this.selected !== n) {
             this.selected = n;
+            this._preloadSelected();
+        }
+    }
+
+    /** 按角色上次下线的地图坐标预载首屏纹理（服务端 characterList 附带 map/x/y）。 */
+    _preloadSelected() {
+        const start = getBootInfo().start;
+        if (!start) return;                 // 老服务端连出生点都没给，无能为力
+        const c = this.chars[this.selected];
+        if (c && c.map != null) {
+            const mini = String(start.map) === String(c.map) ? start.miniMapIndex : 0;
+            preloadMapTextures(c.map, c.x, c.y, { miniMapIndex: mini });
+        } else {
+            // 旧版服务端 characterList 不带坐标：仍按默认出生点确保预载已启动，
+            // 且选角阶段就启动比等后台队列排到它更早。
+            preloadMapTextures(start.map, start.x, start.y,
+                { miniMapIndex: start.miniMapIndex });
         }
     }
 
     _start() {
         const c = this.chars[this.selected];
-        if (c) {
-            this._pendingName = c.name;   // 记住角色名，notice 确认后用它进游戏
-            this.conn.send('enterGame', { name: c.name });
-        } else {
+        if (!c) {
             this._msg('一开始你应该创建一个新角色。\n选择「创建角色」你就能建立一个新角色了。');
+            return;
         }
+        if (this._entering) return;         // 防重复点击
+        this._entering = true;
+        this._pendingName = c.name;         // 记住角色名，notice 确认后用它进游戏
+
+        const finish = () => {
+            clearInterval(tick);
+            this._showEntering('');
+            this.conn.send('enterGame', { name: c.name });
+        };
+        let tick = null;
+        if (!preloadState.active) { finish(); return; }
+        const p0 = preloadState.progress;
+        // 预载才刚起步时（慢网首开）：等也等不完，白等 10 秒不如直接进游戏，
+        // 已下好的那部分纹理仍然有效，剩下交给 MapActor 的 6 秒兜底。
+        if (p0.total > 0 && p0.done < p0.total * 0.5) { finish(); return; }
+
+        // 接近完成：在选角界面补最多 5 秒，避免进游戏后触发 6 秒超时出残缺地图。
+        this._showEntering('正在载入地图资源…');
+        tick = setInterval(() => {
+            const p = preloadState.progress;
+            if (p.total) this._showEntering(`正在载入地图资源 ${p.done}/${p.total}…`);
+        }, 400);
+        Promise.race([
+            waitIdle(),
+            new Promise(r => setTimeout(r, 5000)),
+        ]).then(finish);
+    }
+
+    /** 选角界面底部的一行提示（预载等待时显示，不影响原版按钮布局）。 */
+    _showEntering(text) {
+        if (!this.root) return;
+        if (!this._enteringEl) {
+            const el = document.createElement('div');
+            el.style.cssText = 'position:absolute;left:0;right:0;bottom:6px;text-align:center;'
+                + 'color:#e8d9b0;font:13px SimSun,serif;text-shadow:1px 1px 0 #000;'
+                + 'pointer-events:none;z-index:5;';
+            this.root.appendChild(el);
+            this._enteringEl = el;
+        }
+        this._enteringEl.textContent = text || '';
     }
 
     _newChr() {
@@ -426,6 +483,9 @@ export class SelectCharScene extends Scene {
             }
             // 角色职业/性别可能变化，补齐对应立绘帧（含建角 / 删角后的刷新）
             this._ensurePortraits();
+            // 一拿到角色位置就开始预载首屏地图纹理；比启动时的默认出生点更精确，
+            // mapPreload 会让默认任务让位，避免把带宽花在玩家不会去的地图。
+            this._preloadSelected();
         } else if (type === 'createCharacterResult') {
             if (!msg.ok) this._msg(msg.error || '创建失败。');
             this.conn.send('listCharacters');
