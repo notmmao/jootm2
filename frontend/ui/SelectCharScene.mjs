@@ -225,7 +225,7 @@ export class SelectCharScene extends Scene {
             this._btn(69, 348, 486, () => this._newChr()),     // 创建角色
             this._btn(70, 347, 506, () => this._erase()),      // 删除角色
             this._btn(71, 362, 527, () => {}),                 // 制作人员（原版空实现）
-            this._btn(72, 379, 547, () => this.conn.close()),  // 退出
+            this._btn(72, 379, 547, () => this._exit()),    // 退出
         ]);
     }
 
@@ -300,6 +300,19 @@ export class SelectCharScene extends Scene {
             this._enteringEl = el;
         }
         this._enteringEl.textContent = text || '';
+    }
+
+    /**
+     * 「退出」（原版 SelChrExitClick → FrmMain.Close，直接关客户端）。
+     * 浏览器无法关闭非脚本打开的窗口，改为断开当前连接后回到登录界面：
+     * 必须新建 WebSocket（服务端会话已随旧连接销毁），并用新界面重新登录。
+     */
+    _exit() {
+        if (this._exiting) return;
+        this._exiting = true;
+        const back = this.manager.onReturnLogin;
+        if (back) back();
+        else this.conn.close();
     }
 
     _newChr() {

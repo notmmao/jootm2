@@ -85,6 +85,22 @@ async function init() {
     const sceneManager = new SceneManager(conn, backCtx, winManager);
     sceneManager.switchTo(new LoginScene(sceneManager));
 
+    // 选角界面「退出」：断开旧连接（服务端随之销毁会话）→ 新建 WebSocket → 切回登录界面。
+    // 原版 SelChrExitClick 是 FrmMain.Close 直接关客户端；浏览器不能关标签页，回登录最接近。
+    sceneManager.onReturnLogin = async () => {
+        try { conn.close(); } catch { /* 连接已断开 */ }
+        const nc = new Connection('/ws');
+        sound.attach(nc);               // 新连接重新挂消息钩子（全局手势/点击监听只装一次）
+        sceneManager.bind(nc);          // 消息路由指向新连接
+        try {
+            await nc.connect();
+        } catch (e) {
+            console.warn('[exit] 重连失败，刷新页面重试', e);
+        }
+        sceneManager.switchTo(new LoginScene(sceneManager));
+        window.__conn = nc;
+    };
+
     const loop = new Loop(() => {
         sceneManager.update(performance.now());
         sceneManager.render(backCtx);

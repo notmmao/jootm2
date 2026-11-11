@@ -36,6 +36,9 @@ export class WIL {
         this.textures = new Map();   // index -> { canvas, px, py, width, height }
         this.lastUse = new Map();    // index -> 最后使用时间戳
         this.memCheckTime = Date.now();
+        // 偏移表按偏移升序（[{off,index}]）：分片边界对齐与末张图的位深判定都要用它。
+        // 注意不要假设 WIX 偏移表本身有序，加载时显式排序后派生 sortedOffsets。
+        this.byOff = [];
     }
 
     // 加载 WIX 索引（防并发重复）
@@ -61,8 +64,11 @@ export class WIL {
             for (let i = 0; i < this.imageCount; i++) {
                 const off = view.getUint32(48 + i * 4, true);
                 this.offsetList[i] = off < 1080 ? 0 : off;
-                if (off >= 1080) this.sortedOffsets.push(off);
+                if (off >= 1080) this.byOff.push({ off, index: i });
             }
+            // WIX 的偏移表通常是升序，但不要假设：显式排序后再派生 sortedOffsets
+            this.byOff.sort((a, b) => a.off - b.off);
+            this.sortedOffsets = this.byOff.map(e => e.off);
             this.indexLoaded = true;
         })();
         return this._indexLoading;
@@ -97,14 +103,22 @@ export class WIL {
             this.freeOldTextures();
         }
 
-        // 经全局调度器拉取片段（5 并发 + 去重）
+        // 经全局调度器拉取片段（并发 + 去重）。分片字节本身由 assetCache 持久化，
+        // 后续相邻图再次请求时命中内存/IndexedDB，几乎零成本。
         const end = this._chunkEnd(off);
         const { start, buffer, total } = await scheduler.schedule(this.wilUrl, off, end);
         if (total > this.fileSize) this.fileSize = total;
 
-        // 一次性解包整个片段范围内的所有图（冗余缓存，后续请求直接命中）
-        this._unpackRange(new DataView(buffer), start);
-
+        // **只解当前需要的那一张**（单张 0.1~1ms）。旧实现在每个分片到达时同步解包
+        // 块内全部图（一个 512KB 分片常含上百张），20 个并发分片同时到达就是几十到
+        // 几百毫秒的主线程停顿——进图/走路时的掉帧、以及「本地也卡」的根因。
+        // 现在不预解无关图：既省主线程也省 canvas 内存与 GC（绝大多数图永远不会被用到）。
+        const view = new DataView(buffer);
+        const tex = this._unpackOne(view, off - start, index);
+        if (tex) {
+            this.textures.set(index, tex);
+            this.lastUse.set(index, Date.now());
+        }
         return this.textures.get(index) || null;
     }
 
@@ -121,21 +135,6 @@ export class WIL {
         }
         if (lo < arr.length) return arr[lo];   // 第一个 >= target 的图头
         return this.fileSize > 0 ? this.fileSize : target;   // 末尾：对齐到文件末尾
-    }
-
-    // 解包 [start, start+buffer.byteLength) 范围内的所有图
-    _unpackRange(view, start) {
-        const viewEnd = start + view.byteLength;
-        for (let i = 0; i < this.imageCount; i++) {
-            const off = this.offsetList[i];
-            if (off === 0 || off < start || off >= viewEnd) continue;
-            if (this.textures.has(i)) continue;
-            const tex = this._unpackOne(view, off - start, i);
-            if (tex) {
-                this.textures.set(i, tex);
-                this.lastUse.set(i, Date.now());
-            }
-        }
     }
 
     // 解包单张图（图头在 buffer 的 localOff 处）

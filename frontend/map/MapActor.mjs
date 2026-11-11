@@ -15,6 +15,9 @@ const TILE_H = 32;
 // 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑/近黑会被看成「一条一条的黑条」，
 // 这里用明显亮于纯黑的地色，并且优先借用已绘制格像素，保证任何时刻都不会露出黑条带。
 export const FLOOR_FALLBACK = '#3a3222';
+// 兜底借像素用的真实地砖样本数量：太少会把同一格重复铺满整行（横条纹），
+// 太多则每格快照的拷贝开销变大。24 种地砖足以让整屏看起来是「正常地面」。
+const SAMPLE_POOL_MAX = 24;
 
 /** 与 render 完全一致的可见格范围（导出供启动阶段预加载复用，保证集合一模一样）。 */
 export function visibleRange(m, cx, cy, viewW, viewH) {
@@ -26,6 +29,34 @@ export function visibleRange(m, cx, cy, viewW, viewH) {
         right: Math.min(m.width - 1, Math.ceil(cx + halfW)),
         bottom: Math.min(m.height - 1, Math.ceil(cy + halfH + 30)),
     };
+}
+
+/**
+ * 首屏可见格里「地面层」需要的纹理（大地砖 bng + 小地砖 mid，**不含对象**）。
+ * 进图放行的判据只看这个集合：地面是整屏连续色块，缺一块就是一条横带；
+ * 对象是零星贴图，晚到只是单个贴图冒出来，观感伤害小得多。
+ */
+export function collectFloorTextures(m, cx, cy, viewW = 800, viewH = 445) {
+    const r = visibleRange(m, cx, cy, viewW, viewH);
+    const seen = new Set();
+    const jobs = [];
+    const add = (base, fileIdx, index) => {
+        if (index == null || index < 0) return;
+        const lib = fileIdx ? base + fileIdx : base;
+        const key = lib + '/' + index;
+        if (seen.has(key)) return;
+        seen.add(key);
+        jobs.push({ lib, index, key });
+    };
+    for (let gx = r.left; gx <= r.right; gx++) {
+        for (let gy = r.top; gy <= r.bottom; gy++) {
+            const t = m.tiles[gx] && m.tiles[gx][gy];
+            if (!t) continue;
+            if (t.bng >= 0 && gx % 2 === 0 && gy % 2 === 0) add('tiles', t.bngFile, t.bng);
+            if (t.mid >= 0) add('smtiles', t.midFile, t.mid);
+        }
+    }
+    return jobs;
 }
 
 /**
@@ -108,18 +139,28 @@ export class MapActor {
         return visibleRange(m, cx, cy, this.viewW, this.viewH);
     }
 
-    /** 预取首屏地面 / 对象（含动画对象的全部帧）纹理；6 秒超时兜底。 */
+    /**
+     * 预取首屏纹理，分两段放行：
+     *   1) 地面层（tiles bng + smtiles mid）——**必须等齐**，最多 15 秒；地面缺格就是
+     *      一条横带，是用户反复反馈的「灰色条纹」的唯一可见来源，不能靠兜底色蒙过去。
+     *   2) 对象/动画帧——尽力而为，最多 6 秒；晚到只是单个贴图冒出来。
+     * 超时只放行渲染，**绝不把仍在飞的请求标成 failed**（那会引发重复请求风暴，
+     * 整片格子长期拿不到图，反而把条纹固化）。
+     */
     async _prefetchVisible(m, cx, cy, onProgress) {
-        const jobs = [];
+        const all = collectVisibleTextures(m, cx, cy, this.viewW, this.viewH);
+        const floorKeys = new Set(
+            collectFloorTextures(m, cx, cy, this.viewW, this.viewH).map(j => j.key));
+        const floorJobs = [];
+        const objJobs = [];
         const seen = new Set();
-        for (const { lib: libKey, index, key } of
-             collectVisibleTextures(m, cx, cy, this.viewW, this.viewH)) {
+        for (const { lib: libKey, index, key } of all) {
             if (this._texCache.has(key)) continue;
-            seen.add(key);
             const lib = getLib(libKey);
             if (!lib) continue;
+            seen.add(key);
             this._texCache.set(key, { canvas: null, px: 0, py: 0 });  // 占位，避免 render 重复发起
-            jobs.push(lib.getTexture(index).then(tex => {
+            const job = lib.getTexture(index).then(tex => {
                 const e = this._texCache.get(key);
                 if (e && tex) {
                     e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py;
@@ -130,30 +171,34 @@ export class MapActor {
             }).catch(() => {
                 const e = this._texCache.get(key);
                 if (e) { e.failed = true; e.failedAt = Date.now(); }
-            }));
+            });
+            (floorKeys.has(key) ? floorJobs : objJobs).push(job);
         }
 
-        const total = jobs.length;
+        const total = floorJobs.length + objJobs.length;
         if (!total) return;
         let done = 0;
-        const tracked = jobs.map(p => p.then(
+        const track = (jobs) => jobs.map(p => p.then(
             () => { if (onProgress && (++done % 8 === 0 || done === total)) onProgress(done, total); },
             () => { if (onProgress && (++done % 8 === 0 || done === total)) onProgress(done, total); },
         ));
-        const result = await Promise.race([
-            Promise.allSettled(tracked).then(() => 'done'),
-            new Promise(resolve => setTimeout(() => resolve('timeout'), 6000)),
+        const floorTracked = track(floorJobs);
+        const objTracked = track(objJobs);
+
+        // 1) 地面层：等齐（15 秒硬上限，防极端慢网永久卡住加载界面）
+        await Promise.race([
+            Promise.allSettled(floorTracked),
+            new Promise(resolve => setTimeout(resolve, 15000)),
         ]);
-        if (result === 'timeout') {
-            // 冷缓存（首次登录）时首屏纹理常常超过 6 秒：这里只放行显示地图，
-            // **绝不把未完成的占位标成 failed**。旧实现标 failed 会让 _floorTex 立刻
-            // 删占位并重发请求，与仍在飞的原请求叠加成重复请求风暴，整片格子长时间
-            // 拿不到图，兜底色连成横条纹；重登时 HTTP 缓存已热才「恢复正常」。
-            // 原请求完成时上面 jobs 的 then 会直接写入同一个占位，无需重试。
-            for (const k of seen) {
-                const e = this._texCache.get(k);
-                if (e && !e.canvas) e.pendingSince = Date.now();
-            }
+        // 2) 对象层：尽力而为，6 秒后放行
+        await Promise.race([
+            Promise.allSettled(objTracked),
+            new Promise(resolve => setTimeout(resolve, 6000)),
+        ]);
+        // 只记录「还在飞」的时间戳用于诊断，不改状态：原请求完成时上面的 then 会写入同一占位。
+        for (const k of seen) {
+            const e = this._texCache.get(k);
+            if (e && !e.canvas && !e.failed) e.pendingSince = Date.now();
         }
     }
 
@@ -222,6 +267,10 @@ export class MapActor {
         fctx.fillStyle = FLOOR_FALLBACK;
         fctx.fillRect(0, 0, CW, CH);
         const cells = new Uint8Array(gw * gh);
+        // cells 语义：0=未画（含地图外） 1=已画真实地砖 2=已用样本池/邻格兜底画过
+        // 旧实现把「未就绪」和「已完成」都记 1，或干脆不记，结果每个未就绪格**每帧**
+        // 都要重新借像素重绘（一次整屏 200+ 格 × 多次大画布自拷贝 = 单帧数百毫秒），
+        // 这正是用户反馈的「本地也卡」。现在借用即打标，纹理到达后才升级为 1。
         if (f && f.gw === gw && f.gh === gh) {
             const dgx = f.wx0 - wx0, dgy = f.wy0 - wy0;
             fctx.drawImage(f.canvas, dgx * TILE_W, dgy * TILE_H);
@@ -234,13 +283,16 @@ export class MapActor {
                 }
             }
         }
-        // sample 是「最近一格真实地砖」的 48×32 像素快照，与格子坐标解耦：
-        // 滚动搬运后 lastPainted 的 ix/iy 会失效，sample 不会。整行未就绪时用它铺满，
-        // 而不是退化成纯色（那正是用户截图里一条一条的横条纹）。
+        let open = 0;
+        for (let i = 0; i < cells.length; i++) if (cells[i] !== 1) open++;
+        // samples 是「最近画出的若干格真实地砖」的 48×32 像素快照，与格子坐标解耦：
+        // 滚动搬运后 lastPainted 的 ix/iy 会失效，样本不会；整行未就绪时按格坐标散列
+        // 取不同样本铺，而不是把同一格重复铺满整行（那正是用户截图里的横条纹）。
         this._floor = {
-            canvas, ctx: fctx, wx0, wy0, gw, gh, cells,
+            canvas, ctx: fctx, wx0, wy0, gw, gh, cells, open,
             lastPainted: f && f.lastPainted,
-            sample: (f && f.sample) || null,
+            samples: (f && f.samples) || [],
+            sampleCanvas: (f && f.sampleCanvas) || null,
         };
         return this._floor;
     }
@@ -268,12 +320,13 @@ export class MapActor {
     }
 
     /**
-     * 未就绪的格子先借用相邻已绘制格的像素，避免纯黑条带；不置 cells=1，
+     * 未就绪的格子先借用已绘制格的像素，避免纯黑条带；不置 cells=1，
      * 纹理到达后下一帧会用真实内容覆盖。canvas 允许以自身为源 drawImage。
      *
-     * 增量预取按 24 格分批提交，会出现「连续一整行都还没就绪」的窗口：这时四个
-     * 邻格也都没画，旧实现全部退化成纯色填充，连成一条近黑色横带（用户看到的
-     * 「黑色条纹」）。因此邻格全失败时再从缓存里任意已绘制格借像素。
+     * 顺序：四邻格 → 最近一次真正画过的格子 → **真实地砖样本池**（按格坐标散列取用）
+     * → 兜底底色。样本池是关键：早期版本只有一个 sample 快照，整屏未就绪时会
+     * 把同一格地砖重复铺满整行，看起来就是一条一条的横条纹；改成 24 格样本池后
+     * 同一时刻能看到多种地砖交错，视觉上接近「还在加载」而不是「画错了」。
      */
     _borrowFloorCell(f, ix, iy, px, py) {
         const copy = (nx, ny) => {
@@ -293,10 +346,12 @@ export class MapActor {
         // 整带未就绪：先试最近一次真正画过地砖的格子。
         const lp = f.lastPainted;
         if (lp && f.cells[lp.iy * f.gw + lp.ix] && copy(lp.ix, lp.iy)) return;
-        // 坐标失效（滚动搬运过）或整窗口都还没画出来时，用与坐标无关的真实地砖快照。
-        // 这样整行未就绪也只是重复铺一格地砖，不会连成纯色横条纹。
-        if (f.sample) {
-            f.ctx.drawImage(f.sample, px, py);
+        // 坐标失效（滚动搬运过）或整窗口都还没画出来时，用与坐标无关的真实地砖样本池。
+        // 按世界格坐标散列取样本，保证同一格每帧取到的样本固定（不闪），相邻格又不同。
+        const pool = f.samples;
+        if (pool && pool.length) {
+            const h = (((f.wx0 + ix) * 73856093) ^ ((f.wy0 + iy) * 19349663)) >>> 0;
+            f.ctx.drawImage(pool[h % pool.length], px, py);
             return;
         }
         // 首帧连一格都没画出来才用底色，且颜色也明显亮于纯黑。
@@ -305,10 +360,13 @@ export class MapActor {
     }
 
     _paintFloorCells(m, f) {
+        // 全部格子都已画上真实地砖：本帧无事可做（最常见的情况，省掉 700+ 次查表）
+        if (f.open === 0) return;
         for (let iy = 0; iy < f.gh; iy++) {
             for (let ix = 0; ix < f.gw; ix++) {
                 const idx = iy * f.gw + ix;
-                if (f.cells[idx]) continue;
+                const st = f.cells[idx];
+                if (st === 1) continue;
                 const gx = f.wx0 + ix, gy = f.wy0 + iy;
                 const px = ix * TILE_W, py = iy * TILE_H;
                 if (gx < 0 || gy < 0 || gx >= m.width || gy >= m.height) {
@@ -316,19 +374,27 @@ export class MapActor {
                     // 统一用与未就绪格相同的土地兜底色。
                     f.ctx.fillStyle = FLOOR_FALLBACK;
                     f.ctx.fillRect(px, py, TILE_W, TILE_H);
-                    f.cells[idx] = 1;
+                    f.cells[idx] = 1; f.open--;
                     continue;
                 }
                 const col = m.tiles[gx];
                 const t = col && col[gy];
-                if (!t) { this._borrowFloorCell(f, ix, iy, px, py); continue; }
+                if (!t) {
+                    if (st === 2) continue;      // 已兜底画过，等地图数据补齐前不重复画
+                    this._borrowFloorCell(f, ix, iy, px, py);
+                    f.cells[idx] = 2;
+                    continue;
+                }
                 const bgx = gx & ~1, bgy = gy & ~1;
                 const bt = m.tiles[bgx] && m.tiles[bgx][bgy];
                 const bng = this._floorTex(this._libKey('tiles', bt ? bt.bngFile : 0),
                                            bt ? bt.bng : -1);
                 const mid = this._floorTex(this._libKey('smtiles', t.midFile), t.mid);
                 if (!bng.ready || !mid.ready) {
-                    this._borrowFloorCell(f, ix, iy, px, py);   // 原子：整格一起出现，但不留黑
+                    // 原子：整格一起出现；借用过就停手，避免每帧重绘整屏（卡顿根因）
+                    if (st === 2) continue;
+                    this._borrowFloorCell(f, ix, iy, px, py);
+                    f.cells[idx] = 2;
                     continue;
                 }
 
@@ -348,17 +414,24 @@ export class MapActor {
                     }
                 }
                 if (mid.tex) f.ctx.drawImage(mid.tex.canvas, px, py);
-                f.cells[idx] = 1;
-                // 供 _borrowFloorCell 在「整行都未就绪」时借像素用
-                if (bng.tex || mid.tex) {
+                f.cells[idx] = 1; f.open--;
+                // 供 _borrowFloorCell 在「整行都未就绪」时借像素用：维护一个多样本池，
+                // 让兜底画面是多种地砖交错，而不是同一格重复铺满（横条纹观感来源）。
+                if ((bng.tex || mid.tex) && f.samples.length < SAMPLE_POOL_MAX) {
                     f.lastPainted = { ix, iy };
-                    if (!f.sample) {
-                        f.sample = document.createElement('canvas');
-                        f.sample.width = TILE_W;
-                        f.sample.height = TILE_H;
+                    if (!f.sampleCanvas) {
+                        f.sampleCanvas = document.createElement('canvas');
+                        f.sampleCanvas.width = TILE_W;
+                        f.sampleCanvas.height = TILE_H;
                     }
-                    f.sample.getContext('2d').drawImage(
-                        f.canvas, px, py, TILE_W, TILE_H, 0, 0, TILE_W, TILE_H);
+                    const sctx = f.sampleCanvas.getContext('2d');
+                    sctx.clearRect(0, 0, TILE_W, TILE_H);
+                    sctx.drawImage(f.canvas, px, py, TILE_W, TILE_H, 0, 0, TILE_W, TILE_H);
+                    const snap = document.createElement('canvas');
+                    snap.width = TILE_W;
+                    snap.height = TILE_H;
+                    snap.getContext('2d').drawImage(f.sampleCanvas, 0, 0);
+                    f.samples.push(snap);
                 }
             }
         }

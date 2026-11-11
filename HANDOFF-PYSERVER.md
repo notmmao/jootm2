@@ -826,6 +826,12 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - ⚠️ **重要坑：阿里云 ECS 的 ICP 备案拦截**。`notmmao.com` 未备案，阿里云大陆节点会拦截未备案域名在 80/443/8080 的 HTTP 流量：公网所有请求返回 `403 Forbidden` + `Server: Beaver` + 「Non-compliance ICP Filing」拦截页（HTML iframe 指向 beian-block）。**且拦截有延迟**——刚部署完域名访问是通的（还做了 8/8 冒烟），约一小时后才生效，极易误判成代码 bug（本次就先怀疑了新 net.py）。判别方法：服务器本机 `curl localhost:8080` 始终 200 即为链路拦截；响应头 `Server: Beaver` 不是 pyserver 发的。
 - **约定：访问阿里云服务一律用 IP `139.224.24.88:8080`，不用域名**（用户明确要求）。冒烟/回归用 `--host 139.224.24.88`；SSH `root@aliyun.notmmao.com` 不受影响。恢复域名访问需 ICP 备案，或改用非拦截端口（未验证）。
 
+### 21.8 7b6e4a5 部署（2026-11-12）
+
+- `7b6e4a5`（进游戏地图加载优化：首屏纹理预载 + `.map` 字节提前 + 206 分片应用层 gzip）推送 ACR（`7b6e4a5` + `latest`，digest `sha256:0d0b2d9d73…`，image `4e3af0dc8080`），按 §21.6 标准路径部署阿里云。
+- IP 直连验证：`/api/status` 41ms；`.map` Range 分片 **206 + ETag**；`smoke_ws.py --host 139.224.24.88` 全通。
+- **流程约定（用户要求记住）**：今后「部署」默认指阿里云；标准流程 = 本机 `docker compose build` → 推 ACR（git 短 hash + `latest` 双标签）→ 阿里云 `docker pull` → `docker tag` 为 `jootm2:python` → `compose up -d` → IP 直连验证。gp-bench-3 只在用户点名时更新。
+
 ---
 
 ## §22 公网加载速度：持久缓存 + 启动预加载（2026-11-11 晚）
@@ -933,3 +939,60 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - 旧服务端完全兼容：无 `start` → 后台暖 `0.map` 字节；`characterList` 无坐标 → 用 `start` 兜底；不识别 `X-Jootm2-Gzip` → 原样返回 206。
 - 未做 / 保留边界：`changeMap` 换到新地图仍会现下新图的纹理（服务端可在接近传送点时预告，待做）；`_prefetchVisible` 的 6 秒超时兜底保留（防极端慢网卡死）；动画对象的全帧预取、WIX 全量索引仍可能与其他请求抢 6 条 HTTP/1.1 连接（HTTP/2 / 多域名未做）；音频 MP3 仍只靠浏览器 HTTP 缓存。
 - 新增调试接口：`window.__mapPreload`（预载进度）、`await window.__warmDone`、`__scheduler.stats().gzip/gzipSaved`。
+
+---
+
+## §24 选角「退出」回登录 + 地面条纹收口 + 卡顿定量定位（2026-11-12）
+
+用户反馈三件事：① 选角界面点「退出」不切回登录界面（但能听见登录 BGM）② 灰色条纹仍在（返回角色再进就消失）③ 本地 `127.0.0.1` 也明显卡顿，「记得之前没有」，排除网络。
+
+### 24.1 「退出」= 关客户端 → 浏览器改为回登录
+
+原版依据：`IntroScn.pas:1237 SelChrExitClick` 只有一句 `FrmMain.Close`（直接关掉客户端）；`FrmDlg.DscSelect1Click` 把 `DscExit` 派发给它。浏览器不能关闭非脚本打开的标签页，因此改为「断开连接 → 新建连接 → 切回登录界面」，与用户预期一致。
+
+- `SoundManager.install(conn)` 拆成 `attach(conn)`（每条连接一次：挂 `'*'` 路由与 `onClose`，重置 `selfId/prevGold/prevHp`）+ `install(conn)`（一次性全局监听 + 首次 `attach`）。旧代码 `if (this.installed) return this` 会让新连接收不到任何消息。
+- `SceneManager` 新增 `bind(conn)` 与方法位 `onReturnLogin`（由 `main.mjs` 注入）。连接工厂留在 `main.mjs`，避免 `LoginScene ↔ SelectCharScene` 循环依赖。
+- `SelectCharScene._exit()`：调 `manager.onReturnLogin()`，无注入时退回 `conn.close()`。`main.mjs` 里的实现：`conn.close()` → `new Connection('/ws')` → `sound.attach` → `sceneManager.bind` → `await connect()` → `switchTo(new LoginScene(...))`。
+
+### 24.2 灰色条纹：地面齐备才放行 + 多样本兜底
+
+条纹的唯一来源是「地面层格子没画真实地砖，而是用兜底填充」。三处收口：
+
+1. `MapActor._prefetchVisible` 拆两段：**地面层（tiles bng + smtiles mid）必须等齐**（硬上限 15s，进度回传），对象/动画帧尽力而为（6s）。地面缺一块就是一条横带，对象晚到只是单个贴图冒出来。
+2. 新增导出 `collectFloorTextures()`（地面子集），与 `collectVisibleTextures()` 共用 `visibleRange()`；`_prefetchVisible` 据此分批等待。
+3. 兜底借像素由「单个 `f.sample` 快照」改成 **24 格样本池**（`f.samples` + 按世界格坐标散列取样本）。单个快照会把同一格地砖重复铺满整行——那正是用户截图里一条条横纹的观感；样本池铺出来是多种地砖交错。
+4. 超时**仍然绝不把在飞请求标 failed**（那会删占位重发，形成请求风暴）。
+
+### 24.3 卡顿根因（定量，不是网络）
+
+CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步工作**：
+
+| 现象 | 定位 | 量化 |
+|---|---|---|
+| 未就绪格子**每帧**重新借像素重绘 | `_paintFloorCells` 里 `cells` 只有 0/1 两态，借用后不记账，下一帧又借一遍：整屏 200+ 格 × 每格最多 4 次「1760×957 画布自拷贝」 | 200KB/s 冷进图：rAF p50 **650ms**、11 帧里 10 帧 >33ms |
+| 每个 512KB 分片到达就**同步解包块内全部图** | `WIL._unpackRange` 遍历 `imageCount` 逐张建 canvas + `putImageData`；20 并发分片同时到达就是几十~几百毫秒的主线程停顿 | 实测单分片 `mon19` 363 张 14.1ms、`mon20` 88 张 10.7ms；×20 并发 ≈ 280ms |
+
+修法：
+
+- `_paintFloorCells`：`cells` 改三态 **0=未画 / 1=真实地砖 / 2=已兜底画过**，借用后打 2；只有纹理就绪时才升级为 1。维护 `f.open`（未画真实地砖的格数），`open===0` 时整函数直接 return。
+- `WIL`：删掉 `_unpackRange`/空闲队列，**只解当前请求的那一张**（单张 0.1~1ms）。分片字节本来就在 `assetCache`（内存 24MB → IndexedDB 384MB），相邻图再次请求零成本。偏移表改为显式排序的 `byOff` 再派生 `sortedOffsets`（不假设 WIX 偏移有序）。
+
+修后同一场景（200KB/s、20 个请求在飞 + 136 排队）：rAF p50 **16.7ms**、6 秒 361 帧、**0 帧 >33ms**。
+
+### 24.4 验证
+
+| 场景 | 结果 |
+|---|---|
+| 200KB/s + RTT60ms 冷进图（选角立刻点开始） | 未画格 0、兜底横带行 0、重复行 0、`textures 78 就绪 / 0 失败 / 157 在飞` 也能出完整地面 |
+| 同上帧率 | 限速 p50 16.7ms（0 帧 >33ms）；解除限速 p50 16.7ms |
+| 真实 GPU 窗口（headed，144Hz 屏） | 选角/进图/加载中 rAF p50 13.9ms、无 long task |
+| 「退出」流程 | `LoginScene=True`、新连接 `readyState=1`、用新连接重新登录 → 选角成功 |
+| 回归 | `test_pyserver` **72/0**、`test_tick_systems` **53/0**、`test_all_messages --live 8081` **28/0** + `ping→pong` |
+| 服务端 tick | 离线 300 次 `service.tick()`：p50 **1.08ms** / p95 3.64ms / max 8.09ms（空世界，怪物按地图懒生成） |
+
+### 24.5 边界
+
+- 地面 15 秒硬上限仍在：公网极慢时宁可多等地面，也不放行半张图（用户明确抱怨的是条纹）。此时加载界面显示「正在加载地图资源 n/m」，`PlayScene` 会把进度打在左上角。
+- 首帧若地面纹理全未到（极端），仍是 24 格样本池拼出的「假地面」——观感是地砖花纹不对但不出现色带；纹理到达后逐格替换为真图。
+- `assetCache` 内存缓存 24MB 会淘汰；淘汰后相邻图请求要走一次 IndexedDB 反序列化（仍不走网络）。
+- 未做：把 WIL 解包搬进 Worker（`createImageBitmap` + transfer）；HTTP/2；`.map` 解析仍在主线程（首进图 100~300ms 一次性开销）。

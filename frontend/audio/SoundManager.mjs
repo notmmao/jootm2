@@ -158,10 +158,11 @@ class SoundManager {
         this.prevHp = null;
     }
 
-    /** 在 main.mjs 里调用一次：挂 WS 通配监听、全局点击、手势解锁、异步加载索引。 */
-    install(conn) {
-        if (this.installed) return this;
-        this.installed = true;
+    /**
+     * 把音频模块挂到一条 WebSocket 连接上（可重复调用：选角界面「退出」会新建连接）。
+     * 会重置与该连接绑定的状态（selfId / 金币与血量差值），避免跨会话串音。
+     */
+    attach(conn) {
         this.conn = conn;
         conn.on('*', (msg) => this._onMessage(msg));
         const prevClose = conn.onClose;
@@ -170,6 +171,17 @@ class SoundManager {
             this.selfId = null;
             this.setBgm('intro');
         };
+        this.selfId = null;
+        this.prevGold = null;
+        this.prevHp = null;
+        return this;
+    }
+
+    /** 在 main.mjs 里调用一次：挂全局点击、手势解锁、异步加载索引（并挂到首条连接）。 */
+    install(conn) {
+        if (this.installed) return this.attach(conn);
+        this.installed = true;
+        this.attach(conn);
         const unlock = () => this._unlock();
         document.addEventListener('pointerdown', unlock, { capture: true, once: true });
         document.addEventListener('keydown', unlock, { capture: true, once: true });
