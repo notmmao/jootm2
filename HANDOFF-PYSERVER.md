@@ -1704,3 +1704,89 @@ if g_SoftClosed then begin g_SoftClosed := FALSE; ActiveCmdTimer(tcReSelConnect)
 - 商店「分类子目录」（`SubMenu>0`）未做：服务端 `goods()` 不产出 sub 字段，要做得先扩 NPC 脚本语义。
 - 商店里没有物品说明，属原版行为；要加是增强，等用户确认。
 - 掉线提示是自造的（原版就地停住），文案/时长可再调。
+
+---
+
+## §34 稻草人死后留火：尸体帧取错了段（2026-11-12）
+
+用户反馈：稻草人（比奇省）被打死后「爆炸，但会留下最后一帧」，截图里桥上一团黑色 + 火焰。
+
+### 34.1 根因：尸体帧公式和原版差了一段
+
+原版 `Actor.pas:2115 TActor.GetDefaultFrame`（`AxeMon.pas` 里各类重写版一致）：
+
+```pascal
+if m_boDeath then begin
+   if m_boSkeleton then
+      Result := pm.ActDeath.start                       // 骷髅：ActDeath 首帧，**不带方向**
+   else Result := pm.ActDie.start
+                + m_btDir * (pm.ActDie.frame + pm.ActDie.skip)
+                + (pm.ActDie.frame - 1);                 // 普通尸体：ActDie **末帧**，带方向
+end;
+```
+
+旧实现两种都写成 `ActDeath.start + dir`。多数怪恰好也像尸体（`ActDeath` 段本来就是尸体图），
+但稻草人（`Monster.csv`: Race 83 / RaceImg 18 / Appr 27）不是：
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| body 图库 | `mon3`（`aGetMonImg`: `27 div 10 = 2` → WMon3） | |
+| 外观 offset | `2520`（`GetOffset`: `npos * 360`，`27 mod 10 = 7`） | |
+| 动作表 | `MA14`（`GetRaceByPM`: RaceImg 18） | |
+| ActDie | `start 260 / frame 10 / skip 0` → 2780..2859（8 方向 × 10 帧） | 倒下 → 散成骨头 |
+| ActDeath | `start 340` → **2860..2869** | 这 10 帧在美术上是**火焰**（`DEATHFIREEFFECTBASE = 2860`，`AxeMon.pas:14`） |
+
+所以「尸体」= `2860 + dir` = 火焰的第 dir 帧 → 死后原地留一团火，直到 makeGhost。
+
+实测帧（`mon3`，浏览器里 `getTexture()` 直接导出）：
+
+```
+2789 / 2809 / 2839   → 散落骨头（ActDie 末帧，8 方向各一张）  ← 正确的尸体
+2860                 → 小火花       2865 → 大火球（用户截图里那团）
+2439 / 2469          → 钉耙猫倒地（MA14 同理）
+mon17 629 / 659      → 鹿侧躺
+```
+
+### 34.2 顺带补：稻草人死亡时的火焰叠加（原版本来就有）
+
+`AxeMon.pas:810 THuSuABi.LoadSurface`（客户端 `PlayScn.pas:2173` 按 RaceImg 18 创建该类）：
+
+```pascal
+if m_boUseEffect then
+   EffectSurface := FrmMain.WMon3Img.GetCachedImage(
+       DEATHFIREEFFECTBASE + m_nCurrentFrame - m_nStartFrame, ax, ay);
+```
+
+`DrawChr` 里身体画完之后：
+
+```pascal
+if m_boUseEffect then
+   if EffectSurface <> nil then
+      DrawBlend (dsurface, dx + ax + m_nShiftX, dy + ay + m_nShiftY, EffectSurface, 1);
+```
+
+只有 `SM_NOWDEATH`（当场看到死亡）才置 `m_boUseEffect := TRUE`（`CalcActorFrame` 开头重置为 FALSE）。
+也就是说「稻草人死后爆炸」是**死亡动画 10 帧逐帧叠火焰**，播完就该正常显示尸体——
+旧实现没有这层叠加，直接把火焰帧当尸体，才变成「一直烧着」。
+
+实现：`ActorSprite._frameSpec` 在 `die` 动作且 `raceImg === 18` 时追加
+`{lib:'mon3', index: 2860 + rel, blend:'lighter'}`；`MapActor._drawEntity` 支持 `layer.blend === 'lighter'`。
+叠加层**不做 `_lastByLib` 回退**（退到身体纹理会出怪影），纹理没到就这一帧不画。
+
+**有意偏离**：原版 `LoadSurface` 有 60 秒节流（`if GetTickCount - m_dwLoadSurfaceTime > 60*1000`），
+加上 `m_boUseEffect` 进尸体阶段不复位，实际原版会把某一帧火焰**冻结在尸体上直到 3 分钟后 makeGhost**。
+我们按「意图」实现成逐帧播完即止，不还原这个节流副作用。
+
+### 34.3 验证
+
+| 项 | 结果 |
+|---|---|
+| 帧索引（浏览器内 `_frameSpec`） | 稻草人尸体 dir0/2/5 → `2789 / 2809 / 2839`；鹿 → `629 / 659`；钉耙猫 → `2439 / 2469` |
+| 死亡动画 | 身体 `2780` + 火焰 `2860`（`blend=lighter`），第 9 帧 → `2789` + `2869` |
+| E2E 注入（登录 → 进游戏 → 注入 appr 27 实体） | `layers corpse: ['56x50']`（骨头堆）；`layers die: ['100x90', '84x94 blend=lighter']`，截图中桥边空地可见爆火 |
+| 真实场景 | 视野内稻草人正常站立；注入体走同一渲染路径 |
+
+### 34.4 遗留
+
+- `_dieUntil` 仍写死 1400ms（MA14 实际 10×120 = 1200ms），多停 200ms 但末帧≈尸体帧，看不出来。
+- 骷髅分支对 Appr 27 会取到 `2860`（火焰）——原版同样如此；稻草人 Race 83 不可挖肉，正常玩不会触发。

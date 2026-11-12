@@ -30,9 +30,14 @@ export class ActorSprite {
     prefetchDeathFrame(e) {
         if (!e || e.type === 'player') return;
         const segs = e.type === 'npc' ? A.npcAction(e.appr) : A.raceByPM(e.raceImg);
-        const seg = segs && (segs.death || segs.die);
-        if (!seg) return;
-        const cf = seg.start + (e.skeleton ? 0 : (e.dir || 0));
+        const dieSeg = segs && (segs.die || segs.death);
+        const deathSeg = segs && (segs.death || segs.die);
+        if (!dieSeg || !deathSeg) return;
+        // 原版 Actor.pas:2124 GetDefaultFrame：
+        //   骷髅 → ActDeath.start（不带方向）；普通尸体 → ActDie 末帧（带方向）
+        const cf = e.skeleton
+            ? deathSeg.start
+            : dieSeg.start + (e.dir || 0) * (dieSeg.frame + dieSeg.skip) + (dieSeg.frame - 1);
         const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
         const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
         this._texture(lib, offset + cf);
@@ -44,8 +49,9 @@ export class ActorSprite {
         if (!spec) return this._lastLayers;
         const out = [];
         for (const f of spec) {
-            const tex = this._texture(f.lib, f.index) || this._lastByLib.get(f.lib);
-            if (tex) out.push({ canvas: tex.canvas, px: tex.px, py: tex.py });
+            // 叠加特效层（火焰等）没有「上一帧回退」的意义：退到身体纹理会出现怪影，宁可不画
+            const tex = this._texture(f.lib, f.index) || (f.blend ? null : this._lastByLib.get(f.lib));
+            if (tex) out.push({ canvas: tex.canvas, px: tex.px, py: tex.py, blend: f.blend });
         }
         if (!out.length) return this._lastLayers;
         this._lastLayers = out;
@@ -72,14 +78,18 @@ export class ActorSprite {
         }
         if (!segs) return null;
 
-        // 尸体静止帧：原版 Actor.pas::CalcActorFrame 对 SM_SKELETON 用
-        // `ActDeath.start + m_btDir`，GetDefaultFrame 对 m_boDeath&&m_boSkeleton
-        // 用 `ActDeath.start`（**不带方向**，骨头架子就一张）。
-        // 这里按方向 +dir 偏移（**不**乘 frame+skip），与 die 段
-        // （ActDie.start + dir*(frame+skip)）区分开。
+        // 尸体静止帧（原版 Actor.pas:2124 GetDefaultFrame）：
+        //   骷髅 → ActDeath.start（**不带方向**，骨头架子就一张）；
+        //   普通尸体 → ActDie 最后一帧 = ActDie.start + dir*(frame+skip) + (frame-1)。
+        // 旧实现两种都用 ActDeath.start + dir：多数怪恰好也像尸体，但稻草人
+        // （appr 27 / mon3 2520 起）的 ActDeath 段其实是**死亡火焰特效帧**
+        // （DEATHFIREEFFECTBASE=2860 与 2520+340 重合），于是尸体被画成一团火。
         if (action === 'death' && e.type !== 'player') {
-            const seg = segs.death || segs.die || segs.stand;
-            const cf = seg.start + (e.skeleton ? 0 : dir);
+            const dieSeg = segs.die || segs.death || segs.stand;
+            const deathSeg = segs.death || dieSeg;
+            const cf = e.skeleton
+                ? deathSeg.start
+                : dieSeg.start + dir * (dieSeg.frame + dieSeg.skip) + (dieSeg.frame - 1);
             const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
             const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
             return [{ lib, index: offset + cf }];
@@ -136,7 +146,17 @@ export class ActorSprite {
         // 怪物/NPC：单层，外观 offset + cf
         const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
         const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
-        return [{ lib, index: offset + cf }];
+        const layers = [{ lib, index: offset + cf }];
+
+        // 稻草人（RaceImg 18 → 客户端 THuSuABi）死亡动画期间在身体**之上**叠死亡火焰：
+        //   AxeMon.pas:810 `EffectSurface := FrmMain.WMon3Img.GetCachedImage(
+        //       DEATHFIREEFFECTBASE + m_nCurrentFrame - m_nStartFrame, ax, ay)`
+        //   DrawChr 里 `DrawBlend(..., 1)` 半透明叠加（DEATHFIREEFFECTBASE = 2860，固定在 mon3）。
+        // 原版 LoadSurface 有 60s 节流，会把火焰冻在某一帧直到 MakeGhost；这里逐帧播完即止。
+        if (action === 'die' && e.raceImg === 18) {
+            layers.push({ lib: 'mon3', index: 2860 + Math.min(rel, 9), blend: 'lighter' });
+        }
+        return layers;
     }
 
     // 取纹理（同步返回已加载，未加载触发异步并返回 null）。

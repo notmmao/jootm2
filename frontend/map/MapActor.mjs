@@ -1054,7 +1054,15 @@ export class MapActor {
             for (const layer of e.layers) {
                 if (layer.canvas) {
                     const img = tint ? this._tint(layer.canvas, tint) : layer.canvas;
-                    ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
+                    if (layer.blend === 'lighter') {
+                        // 死亡火焰等叠加特效（原版 DrawBlend(..., 1)）：加色混合，不覆盖身体轮廓
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'lighter';
+                        ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
+                        ctx.restore();
+                    } else {
+                        ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
+                    }
                 }
             }
             ctx.restore();
