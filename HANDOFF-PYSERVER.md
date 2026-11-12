@@ -833,6 +833,8 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - **流程约定（用户要求记住）**：今后「部署」默认指阿里云；标准流程 = 本机 `docker compose build` → 推 ACR（git 短 hash + `latest` 双标签）→ 阿里云 `docker pull` → `docker tag` 为 `jootm2:python` → `compose up -d` → IP 直连验证。gp-bench-3 只在用户点名时更新。
 - 同日追加 `35665ec`（尸体绘制层级 + 挖肉蹲下动作）与 `4e15c9e`（新角色初始装备 + 服装店 1 级布衣）：ACR digest `sha256:5027aac745…`（image `3722552b0527`），同流程部署；IP `/api/status` 29ms、WS 冒烟全通。
 - **gp-bench-3 也切换到 ACR 镜像**（2026-11-12，image 同为 `3722552b0527`，与阿里云完全一致），LAN WS 冒烟全通。⚠️ 坑：gp-bench-3 的 compose v1（1.29.2）解析 **BuildKit 构建的镜像会抛 `KeyError: 'ContainerConfig'`**（开发机 Docker 24 默认 BuildKit，镜像 config 无该字段；此前 gp-bench-3 本地构建走旧 builder 所以没暴露）。修复：无需 root，下载 compose v2 独立二进制到 `~/.local/bin/docker-compose`（v2.27.0）；`~/.profile` 已有 `.local/bin` 前置规则，**交互登录**后裸 `docker-compose` 即 v2，**非交互 ssh** 仍解析 `/usr/bin` 的 v1，脚本里请用显式路径 `~/.local/bin/docker-compose`。ota 用户无免密 sudo。
+- `3d570ce`（材质精确区间加载修黑条/卡顿 + 现场诊断快捷键）：ACR digest `sha256:6674de0674…`（image `a6357852f385`），同流程部署阿里云；IP `/api/status` 81ms、WS 冒烟全通。本轮纯前端改动，服务端协议不变。gp-bench-3 同步部署（ACR pull + `~/.local/bin/docker-compose`），image 一致、LAN 冒烟全通。
+- **gp-bench-3 接入 Cloudflare Tunnel**（2026-11-12）：新增 `~/jootm2/docker-compose.override.yml`（gp-bench-3 专用，rsync 无 `--delete` 不会覆盖）把 `jootm2` 服务挂到外部网络 `cf_cloudflared_network`（cloudflared 容器同网络，token 模式、ingress 配在 CF 后台按容器名 `http://jootm2:8080` 寻址）。对外入口 **`https://mir2.notmmao.com/`**。验证：该域名 `/` 与 `/api/status` 均 200；TLS WebSocket 走 443 握手 101 + ping→pong 通（tunnel 支持 WS）；LAN 8080 直连不受影响。此前 jootm2 是手动 `docker network connect` 挂网，compose 重建会掉——现已声明化。aliyun 未接 tunnel（域名备案被拦与 CF 无关，CF 入口解析到 gp-bench-3）。
 
 ---
 
@@ -1373,3 +1375,192 @@ chunk 用内容哈希 + `immutable`，入口文件 `no-cache`+ETag，`version.js
 - 公网要生效需重新 build 镜像 + 推 ACR（`§22` 流程）。
 - 15s 地面等待上限仍在：慢到 60KB/s 以下时放行后靠样本池铺，不是真实地砖。
 - `Ctrl+F9` 的 PNG 用 `toDataURL('image/png')` 全质量，JSON 约 3MB；如需更小可改 webp。
+
+---
+
+## §32 尸体生命周期 + 挖肉随机次数 + 绘制顺序 + 血条颜色（2026-11-12）
+
+用户报 4 条，全部要求「对照 Delphi 原版确认后再改」：
+
+1. 钉耙猫死后不消失（怪不动、血条为空），**移动后**才消失；并问原版死后是否有尸体。
+2. 鹿的尸体会盖住人（**人面向上时**盖，朝其他方向不盖）。
+3. 挖鹿尸体**总要挖两次**才出肉，且第二次必出肉，中间只有人跪在那。
+4. 头顶血条与左下血球**有时不一致**（截图对比）。
+
+结论：4 条全中，且**全部是「原版行为没对齐」，不是 bug**——除第 3 条的用户描述本身有误
+（不是 2 次，是随机 3~10 次，均值 4.49；用户感知成「两次」是因为前几次只有跪下的反馈，
+没有进度提示）。
+
+### 32.1 尸体保留 3 分钟，且所有怪都留
+
+原版依据 `ObjBase.pas:3769`：
+
+```pascal
+if (GetTickCount() - m_dwDeathTick > g_Config.dwMakeGhostTime {3 * 60 * 1000}) then
+  MakeGhost();   // → DisappearA → RM_DISAPPEAR → 客户端 SM_DISAPPEAR
+```
+
+`g_Config.dwMakeGhostTime` 默认 **3 分钟**（不是旧实现写的 60s），且**不限动物**。
+
+旧实现两个缺陷叠加：
+
+| 缺陷 | 后果 |
+|---|---|
+| 非动物怪 `corpse_until = 0` | `_sight_actors` 立刻把它剔出下发集合，但**从不广播 `entityRemove`** → 客户端那具尸体永远留着 |
+| 60s 而非 180s | 动物的尸体也短了 1/3 |
+
+「不动、血条为空」的直接原因：客户端 `entities` 里那具尸体 `_corpse=false`、
+`maxHp=32` 但 `hp=0` → 画出**空血条**；走动后 `update_sight` 重建视野才补发移除。
+
+修法：
+
+```python
+# world_extra.py
+CORPSE_MS = 180_000
+m.corpse_until = now + CORPSE_MS       # kill_monster：所有怪，不只 animal
+
+# world.py  tick() 里新增
+self._expire_corpses(now)   # 到期 map.remove + actors.pop + broadcast entityRemove
+```
+
+`death` 消息改为统一 `corpse: True`，`animal` 只决定要不要提示「可以挖肉」：
+
+```python
+o = {"type": "death", "id": m.id, "corpse": True, "animal": animal}
+```
+
+客户端 `PlayScene` 的 `death` 分支对所有怪都置 `_corpse = true`、`alive = false`、
+播倒地帧；只有 `msg.animal` 时才打那句挖肉提示。
+
+### 32.2 重生 = 新建 actor（不能复用实例）
+
+旧 `_respawn_dead` 复用同一个 `Monster` 实例重置 `alive/hp/x/y`。一旦尸体要留 3 分钟，
+「15 秒重生」必然把尸体顶掉——两者互斥。原版每次重生都是**新对象、新 id**。
+
+```python
+m = Monster(id=self.new_id(), name=t.name, x=a.spawn_x, y=a.spawn_y, dir=4,
+            hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
+            level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
+            template=t, spawn_x=a.spawn_x, spawn_y=a.spawn_y,
+            spawn_map=home, respawn_interval_ms=a.respawn_interval_ms)
+m.exp = t.exp
+self.add_actor(m, home)
+self.broadcast_entity_add(m)
+```
+
+旧尸体继续躺在 `actors` 里，由 `_expire_corpses` 按自己的 `corpse_until` 收走。
+`_expire_corpses` 里顺手把 `pending_respawn/respawn_at` 清零，避免「尸体过期」与
+「重生计时」互相干扰。
+
+### 32.3 挖肉：随机磨损 + 600ms 间隔 + 骷髅不删
+
+原版 `ObjBase.pas:17478-17495`：
+
+```pascal
+n10 := Random(16) + 5;
+Dec(m_nBodyLeathery, n10);
+if m_nBodyLeathery <= 0 then begin
+  m_boSkeleton := True;
+  ApplyMeatQuality;
+  SendRefMsg(RM_SKELETON);   // 变骷髅，但不删 actor
+  TakeBagItems;
+  m_nBodyLeathery := 50;
+end;
+```
+
+- 初值 `m_nBodyLeathery := 50`（`:1286`）→ 出肉需 **3~10 次**（均值约 4）。
+  用户说的「两次必出」是采样偏差：他自己也只在「有肉」时才注意次数。
+- `:17465-17470` `if dwCheckTime < g_Config.dwTurnIntervalTime then Exit`，
+  `M2Share.pas:2121` 默认 **600ms** → 连点无效。
+- `:17497` 每次挖都刷新 `m_dwDeathTick` → **持续挖肉会延长尸体保留**。
+
+实现：`Monster.body_leathery`（新字段，默认 50）+ `Player.last_butch_at`。
+`_butch` 里间隔不足直接 `return`；扣 `random.randint(5, 20)`；每次刷新 `corpse_until`；
+`> 0` 时广播 `{"type": "butch", "meat": False}` + 提示「正在挖肉……」；
+`<= 0` 时 `skeleton = True` + 重置 50 + 广播 `meat: True`，**不发 `entityRemove`**。
+
+前端 `butch` 分支新增骷髅切换（`RM_SKELETON`）：
+
+```js
+if (corpse && msg.meat && !corpse.skeleton) {
+  corpse.skeleton = true;
+  corpse._action = 'death';
+  corpse._dieUntil = 0;
+}
+```
+
+骷髅帧**不带方向**（`Actor.pas:2124` `GetDefaultFrame`：
+`if m_boDeath then if m_boSkeleton then Result := pm.ActDeath.start`，无 `dir`），
+所以 `ActorSprite` 里 `const cf = seg.start + (e.skeleton ? 0 : dir)`。
+
+### 32.4 尸体盖人：行循环之后必须重画一次自己
+
+`PlayScn.pas:1361-1383`：画完按行的所有 actor 之后，把 `g_MySelf`（以及
+`g_FocusCret` / `g_MagicTarget`）**再画一遍** → 自己永远在最上层。
+
+旧实现只做「尸体 `unshift` 到最前 + 按 y 分桶」，同桶有效但**跨行失效**：
+人朝上时包围盒向上延伸落进尸体所在行，下一行的桶整个在后面画 → 盖住。
+
+`MapActor.draw` 改造：
+
+```js
+const hudQueue = ...;                 // 每帧复用
+let selfSnap = null;
+// 行循环内
+this._drawEntity(ctx, e, anchorX, anchorY);
+if (e.maxHp || e.name) hudQueue.push(e, anchorX, anchorY);
+if (e.isSelf) selfSnap = [e, anchorX, anchorY];
+// 行循环之后
+if (selfSnap) this._drawEntity(ctx, selfSnap[0], selfSnap[1], selfSnap[2]);
+for (let i = 0; i < hudQueue.length; i += 3) {
+  this._drawHeadHud(ctx, hudQueue[i], hudQueue[i + 1], hudQueue[i + 2]);
+}
+```
+
+必须抽出 `_drawEntity`，否则「重画自己」会丢掉隐身 alpha / `isFocus` 高亮 / 中毒染色。
+名字与血条**不能跟着实体画**，要排队到「自己重画」之后——原版也是独立一遍
+（`DrawScrn.pas:296-344`），否则后一行的树/怪会盖住前一行的血条。
+
+### 32.5 血条统一红色，尸体不画
+
+`DrawScrn.pas:306` `if (actor.m_boOpenHealth ...) and not actor.m_boDeath`；
+只有 `HEALTHBAR_BLACK=0` / `HEALTHBAR_RED=1`（`Data/Prguse2.wil`：帧 0 = 80×51、
+帧 1 = 84×54），**没有蓝色变体**。
+
+旧代码给自己用 `#0ea5e9`（蓝）、给怪用红 → 用户看到的「不一致」就是这个。
+现在统一 `#ef4444`，`dead || hp <= 0` 不画，百分比 `Math.round` 之后再换像素。
+
+### 32.6 定量验证
+
+| 项 | 结果 |
+|---|---|
+| 挖肉次数采样（300 次，离线） | min 3 / max 7 / **avg 4.49**，符合 `Random(16)+5` 对 50 的期望 |
+| `test_tick_systems` | **80 PASS / 0 FAIL**（原 72，新增 `test_corpse_lifecycle` 8 条：3 分钟保留 / death 带 corpse / body_leathery 重置 / 重生新 id / 旧尸体仍在 / 重生广播 / 到期移除广播） |
+| `test_pyserver` | 73 PASS / 0 FAIL |
+| `test_all_messages --live 8081` | **29 PASS / 0 FAIL**（原 28 项里 2 FAIL：断言写死「挖 2 次」，改成循环 12 次 + 绕开 600ms 间隔） |
+| E2E 鹿（真实 WS + Playwright） | 点 5 次出肉，`skel: true`；尾部聊天 `正在挖肉…… ×3 → 挖到了肉。` |
+| E2E 多钩猫（非动物） | 死亡后 `corpse: true, action: death` 且**仍在实体表里**（旧实现会立刻消失） |
+| 绘制顺序（单帧钩子） | `self` 出现 2 次、最后一次是所有实体中最后一个 = True；尸体进 HUD 队列 0 条 |
+| 半血截图 | 头顶红条约 50%，与左球一致 |
+
+`node --check` 通过 `MapActor.mjs` / `PlayScene.mjs` / `ActorSprite.mjs` / `diag.mjs`。
+
+### 32.7 新增诊断字段
+
+`window.__diag.report().hud`（修「血条与血球不一致」这类现场取证用）：
+
+```js
+{ selfHp, selfMaxHp, selfMp, selfMaxMp,
+  entHp, entMaxHp, sameObject,   // sameObject=false 说明 HUD 读的不是同一个对象
+  hudKey, texReady, job, level }
+```
+
+`entities.list` 每项新增 `corpse / skeleton / action` 三个字段。
+
+### 32.8 遗留
+
+- `CORPSE_MS` 写死 180_000；原版是 `!Setup.txt` 可配的 `dwMakeGhostTime`，
+  以后接配置系统时改成读配置。
+- 挖肉没有「进度」反馈（原版也没有），用户仍可能误判成「没生效」。若要改善体验需
+  自造提示，属于偏离原版，等用户明确要求再做。
+- 公网生效需重新 build 镜像 + 推 ACR（`§22` 流程）。

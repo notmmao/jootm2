@@ -926,6 +926,10 @@ export class MapActor {
                 dropsByRow.get(g.y).push(g);
             }
         }
+        // 名字/血条排队（每帧复用，避免分配）：[snap, anchorX, anchorY] 三元组平铺
+        const hudQueue = this._hudQueue || (this._hudQueue = []);
+        hudQueue.length = 0;
+        let selfSnap = null;
         for (let gy = top; gy <= bottom; gy++) {
             tPhase = performance.now();
             // 对象层（照 PlayScn.pas：普通对象左上+底对齐；blend 光效 x=格左+px-2, y=格顶+py-68）
@@ -976,64 +980,95 @@ export class MapActor {
                     // 锚点 = 格子左上 + 走动画偏移（self 用 _viewX 过渡，offsetX/Y 为像素差）
                     const anchorX = sx(e.x) + (e.offsetX || 0);
                     const anchorY = sy(e.y) + (e.offsetY || 0);
-                    if (e.layers) {
-                        ctx.save();
-                        // 隐身术：半透明
-                        if (e.alpha != null && e.alpha < 1) ctx.globalAlpha = e.alpha;
-                        // 悬停/施法目标高亮：原版 Actor.pas:2044 的 ceBright（DrawEffSurface 调色），
-                        // g_FocusCret / g_MagicTarget 只让 sprite 变亮，不画任何边框。
-                        if (e.isFocus) ctx.filter = 'brightness(1.28)';
-                        // 红毒（掉血）绿色调 / 绿毒（减防）红色调：在每个 sprite 自己的离屏画布上染色
-                        // （source-atop 的 destination 只有 sprite 像素 → 颜色精确跟随实体轮廓，不会盖到地图上）
-                        const tint = e.poison ? 'rgba(60,255,60,0.35)' : (e.poisonArmor ? 'rgba(255,60,60,0.35)' : null);
-                        for (const layer of e.layers) {
-                            if (layer.canvas) {
-                                const img = tint ? this._tint(layer.canvas, tint) : layer.canvas;
-                                ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
-                            }
-                        }
-                        ctx.restore();
-                    } else if (e.tex) {
-                        ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
-                    }
-
-                    // 血条（原版 DrawScrn：SayY - 10 = 格顶 - 57，头顶上方）
-                    if (e.maxHp) {
-                        const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
-                        const bx0 = anchorX + TILE_W / 2 - 20;
-                        const by0 = anchorY - 57;
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
-                        ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
-                        ctx.fillRect(bx0, by0, 40 * hp / e.maxHp, 4);
-                    }
-
-                    // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
-                    if (e.name) {
-                        ctx.font = '11px SimSun,serif';
-                        ctx.textAlign = 'center';
-                        let tw = this._nameW.get(e.name);
-                        if (tw == null) {
-                            tw = ctx.measureText(e.name).width;
-                            if (this._nameW.size > 400) this._nameW.clear();   // 防无敌名字撑爆
-                            this._nameW.set(e.name, tw);
-                        }
-                        const nx = anchorX + TILE_W / 2;
-                        const ny = anchorY - 71;
-                        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-                        ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
-                        // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
-                        let nameFill = e.isSelf ? '#ffe9b0' : '#e0d0a0';
-                        if (e.nameColor != null) {
-                            const i = e.nameColor * 4;
-                            nameFill = `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
-                        }
-                        ctx.fillStyle = nameFill;
-                        ctx.fillText(e.name, nx, ny);
-                    }
+                    this._drawEntity(ctx, e, anchorX, anchorY);
+                    // 名字/血条不在这里画：原版 DrawScrn.pas:296-321 是在所有实体画完之后
+                    // 单独一遍 → 后一行的树/怪不可能盖住前一行的血条。这里先排队。
+                    if (e.maxHp || e.name) hudQueue.push(e, anchorX, anchorY);
+                    // 记住自己：原版 PlayScn.pas:1361 画完行循环后要把自己再画一遍
+                    if (e.isSelf) selfSnap = [e, anchorX, anchorY];
                 }
             }
             perf.add('ent', performance.now() - tPhase);
+        }
+
+        // 原版 PlayScn.pas:1361-1383：按行画完之后把「自己」（以及选中目标/施法目标）
+        // **再画一遍**，所以人物永远压在所有实体之上。以前只靠「尸体 unshift 到列表最前」，
+        // 但按行绘制会重新按 y 分桶 → 同一/下一行的尸体照样盖住人（面朝上时最明显）。
+        if (selfSnap) this._drawEntity(ctx, selfSnap[0], selfSnap[1], selfSnap[2]);
+
+        // 原版 DrawScrn.pas:296-321：血条 + 名字单独一遍，压在所有精灵之上；
+        // DrawScrn.pas:306 明确要求 `not actor.m_boDeath` → 尸体不画血条。
+        for (let i = 0; i < hudQueue.length; i += 3) {
+            this._drawHeadHud(ctx, hudQueue[i], hudQueue[i + 1], hudQueue[i + 2]);
+        }
+        hudQueue.length = 0;
+    }
+
+    /** 画一个实体的精灵层（隐身半透明 / 悬停提亮 / 中毒染色）。 */
+    _drawEntity(ctx, e, anchorX, anchorY) {
+        if (e.layers) {
+            ctx.save();
+            // 隐身术：半透明
+            if (e.alpha != null && e.alpha < 1) ctx.globalAlpha = e.alpha;
+            // 悬停/施法目标高亮：原版 Actor.pas:2044 的 ceBright（DrawEffSurface 调色），
+            // g_FocusCret / g_MagicTarget 只让 sprite 变亮，不画任何边框。
+            if (e.isFocus) ctx.filter = 'brightness(1.28)';
+            // 红毒（掉血）绿色调 / 绿毒（减防）红色调：在每个 sprite 自己的离屏画布上染色
+            // （source-atop 的 destination 只有 sprite 像素 → 颜色精确跟随实体轮廓，不会盖到地图上）
+            const tint = e.poison ? 'rgba(60,255,60,0.35)' : (e.poisonArmor ? 'rgba(255,60,60,0.35)' : null);
+            for (const layer of e.layers) {
+                if (layer.canvas) {
+                    const img = tint ? this._tint(layer.canvas, tint) : layer.canvas;
+                    ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
+                }
+            }
+            ctx.restore();
+        } else if (e.tex) {
+            ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
+        }
+    }
+
+    /** 头顶血条 + 名字（原版 DrawScrn.pas:296-344）。 */
+    _drawHeadHud(ctx, e, anchorX, anchorY) {
+        // 血条（原版 DrawScrn：SayY - 10 = 格顶 - 57，头顶上方）
+        // 原版只有一种 HEALTHBAR_RED，人物也不换色；以前给「自己」用了天蓝色，
+        // 看起来像魔法条，跟左下红血球对不上（用户反馈的「两边不一致」）。
+        // DrawScrn.pas:306 的 `not actor.m_boDeath` → 死亡/尸体一根都不画。
+        const dead = e.dead || e.hp <= 0;
+        if (e.maxHp > 0 && !dead) {
+            const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
+            // 与血球同一取整口径：先算百分比整数，再换算像素，避免两边四舍五入不一致
+            const pct = Math.max(0, Math.min(100, Math.round(hp * 100 / e.maxHp)));
+            const bx0 = anchorX + TILE_W / 2 - 20;
+            const by0 = anchorY - 57;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
+            ctx.fillStyle = '#ef4444';
+            if (pct > 0) ctx.fillRect(bx0, by0, 40 * pct / 100, 4);
+        }
+
+        // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
+        if (e.name) {
+            ctx.font = '11px SimSun,serif';
+            ctx.textAlign = 'center';
+            let tw = this._nameW.get(e.name);
+            if (tw == null) {
+                tw = ctx.measureText(e.name).width;
+                if (this._nameW.size > 400) this._nameW.clear();   // 防无敌名字撑爆
+                this._nameW.set(e.name, tw);
+            }
+            const nx = anchorX + TILE_W / 2;
+            const ny = anchorY - 71;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
+            // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
+            let nameFill = e.isSelf ? '#ffe9b0' : '#e0d0a0';
+            if (e.nameColor != null) {
+                const i = e.nameColor * 4;
+                nameFill = `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
+            }
+            ctx.fillStyle = nameFill;
+            ctx.fillText(e.name, nx, ny);
         }
     }
 }

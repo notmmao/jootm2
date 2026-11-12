@@ -321,9 +321,15 @@ def run_success_paths() -> int:
                   animal.id not in {a.id for a in w.nearby(p.map, p.x, p.y)},
                   results)
             s1.messages.clear()
-            for _ in range(2):
+            # 原版挖肉是随机次数（BodyLeathery 50，每次扣 Random(16)+5 → 3~10 次），
+            # 且两次之间要隔 600ms（ObjBase.pas:17465）。这里按上限 12 次循环，
+            # 每次把 last_butch_at 归零绕开真实等待。
+            for _ in range(12):
+                p.last_butch_at = 0
                 h["butch"](s1, {"type": "butch", "actorId": animal.id,
                                 "x": animal.x, "y": animal.y})
+                if animal.skeleton:
+                    break
             got_meat = False
             for it in p.bag:
                 t = w.item_templates.get(int(it.get("index", 0)))
@@ -331,6 +337,8 @@ def run_success_paths() -> int:
                     got_meat = True
             check("Alt+左键挖够次数得到肉（原版 TakeBagItems）",
                   animal.skeleton and got_meat, results)
+            check("挖肉后尸体变骷髅但保留（原版 RM_SKELETON 不删 actor）",
+                  animal.skeleton and animal.id in w.actors, results)
             check("挖肉后下发 bagUpdate",
                   any(m.get("type") == "bagUpdate" for m in s1.messages), results)
 

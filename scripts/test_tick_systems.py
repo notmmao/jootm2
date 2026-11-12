@@ -574,6 +574,52 @@ def test_full_tick(w, p):
     check("昼夜亮度已初始化", 0 <= w.day_bright <= 3)
 
 
+def test_corpse_lifecycle(w, p) -> None:
+    """尸体 3 分钟保留 / 重生换新 actor / 到期广播移除（原版 ObjBase.pas:3769）。"""
+    from pyserver.util import now_ms as _now
+    from pyserver.world_extra import BODY_LEATHERY, CORPSE_MS
+
+    tpl = next((t for t in w.monster_templates.values()
+                if int(t.race) not in (51, 52, 53)), None)
+    if tpl is None:
+        check("尸体生命周期：有非动物模板可用", False)
+        return
+    m = Monster(id=w.new_id(), name=tpl.name, x=p.x + 3, y=p.y, dir=4,
+                hp=tpl.hp, max_hp=tpl.hp, level=tpl.level, race=tpl.race,
+                template=tpl, spawn_x=p.x + 3, spawn_y=p.y, spawn_map=p.map,
+                respawn_interval_ms=15_000)
+    w.add_actor(m, p.map)
+    sent: list[dict] = []
+    orig = w.broadcast_around
+    w.broadcast_around = lambda mp, o, x, y, r=12: sent.append(o)
+    try:
+        t0 = _now()
+        w.kill_monster(m, t0)
+        check("非动物怪死亡也留尸体（dwMakeGhostTime 3 分钟）",
+              m.corpse_until == t0 + CORPSE_MS, f"{m.corpse_until - t0}ms")
+        check("death 消息带 corpse=True（客户端据此隐藏血条/名字）",
+              any(o.get("type") == "death" and o.get("corpse") for o in sent))
+        check("死亡时 body_leathery 重置为初值 50", m.body_leathery == BODY_LEATHERY)
+
+        sent.clear()
+        w._respawn_dead(t0 + 15_000)
+        fresh = [a for a in w.actors.values()
+                 if isinstance(a, Monster) and a.alive and a.id != m.id
+                 and a.spawn_x == m.spawn_x and a.spawn_y == m.spawn_y]
+        check("重生新建 actor（新 id），不复用尸体 id",
+              bool(fresh) and fresh[0].id != m.id)
+        check("旧尸体仍在 actors 里（等 makeGhost 时间）", m.id in w.actors)
+        check("重生广播 entityAdd", any(o.get("type") == "entityAdd" for o in sent))
+
+        sent.clear()
+        w._expire_corpses(t0 + CORPSE_MS + 1)
+        check("到点尸体被移除", m.id not in w.actors)
+        check("移除广播 entityRemove",
+              any(o.get("type") == "entityRemove" and o.get("id") == m.id for o in sent))
+    finally:
+        w.broadcast_around = orig
+
+
 def main() -> int:
     print("=" * 64)
     print("jootm2 tick 子系统 / 装备属性 / MapQuest 回归")
@@ -589,6 +635,7 @@ def main() -> int:
     test_map_quest(w, p, sess)
     test_hp_sync(w, p, sess)
     test_drop_rates(w, p)
+    test_corpse_lifecycle(w, p)
     test_full_tick(w, p)
     print("\n" + "=" * 64)
     print(f"结果: {PASS} PASS / {FAIL} FAIL")

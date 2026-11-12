@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import random
 import time
 from collections import Counter
 from typing import Any, Callable
@@ -24,6 +25,8 @@ from .templates import dumps
 from .util import U_DRESS, U_WEAPON
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
                     encode, now_ms)
+from .world_extra import (BODY_LEATHERY, BUTCH_INTERVAL_MS, BUTCH_WEAR_MAX,
+                          BUTCH_WEAR_MIN, CORPSE_MS)
 
 MAX_CHARS_PER_ACCOUNT = 2
 
@@ -435,18 +438,30 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if max(abs(p.x - m.x), abs(p.y - m.y)) > 2:
             w.send_system(p, "离尸体太远了。")
             return
+        now = now_ms()
+        # 原版 ObjBase.pas:17465-17470：两次挖肉之间必须隔 dwTurnIntervalTime
+        # （M2Share.pas:2121 默认 600ms），不足直接 Exit，连点无效。
+        if now - p.last_butch_at < BUTCH_INTERVAL_MS:
+            return
+        p.last_butch_at = now
         p.dir = direction_toward(p.x, p.y, m.x, m.y, p.dir)
         m.butch_count += 1
-        # 原版每次挖削减 m_nBodyLeathery / m_nMeatQuality，挖够才出肉；
-        # 这里用两次近似（m_nBodyLeathery 初值 50~150，本移植没有该字段）。
-        if m.butch_count < 2:
+        # 原版每次挖肉扣 m_nBodyLeathery（Random(16)+5 = 5~20），初值 50，
+        # 扣到 ≤0 才出肉并变骷髅。所以次数是随机的 3~10 次（均值约 4），
+        # 不是固定 2 次。
+        m.body_leathery -= random.randint(BUTCH_WEAR_MIN, BUTCH_WEAR_MAX)
+        # 原版每次挖都把 m_dwDeathTick 刷新成当前时间（ObjBase.pas:17497）→
+        # 持续挖肉会延长尸体的保留时间。
+        m.corpse_until = now + CORPSE_MS
+        if m.body_leathery > 0:
             w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": False,
                                        "actorId": p.id, "dir": p.dir,
                                        "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
             w.send_system(p, "正在挖肉……")
             return
+        # RM_SKELETON：尸体变成骷髅，但**不**删除（仍留到 makeGhost 时间）。
+        m.body_leathery = BODY_LEATHERY
         m.skeleton = True
-        m.corpse_until = 0
         # 肉名依据本地 MonItems：鸡.txt → 鸡肉（StdItems index 57），
         # 狼.txt / 羊.txt → 肉（index 3）；鹿无掉落表，原版由类直接给肉。
         name = "鸡肉" if "鸡" in (m.name or "") else "肉"
@@ -463,8 +478,6 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": True,
                                    "actorId": p.id, "dir": p.dir,
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
-        w.broadcast_around(m.map, {"type": "entityRemove", "id": m.id},
-                           m.x, m.y, SIGHT_RANGE)
 
     def send_bag_update(self, p: Player) -> None:
         """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。"""

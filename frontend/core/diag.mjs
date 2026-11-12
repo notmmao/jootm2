@@ -175,6 +175,11 @@ function hudText() {
         lines.push(`cell ${ma._cx},${ma._cy} shift ${ma._shiftX},${ma._shiftY} pref ${ma._prefetching ? 'Y' : 'n'}`);
     }
     if (s && s.entities) lines.push(`entities ${s.entities.size} items ${s.groundItems ? s.groundItems.size : 0}`);
+    if (s && s.self) {
+        const ent = s.entities ? s.entities.get(s.self.id) : null;
+        lines.push(`hud hp ${s.self.hp}/${s.self.maxHp} ent ${ent ? `${ent.hp}/${ent.maxHp}` : '?'}`
+            + ` same ${ent === s.self ? 'Y' : 'n'} tex ${s._hudTexReady ? 'Y' : 'n'}`);
+    }
     return lines.join('\n');
 }
 
@@ -263,7 +268,22 @@ function buildReport(getScene, getCanvas) {
             effects: s.effects ? s.effects.length : 0,
             list: [...s.entities.values()].slice(0, 60).map(e => ({
                 id: e.id, name: e.name, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp,
+                corpse: !!e._corpse, skeleton: !!e.skeleton, action: e._action,
             })),
+        };
+    }
+    // 头顶血条 vs 左下血球是否同源：两处分别读 self 与 entities[self.id]，
+    // 若不是同一个对象就会出现「一边满一边空」（用户反馈过）。
+    if (s && s.self) {
+        const ent = s.entities ? s.entities.get(s.self.id) : null;
+        rep.hud = {
+            selfHp: s.self.hp, selfMaxHp: s.self.maxHp,
+            selfMp: s.self.mp, selfMaxMp: s.self.maxMp,
+            entHp: ent ? ent.hp : null, entMaxHp: ent ? ent.maxHp : null,
+            sameObject: !!ent && ent === s.self,
+            hudKey: s._hudKey || null,
+            texReady: !!s._hudTexReady,
+            job: s.self.job, level: s.self.level,
         };
     }
     if (canvas) {

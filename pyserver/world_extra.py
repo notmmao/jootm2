@@ -19,6 +19,27 @@ from .util import (
 )
 
 
+# ---------------------------------------------------------------- 常量
+
+# 尸体保留时长：原版 ``ObjBase.pas:3769`` → ``g_Config.dwMakeGhostTime``
+# （``M2Share.pas`` 默认 3*60*1000）。**所有**死亡对象都留这么久，不只是可挖肉
+# 的动物；到点 ``MakeGhost`` 才从视野里消失（RM_DISAPPEAR）。
+CORPSE_MS = 180_000
+
+# 挖肉磨损：原版 ``ObjBase.pas:17478-17495``
+#   n10 := Random(16) + 5;  Dec(m_nBodyLeathery, n10);
+#   if m_nBodyLeathery <= 0 then 骷髅 + TakeBagItems + 重置为 50
+# 初值 50 见 ``ObjBase.pas:1286``。所以出肉次数是随机的 3~10 次（平均约 4），
+# 不是固定的 2 次。
+BODY_LEATHERY = 50
+BUTCH_WEAR_MIN = 5
+BUTCH_WEAR_MAX = 20
+
+# 挖肉/转身间隔：``M2Share.pas:2121`` dwTurnIntervalTime = 600ms，
+# ``ObjBase.pas:17466`` 里间隔不足直接 Exit（连点无效）。
+BUTCH_INTERVAL_MS = 600
+
+
 # ---------------------------------------------------------------- 数据结构
 
 @dataclass(slots=True)
@@ -546,19 +567,20 @@ class WorldExtra:
         m.hp = 0
         m.target_id = -1
         # 原版 ObjBase.pas:20983：动物死亡**不**走 ScatterBagItems，肉要玩家
-        # Alt+左键挖；尸体按 SM_DEATH 保留 actor（ClMain.pas 60s 后 Free）。
+        # Alt+左键挖。尸体一律保留 ``CORPSE_MS``（原版 dwMakeGhostTime 3 分钟），
+        # 到点由 ``_expire_corpses`` 广播移除——**所有**怪都留尸体，不只是动物。
         animal = self.butchable(m)
-        if animal:
-            m.corpse_until = now + 60_000
-            m.butch_count = 0
-            m.skeleton = False
-        else:
+        m.corpse_until = now + CORPSE_MS
+        m.butch_count = 0
+        m.skeleton = False
+        m.body_leathery = BODY_LEATHERY
+        if not animal:
             self.drop_loot(m)
         if killer is not None:
             self.trigger_map_quest(killer, m)
-        o = {"type": "death", "id": m.id}
-        if animal:
-            o["corpse"] = True
+        # corpse=True → 客户端按尸体处理（隐藏名字/血条、画倒地帧）；
+        # animal 只是决定要不要提示「可以挖肉」。
+        o = {"type": "death", "id": m.id, "corpse": True, "animal": animal}
         self.broadcast_around(m.map, o, m.x, m.y, SIGHT_RANGE)
 
     def level_for_exp(self, exp: int) -> int:

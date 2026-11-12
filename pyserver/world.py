@@ -30,7 +30,7 @@ from .util import (
     SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP, YSET_SHAPES,
     java_div, java_round, slot_accepts, slot_for,
 )
-from .world_extra import WorldExtra
+from .world_extra import BODY_LEATHERY, WorldExtra
 
 SIGHT_RANGE = 12
 # 旁观者血条同步间隔（ms）：玩家 hp 变化后最多延迟这么久才广播给周围玩家。
@@ -228,6 +228,7 @@ class Player(Actor):
     guild_name: str = ""
     last_attack_at: int = 0
     last_spell_at: int = 0
+    last_butch_at: int = 0   # 原版 m_dwTurnTick：挖肉/转身间隔（600ms）
     # 战斗 / 技能状态（对齐 Java Player 字段）
     luck: int = 0
     suck_health_rate: int = 0
@@ -550,12 +551,14 @@ class Monster(Actor):
     transformed: bool = False
     change_face_at: int = 0
     next_move_at: int = 0
-    # 原版 SM_DEATH 后 actor 不立即删除，而是保留为尸体（ClMain.pas 的
-    # g_FreeActorList 在 SM_HIDE 后 60s 才 Free）。只有可挖肉的动物留尸体，
-    # 重生时清空，避免与复用的同一 actor id 冲突。
+    # 原版 SM_DEATH 后 actor 不立即删除，而是保留为尸体直到 dwMakeGhostTime
+    # （ObjBase.pas:3769，3 分钟）才 MakeGhost。所有怪都留尸体；重生**不复用**
+    # 同一 actor（新建实例、新 id），旧尸体继续留到过期，避免 id 冲突。
     corpse_until: int = 0
     butch_count: int = 0
     skeleton: bool = False
+    # 挖肉磨损（原版 m_nBodyLeathery，初值 50，每次挖 Random(16)+5）
+    body_leathery: int = BODY_LEATHERY
     next_attack_at: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
@@ -833,7 +836,8 @@ class GameWorld(WorldExtra):
 
     @staticmethod
     def _corpse_visible(a: Actor) -> bool:
-        """未过期的动物尸体：原版死亡后 actor 保留、可被 Alt+左键挖肉。"""
+        """未到 makeGhost 时间的尸体：原版所有死亡对象都留 3 分钟（可挖肉的动物
+        只是额外允许 Alt+左键挖）。"""
         return (isinstance(a, Monster) and not a.alive
                 and a.corpse_until > now_ms())
 
@@ -903,6 +907,7 @@ class GameWorld(WorldExtra):
         self._tick_pending_ranged_hits(now)
         self._sync_player_hp(now)
         self.tick_extra(now)          # 地面物品过期 + 攻城计时
+        self._expire_corpses(now)     # 尸体到点移除（原版 MakeGhost）
         self._respawn_dead(now)
 
     def _sync_player_hp(self, now: int) -> None:
@@ -1060,27 +1065,53 @@ class GameWorld(WorldExtra):
                 self._apply_hit_to_player(m, t, h["damage"])
         self.combat_state["pending_ranged"] = keep
 
+    def _expire_corpses(self, now: int) -> None:
+        """尸体到 ``corpse_until`` 后移除并广播（原版 ``MakeGhost`` → RM_DISAPPEAR）。
+
+        以前非动物怪出生即从视野剔除却**不发移除消息**，客户端会一直挂着那具
+        「不动、血条为空」的尸体，直到玩家走动重新拉视野才消失。
+        """
+        for a in list(self.actors.values()):
+            if not isinstance(a, Monster) or a.alive:
+                continue
+            if a.corpse_until <= 0 or now < a.corpse_until:
+                continue
+            a.corpse_until = 0
+            a.pending_respawn = False
+            a.respawn_at = 0
+            if a.map is not None:
+                a.map.remove(a.id)
+            self.actors.pop(a.id, None)
+            if a.map is not None:
+                self.broadcast_around(a.map, {"type": "entityRemove", "id": a.id},
+                                      a.x, a.y, SIGHT_RANGE)
+
     def _respawn_dead(self, now: int) -> None:
+        """重生 = 新建一个 actor（原版每次重生都是新对象、新 id）。
+
+        旧尸体保持在 ``actors`` 里直到 ``_expire_corpses`` 收走，这样「尸体留
+        3 分钟」和「15 秒重生」可以同时成立，不会互相顶掉。
+        """
         for a in list(self.actors.values()):
             if not isinstance(a, Monster) or not a.pending_respawn \
                     or now < a.respawn_at:
                 continue
             a.pending_respawn = False
-            a.alive = True
-            a.corpse_until = 0
-            a.butch_count = 0
-            a.skeleton = False
-            a.x, a.y = a.spawn_x, a.spawn_y
-            a.hp = a.max_hp = a.template.hp if a.template else a.max_hp
-            a.poison_ticks = 0
-            a.poison_armor_until = 0
-            a.paralyzed_until = 0
-            a.target_id = -1
+            a.respawn_at = 0
+            t = a.template
+            if t is None:
+                continue
             home = a.spawn_map or self.default_map
-            if a.map is not None and a.map is not home:
-                a.map.remove(a.id)
-            home.add(a)
-            self.broadcast_entity_add(a)
+            m = Monster(id=self.new_id(), name=t.name,
+                        x=a.spawn_x, y=a.spawn_y, dir=4,
+                        hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
+                        level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
+                        template=t, spawn_x=a.spawn_x, spawn_y=a.spawn_y,
+                        spawn_map=home,
+                        respawn_interval_ms=a.respawn_interval_ms)
+            m.exp = t.exp
+            self.add_actor(m, home)
+            self.broadcast_entity_add(m)
 
     # -- 怪物 / 宠物 AI ----------------------------------------------------
 

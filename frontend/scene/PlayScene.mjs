@@ -1193,18 +1193,20 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'death': {
-                // 播死亡动画（普通怪物重生时 entityAdd 替换对象恢复；换图时清空）
+                // 播死亡动画。原版 SM_DEATH 后 actor 不删除，尸体一直留到
+                // dwMakeGhostTime（ObjBase.pas:3769，3 分钟）才由服务端广播
+                // RM_DISAPPEAR。**所有**怪都留尸体，不只是可挖肉的动物——
+                // 以前非动物不带 corpse 标记，客户端把尸体当活物画，于是出现
+                // 「怪不动、头顶一根空血条、走开才消失」（用户反馈）。
                 const e = this.entities.get(msg.id);
                 if (e) {
                     e._action = 'die';
                     e._actionAt = Date.now();
-                    if (msg.corpse) {
-                        // 可挖肉的动物：原版 SM_DEATH 保留 actor，倒地动画播完后
-                        // 停在 ActDeath 尸体帧，直到挖完/过期/重生才移除。
-                        e._corpse = true;
-                        e.alive = false;
-                        e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
-                        this._sprite(e).prefetchDeathFrame(e);
+                    e._corpse = true;
+                    e.alive = false;
+                    e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
+                    this._sprite(e).prefetchDeathFrame(e);
+                    if (msg.animal) {
                         this._log('[提示] 按住 Alt + 左键点击动物尸体可以挖肉', '#e8d9b0');
                     }
                 }
@@ -1220,6 +1222,15 @@ export class PlayScene extends Scene {
                     if (msg.dir != null) a.dir = msg.dir;
                     a._action = 'sitdown';
                     a._actionAt = Date.now();
+                }
+                // 出肉后尸体变骷髅（原版 RM_SKELETON → m_boSkeleton，尸体**不删**，
+                // 仍留到 makeGhost 时间）。骷髅帧 = ActDeath.start，不带方向。
+                const corpse = this.entities.get(msg.id);
+                if (corpse && msg.meat && !corpse.skeleton) {
+                    corpse.skeleton = true;
+                    corpse._action = 'death';
+                    corpse._dieUntil = 0;
+                    this._sprite(corpse).prefetchDeathFrame(corpse);
                 }
                 break;
             }
@@ -3037,7 +3048,8 @@ export class PlayScene extends Scene {
                 || Math.abs(this.self.y - this._viewY) > 0.02);
         // 原版 PlayScn.pas:2268 ActorDied：死亡 actor 会从 m_ActorList 里删掉并
         // Insert 到「第一个活着的 actor 之前」——即所有尸体排在最前面先画。
-        // 按行绘制时，效果就是尸体永远压在活人/活怪下面（用户反馈的「尸体在人物之上」）。
+        // 注意这只能保证**同一行内**尸体先画；跨行遮挡靠 MapActor 在行循环之后
+        // 把「自己」再画一遍（原版 PlayScn.pas:1361）来保证。
         const entities = [];
         const corpses = [];
         const tBuild = performance.now();
@@ -3079,9 +3091,10 @@ export class PlayScene extends Scene {
             const snap = {
                 x: e.x, y: e.y,   // 逻辑位置（遮挡排序用）
                 offsetX: ox, offsetY: oy,
-                // 尸体不显示名字/血条（原版 ActorDied 只降绘制层级，不画 HUD）
+                // 尸体不显示名字/血条（原版 DrawScrn.pas:306 `not m_boDeath`）
                 name: e._corpse ? '' : e.name, isSelf,
                 hp: e.hp, maxHp: e._corpse ? 0 : e.maxHp, type: e.type,
+                dead: !!e._corpse,
                 // 悬停目标（原版 g_FocusCret / g_MagicTarget）只让 sprite 变亮，不画框；
                 // 点击锁定的 castTarget（原版 g_TargetCret）在原版没有任何视觉标记。
                 isFocus: this.magicTarget != null && e.id === this.magicTarget.id,

@@ -32,7 +32,7 @@ export class ActorSprite {
         const segs = e.type === 'npc' ? A.npcAction(e.appr) : A.raceByPM(e.raceImg);
         const seg = segs && (segs.death || segs.die);
         if (!seg) return;
-        const cf = seg.start + (e.dir || 0);
+        const cf = seg.start + (e.skeleton ? 0 : (e.dir || 0));
         const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
         const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
         this._texture(lib, offset + cf);
@@ -74,11 +74,12 @@ export class ActorSprite {
 
         // 尸体静止帧：原版 Actor.pas::CalcActorFrame 对 SM_SKELETON 用
         // `ActDeath.start + m_btDir`，GetDefaultFrame 对 m_boDeath&&m_boSkeleton
-        // 用 ActDeath.start。这里按方向 +dir 偏移（**不**乘 frame+skip），
-        // 与 die 段（ActDie.start + dir*(frame+skip)）区分开。
+        // 用 `ActDeath.start`（**不带方向**，骨头架子就一张）。
+        // 这里按方向 +dir 偏移（**不**乘 frame+skip），与 die 段
+        // （ActDie.start + dir*(frame+skip)）区分开。
         if (action === 'death' && e.type !== 'player') {
             const seg = segs.death || segs.die || segs.stand;
-            const cf = seg.start + dir;
+            const cf = seg.start + (e.skeleton ? 0 : dir);
             const offset = e.type === 'npc' ? A.getNpcOffset(e.appr) : A.getMonOffset(e.appr);
             const lib = e.type === 'npc' ? 'npc' : A.getMonImgLib(e.appr);
             return [{ lib, index: offset + cf }];
