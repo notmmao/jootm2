@@ -877,6 +877,29 @@ export class MapActor {
      * @param shiftX/shiftY 平滑卷动偏移（玩家从旧格滑向新格的插值，像素）
      * @param entities [{x,y,name,isSelf,hp,maxHp,isFocus,layers:[{canvas,px,py}]}]
      */
+    /** 对象层当前动画帧的纹理（动画帧未就绪时回退最近已加载帧，可能为 null）。 */
+    _objTex(t) {
+        let frame = 0;
+        if (t.hasAni) {
+            frame = Math.floor(Date.now() / 200) % Math.max(1, Math.min(32, t.aniFrame));
+        }
+        const got = this._getObjFrame(t, frame);
+        return got ? got.tex : null;
+    }
+
+    /** 是否「与地面同层」的小对象（图正好 48×32）。
+     *
+     * 原版 `PlayScn.pas` 分两遍画 obj 层：
+     * - 第一遍（行循环之前、和地砖一起）**只画 48×32 的对象**；
+     * - 第二遍（和 actor 按行交错）`if (Width <> 48) or (Height <> 32)` 才画。
+     *
+     * 桥面正好是 48×32：所以人应该永远踩在桥上，而不是被桥盖住。旧实现把两遍并成一遍，
+     * 桥面就被当成「大树」按行遮挡，从下往上走（人被画在桥所在行的前一行）时桥压在身上。
+     */
+    static _isSmallObj(tex) {
+        return !!tex && tex.canvas.width === 48 && tex.canvas.height === 32;
+    }
+
     render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0, drawDrop = null, groundItems = null) {
         if (!this.map) return;
         const m = this.map;
@@ -904,7 +927,23 @@ export class MapActor {
         // 视口移出首屏预取范围前，提前把前方格子的全部纹理按格原子载入
         this._maybePrefetch(m, cx, cy);
 
-        // 3. 实体 + 对象层按行交错（y 越大越靠屏幕下方，遮挡在前）
+        // 3. 小对象（48×32）与地面同层：原版 PlayScn.pas 第一遍 obj 循环
+        // `if (DSurface.Width = 48) and (DSurface.Height = 32)` 在行循环之前就画完，
+        // 所以桥面/地毯这类 1 格见方的对象永远在所有 actor 之下（人踩在桥上）。
+        tPhase = performance.now();
+        for (let gy = top; gy <= bottom; gy++) {
+            for (let gx = left; gx <= right; gx++) {
+                const t = m.tiles[gx][gy];
+                if (t.obj < 0) continue;
+                const tex = this._objTex(t);
+                if (!tex || !MapActor._isSmallObj(tex)) continue;
+                // 与原版一致：48×32 的小对象按格对齐（m + UNITY - Height），不做 blend
+                ctx.drawImage(tex.canvas, sx(gx), sy(gy) + TILE_H - tex.canvas.height);
+            }
+        }
+        perf.add('obj', performance.now() - tPhase);
+
+        // 4. 大对象 + 实体按行交错（y 越大越靠屏幕下方，遮挡在前）
         // Map 每帧 clear 复用：实体多时每帧新建两个 Map 都是可观的 GC 抖动来源。
         const byRow = this._byRow || (this._byRow = new Map());
         byRow.clear();
@@ -932,38 +971,34 @@ export class MapActor {
         let selfSnap = null;
         for (let gy = top; gy <= bottom; gy++) {
             tPhase = performance.now();
-            // 对象层（照 PlayScn.pas：普通对象左上+底对齐；blend 光效 x=格左+px-2, y=格顶+py-68）
+            // 大对象层（照 PlayScn.pas 第二遍：`Width<>48 or Height<>32` 才在这里画；
+            // 普通对象左上+底对齐；blend 光效 x=格左+px-2, y=格顶+py-68）
             for (let gx = left; gx <= right; gx++) {
                 const t = m.tiles[gx][gy];
                 if (t.obj < 0) continue;
                 // 加色光效（blend，0x80 标志）与是否动画无关：静态火/光类贴图也必须用 lighter 混合，
                 // 否则会丢失辉光（原版 DrawScrn 对 boBlend 一律加色，不论 ani&0x80）。
-                let frame = 0;
                 const blend = !!t.blend;
-                if (t.hasAni) {
-                    frame = Math.floor(Date.now() / 200) % Math.max(1, Math.min(32, t.aniFrame));
-                }
                 // 当前动画帧未就绪时回退该对象已加载的最近帧，绝不整棵树/建筑消失
-                const got = this._getObjFrame(t, frame);
-                const tex = got ? got.tex : null;
-                if (tex) {
-                    let px, py;
-                    if (blend) {
-                        px = sx(gx) + (tex.px || 0) - 2;
-                        py = sy(gy) + (tex.py || 0) - 68;
-                    } else {
-                        px = sx(gx);
-                        py = sy(gy) + TILE_H - tex.canvas.height;
-                    }
-                    if (blend) {
-                        // save/restore 保证 lighter 不泄漏到后续实体/HUD 绘制
-                        ctx.save();
-                        ctx.globalCompositeOperation = 'lighter';
-                        ctx.drawImage(tex.canvas, px, py);
-                        ctx.restore();
-                    } else {
-                        ctx.drawImage(tex.canvas, px, py);
-                    }
+                const tex = this._objTex(t);
+                // 48×32 的已经在地面那一遍画过了（原版两遍互斥），这里必须跳过
+                if (!tex || MapActor._isSmallObj(tex)) continue;
+                let px, py;
+                if (blend) {
+                    px = sx(gx) + (tex.px || 0) - 2;
+                    py = sy(gy) + (tex.py || 0) - 68;
+                } else {
+                    px = sx(gx);
+                    py = sy(gy) + TILE_H - tex.canvas.height;
+                }
+                if (blend) {
+                    // save/restore 保证 lighter 不泄漏到后续实体/HUD 绘制
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.drawImage(tex.canvas, px, py);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(tex.canvas, px, py);
                 }
             }
             perf.add('obj', performance.now() - tPhase);

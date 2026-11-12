@@ -471,7 +471,7 @@ def test_map_quest(w, p, sess):
 
 def test_hp_sync(w, p, sess):
     """旁观者血条：玩家扣血后要广播 entityHp，且按 HP_SYNC_MS 合批、无变化不重发。"""
-    print("\n[10] 旁观者血条同步（entityHp）")
+    print("\n[9] 旁观者血条同步（entityHp）")
     gm = p.map or w.default_map
     other_sess = Session()
     other = Player(id=990001, name="Observer", hp=50, max_hp=50, session=other_sess)
@@ -516,7 +516,7 @@ def test_hp_sync(w, p, sess):
 
 def test_drop_rates(w, p):
     """掉落倍率表：集中调爆率，不改 MonItems 单条概率。"""
-    print("\n[11] 掉落倍率表")
+    print("\n[10] 掉落倍率表")
     from types import SimpleNamespace
 
     from pyserver.drop_rates import DropRates
@@ -562,7 +562,7 @@ def test_drop_rates(w, p):
 
 
 def test_full_tick(w, p):
-    print("\n[9] 完整 tick 与各子系统串联")
+    print("\n[11] 完整 tick 与各子系统串联")
     try:
         w.tick(now_ms())
         ok = True
@@ -620,6 +620,52 @@ def test_corpse_lifecycle(w, p) -> None:
         w.broadcast_around = orig
 
 
+def test_exp_semantics(w, p) -> None:
+    """经验语义：Exp 是**本级内**经验，升级扣 MaxExp（原版 ObjBase.pas:1844 GetExp）。
+
+    旧实现把 exp 当累计总经验存，客户端拿它和本级的 MaxExp 比 →
+    「当前经验 1183 / 升级经验 400」、EXP 条恒满。
+    """
+    from pyserver.world import exp_for_level, normalize_exp
+
+    print("\n[12] 经验语义 / EXP 条数据源")
+    # 1) 旧存档（累计）换算成本级内经验
+    lv, ex = normalize_exp(4, 1183)
+    check("累计 1183（旧存档）→ 等级 5 / 本级内 183", (lv, ex) == (5, 183))
+    check("已是本级内经验时原样返回", normalize_exp(5, 183) == (5, 183))
+
+    # 2) 加经验：本级内累加，未超阈值不升级
+    p.level, p.exp = 1, 0
+    w.add_exp(p, 30)
+    check("加 30 经验：等级 1 / exp 30", (p.level, p.exp) == (1, 30))
+    check("max_exp 跟随等级（1 级 = 100）", p.max_exp == 100)
+
+    # 3) 跨阈值：扣掉 MaxExp 并升一级（一次最多升一级）
+    w.add_exp(p, 80)
+    check("加到 110：升级到 2 级 / 剩 10", (p.level, p.exp) == (2, 10))
+    check("升级后 max_exp 变成 2 级的 200", p.max_exp == 200)
+    check("本级内经验恒小于 max_exp", p.exp < p.max_exp)
+
+    # 4) 一次给超多经验也只升一级（原版 Dec 只执行一次）
+    w.add_exp(p, 10_000)
+    check("一次给 10000 经验只升一级", p.level == 3)
+    check("溢出的经验保留在本级内", p.exp == 10000 + 10 - 200)
+
+    # 5) stats 必须带上 maxExp / weight / maxWeight
+    sent = []
+    orig = p.session
+    p.session = type("S", (), {"send_json": staticmethod(lambda o: sent.append(o))})()
+    try:
+        w.send_stats(p)
+    finally:
+        p.session = orig
+    st = sent[-1] if sent else {}
+    check("stats 带 maxExp", st.get("maxExp") == p.max_exp)
+    check("stats 带 weight / maxWeight",
+          "weight" in st and st.get("maxWeight") == p.max_weight)
+    check("weight = 背包重量", st.get("weight") == p.bag_weight(w))
+    check("exp_for_level(101) 不越界", exp_for_level(101) > 0)
+
 def main() -> int:
     print("=" * 64)
     print("jootm2 tick 子系统 / 装备属性 / MapQuest 回归")
@@ -636,6 +682,7 @@ def main() -> int:
     test_hp_sync(w, p, sess)
     test_drop_rates(w, p)
     test_corpse_lifecycle(w, p)
+    test_exp_semantics(w, p)
     test_full_tick(w, p)
     print("\n" + "=" * 64)
     print(f"结果: {PASS} PASS / {FAIL} FAIL")

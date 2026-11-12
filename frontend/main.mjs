@@ -51,6 +51,58 @@ document.addEventListener('dragstart', (e) => e.preventDefault());
 const guiEl = document.getElementById('gui');
 const winManager = new DWinManager(guiEl);
 
+// ---- 掉线处理 ----------------------------------------------------------
+// 原版 CSocketDisconnect（ClMain.pas:3326）只是把 g_boServerConnected 置 FALSE，
+// 界面就地停住不动（并且音频模块会切回登录 BGM）。浏览器端照搬会让玩家对着一个
+// 「怪不动、按什么都没反应」的画面听着登录音乐——所以这里给明确提示 + 自动回登录界面，
+// 顺带把重连也做掉（onReturnLogin 会新建 WebSocket）。
+let dropping = false;
+let netErrorEl = null;
+
+function showNetError(text) {
+    if (netErrorEl) { netErrorEl.firstChild.nextSibling.textContent = text; return; }
+    const stage = document.getElementById('stage');
+    if (!stage) return;
+    const box = document.createElement('div');
+    box.style.cssText = 'position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);'
+        + 'min-width:320px;padding:18px 22px;background:rgba(8,8,10,.92);'
+        + 'border:1px solid #6b5a33;box-shadow:0 0 0 1px #000,0 6px 24px rgba(0,0,0,.6);'
+        + 'color:#ffd76a;font-family:SimSun,serif;font-size:14px;line-height:22px;'
+        + 'text-align:center;z-index:9999;pointer-events:none;';
+    const title = document.createElement('div');
+    title.textContent = '连接已断开';
+    title.style.cssText = 'font-size:16px;margin-bottom:6px;';
+    const body = document.createElement('div');
+    body.textContent = text;
+    body.style.color = '#e8d9b0';
+    box.append(title, body);
+    stage.appendChild(box);
+    netErrorEl = box;
+}
+
+function hideNetError() {
+    if (netErrorEl) { netErrorEl.remove(); netErrorEl = null; }
+}
+
+function watchDisconnect(c, sm) {
+    const prev = c.onClose;
+    c.onClose = () => {
+        if (prev) prev();
+        if (dropping) return;
+        // 只有「已经在游戏里」才回登录：登录界面掉线时自动重连会变成死循环
+        // （服务端没起来 → 连不上 → onclose → 再回登录…），交给启动时的 boot.fail 处理。
+        if (!sm.current || sm.current instanceof LoginScene) return;
+        dropping = true;
+        showNetError('与服务器断开连接，即将返回登录界面…');
+        setTimeout(async () => {
+            dropping = false;
+            hideNetError();
+            try { await sm.onReturnLogin(); }
+            catch (e) { console.warn('[net] 回登录失败，请刷新页面', e); }
+        }, 1600);
+    };
+}
+
 async function init() {
     boot.begin();
     // 1) 资源清单 + 素材版本指纹并行取；版本决定 IndexedDB 缓存命名空间
@@ -94,6 +146,7 @@ async function init() {
         const nc = new Connection('/ws');
         sound.attach(nc);               // 新连接重新挂消息钩子（全局手势/点击监听只装一次）
         sceneManager.bind(nc);          // 消息路由指向新连接
+        watchDisconnect(nc, sceneManager);   // 新连接同样要监听掉线
         try {
             await nc.connect();
         } catch (e) {
@@ -102,6 +155,8 @@ async function init() {
         sceneManager.switchTo(new LoginScene(sceneManager));
         window.__conn = nc;
     };
+
+    watchDisconnect(conn, sceneManager);
 
     // 诊断（Ctrl+F9 导出 / Ctrl+F10 局部刷新 / Ctrl+F11 深度刷新 / Ctrl+F8 性能 HUD）
     installDiag({ getScene: () => sceneManager.current });

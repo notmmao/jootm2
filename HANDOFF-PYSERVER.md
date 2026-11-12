@@ -1564,3 +1564,143 @@ for (let i = 0; i < hudQueue.length; i += 3) {
 - 挖肉没有「进度」反馈（原版也没有），用户仍可能误判成「没生效」。若要改善体验需
   自造提示，属于偏离原版，等用户明确要求再做。
 - 公网生效需重新 build 镜像 + 推 ACR（`§22` 流程）。
+
+---
+
+## §33 商店价格/物品说明 · EXP 条与等级 · 桥上遮挡 · 掉线处理（2026-11-12）
+
+用户 4 条反馈（承接 §32），仍要求「先对照原版再改」。
+
+### 33.1 商店：价格能看、说明看不到（结论 + 补齐）
+
+原版读的是 `FState.pas:5077 DMenuDlgDirectPaint`（买列表）与 `:5360 DSellDlgDirectPaint`（卖窗口）：
+
+| 位置 | 原版显示 | 改前 | 改后 |
+|---|---|---|---|
+| 买列表表头 | `物品列表` / `价格` / `持久` | 只有前两列 | 补 `持久`（`DMenuDlgDirectPaint` `TextOut(SX(249))`） |
+| 买列表行 | 名字 / `价格 金币` / 持久（`Grade=-1` → `-`） | 名字 + 价格 | 补 `-`（商店货物没有耐久，`pcg.Grade` 恒为 -1） |
+| 分类项 | `pg.SubMenu >= 1` 时在名字后画 `#31` 箭头，点它 `SendGetDetailItem` 进子目录 | 无（我们的 `[goods]` 没有子目录概念） | 未做——服务端 `goods()` 无 sub 字段，硬加是编造 |
+| 卖窗口标题 | `价格: ` + `g_sSellPriceStr` | `卖: ` + 物品名，且永远没有价格 | `价格: N 金币`（问价后回填） |
+| 卖价 | 拖入物品后 `CM_MERCHANTQUERYSELLPRICE` → `SM_SENDBUYPRICE`，`Recog>0` 显示 `N 金币`，否则 `???? 金币` | 没有问价消息，玩家卖之前不知道能卖多少 | 新增 `querySellPrice` → `sellPrice` |
+
+卖价公式也对了一次：`ObjNpc.pas:2126 TMerchant.GetSellItemPrice = Round(nPrice / 2.0)`
+（Delphi `Round` 是银行家舍入，Python `round` 行为一致）。价格算出来 ≤ 0 时原版**不成交**
+（`ClientSellItem` 的 `if nPrice > 0`），我们原来 `max(1, …)` 硬卖 1 金币，改成提示
+「这个物品卖不出价钱。」
+
+**「买东西能看到说明么（攻击力/需要等级）」→ 原版看不到。** 依据：
+- 买列表只有 `name / price / stock` 三个字段（`ClientGetSendGoodsList` 解 `name/sub/price/stock`）；
+- 客户端**没有**商店货物的 StdItem 数据，所以也无法画 tooltip；
+- 唯一的「详情」是 `CM_USERGETDETAILITEM`，它返回的是**子目录里的商品列表**（还是名/价/持久），
+  不是物品说明；
+- 想看攻击力/需要等级，原版的做法是**买下来放进背包**，再用鼠标悬停（`GetMouseItemInfo`）。
+
+要在商店里直接显示说明属于**偏离原版的增强**，等用户明确要求再做。
+
+### 33.2 EXP 条 / 等级 / 负重条
+
+**根因一：经验语义错了。** 原版 `ObjBase.pas:1844 GetExp`：
+
+```pascal
+Inc(m_Abil.Exp, dwExp);
+if m_Abil.Exp >= m_Abil.MaxExp then begin
+  Dec(m_Abil.Exp, m_Abil.MaxExp);   // 只扣一次 → 一次加经验最多升一级
+  Inc(m_Abil.Level);
+  HasLevelUp(m_Abil.Level - 1);      // MaxExp := GetLevelExp(新等级)
+end;
+```
+
+`m_Abil.Exp` 是**本级内**经验。旧实现当成累计总经验（`level_for_exp` 按累计和反查等级），
+于是客户端拿「累计 1183」比「本级 400」——面板出现「当前经验 1183 / 升级经验 400」，
+EXP 条恒满。
+
+改造：
+- `add_exp` 按原版：`p.exp += n`；`>= p.max_exp` 时 `exp -= max_exp`、`level += 1`、重算属性；
+- `Player.max_exp` 做成 **property**（`exp_for_level(level)`），等级一变自动跟着变——
+  旧实现是在 `to_player_json` 里算一次，之后永远是登录时的旧值；
+- `send_stats` 补齐 `maxExp / weight / maxWeight`（原版 `SM_ABILITY` 一次带全），
+  `bagUpdate` 也带 `weight / maxWeight`（拾取后负重条要动）；
+- 旧存档迁移 `normalize_exp(level, exp)`：`exp < exp_for_level(level)` 说明已是新语义、
+  原样返回，否则按累计逐级扣减。实测 `(4, 1183) → (5, 183)`，登录后 E2E 读到
+  `level 5 / exp 273 / maxExp 600 / weight 23 / maxWeight 55`，EXP 条 35px（273/600×76≈34.6）、
+  负重条 32px（23/55×76≈31.8）。
+
+**根因二：等级/血球空白是「总闸」卡住。** 前端原来用一个全局 `_hudTexReady` 同时卡住
+`_renderVitals` 和 `_renderLevelNumber`：只要 `_buildHud` 那批 `getTexture` 有一个没 settle
+（进图时 `scheduler.abortPending()` 会把在飞请求 abort），血球和等级就**永久空白**——
+正是用户说的「血球不准时 lv 也为空」。原版没有这种总闸，它对每个元素单独判：
+
+```pascal
+d := g_WMainImages.Images[7];
+if d <> nil then ...      // FState.pas:3813
+```
+
+改成 `_ensureHudTex(lib, idx)`：有图就画，没图就补拉一次并登记，拉到后强制重绘
+（失败 1s 后重试）。现在 HUD 是「渐进可用」而不是「全有或全无」。
+
+**「EXP 下面的条是什么」= 负重条。** `FState.pas:3813-3856`：等级数字在 (660, 496)，
+经验条 (666, 527)，负重条 (666, 560)，**两条用的是同一张图 `g_WMainImages.Images[7]`**，
+只是右侧按 `Exp/MaxExp`、`Weight/MaxWeight` 裁切。
+
+### 33.3 桥上行走时桥面盖住身体：obj 层是**两遍**画的
+
+原版 `PlayScn.pas` 把 obj 层拆成两遍：
+
+| 遍 | 位置 | 条件 | 效果 |
+|---|---|---|---|
+| 第一遍 | 行循环**之前**，紧接地面 | `if (DSurface.Width = 48) and (DSurface.Height = 32)` | 1 格见方的对象（**桥板**、地毯）永远在所有 actor 之下 |
+| 第二遍 | 与 actor 按行交错 | `if (DSurface.Width <> 48) or (DSurface.Height <> 32)` | 树/墙/牌楼这类高对象按行遮挡 |
+
+旧实现两遍并成一遍（全塞在行循环里），桥板被当成「大树」按行遮挡：从下往上走时人画在
+桥所在行的前一行 → 桥压在身上；反过来走则不压。
+
+实测该坐标的贴图尺寸（浏览器里直接问图库要纹理，`数据/0.map`）：
+
+```
+(350,510) obj=8168  48×32   ← 桥板
+(350,509) obj=8197  48×96   ← 桥栏杆/立柱
+(348,511) obj=8193  48×128
+(351,509) obj=8166  48×32
+...  共 9 块 48×32 桥板 + 3 个 48×96/128 立柱
+```
+
+修法：`MapActor.render` 在 `_syncFloor` 之后加一遍只画 `_isSmallObj(tex)`（尺寸正好 48×32）
+的对象，行循环里跳过它们。验证：把镜头移到 (350,509)（桥板上方一格，正是会盖住的位置），
+用 `drawImage` 钩子记录一帧出图顺序 → `bridgeIdx=0, selfIdx=13, selfDrawnAfterBridge=true`；
+截图里人物完整站在桥上，栏杆仍按行正常遮挡。
+
+### 33.4 掉线：原版就地停住，浏览器端改成「提示 + 回登录」
+
+原版 `ClMain.pas:3326 CSocketDisconnect` 只做 `g_boServerConnected := FALSE`：
+
+```pascal
+if (g_ConnectionStep = cnsLogin) and not g_boSendLogin then begin
+  FrmDlg.DMessageDlg('网络连接异常，程序将退出…', [mbOk]);
+  Close;
+end;
+if g_SoftClosed then begin g_SoftClosed := FALSE; ActiveCmdTimer(tcReSelConnect); end;
+```
+
+也就是说**游戏中掉线原版什么都不做**，界面就地停住——但我们的音频模块在 `onClose`
+里 `setBgm('intro')`，于是出现「听着登录音乐、画面还在原地不动」的诡异状态。
+
+处理（按用户要求）：`main.mjs` 新增 `watchDisconnect(conn, sm)`，在 `onClose` 里
+- 只有在**游戏内**（当前场景不是 `LoginScene`）才动作，否则会「连不上→onclose→回登录→再连」死循环；
+- 弹一个居中的「连接已断开 / 即将返回登录界面…」提示（挂在 `#stage` 上，跟着整体缩放）；
+- 1.6s 后走已有的 `onReturnLogin`：关旧连接 → 新建 WebSocket → 切回登录界面，顺带把重连做掉。
+
+### 33.5 验证
+
+| 项 | 结果 |
+|---|---|
+| `test_tick_systems` | **93 PASS / 0 FAIL**（新增 §[12] 经验语义 13 条：旧存档换算 / 加经验不越级 / 一次只升一级 / max_exp 跟随等级 / stats 带 maxExp·weight·maxWeight） |
+| `test_pyserver` | 73 PASS / 0 FAIL |
+| `test_all_messages --live 8080` | 29 PASS / 0 FAIL |
+| E2E 登录进游戏 | `level 5 / exp 273 / maxExp 600 / 23-55`，`levelPixels=14`、`vitalsPixels=8740`（都非空），无 console error |
+| E2E 桥上 | `selfDrawnAfterBridge=true`，截图人物完整站在桥板上 |
+
+### 33.6 遗留
+
+- 商店「分类子目录」（`SubMenu>0`）未做：服务端 `goods()` 不产出 sub 字段，要做得先扩 NPC 脚本语义。
+- 商店里没有物品说明，属原版行为；要加是增强，等用户确认。
+- 掉线提示是自造的（原版就地停住），文案/时长可再调。

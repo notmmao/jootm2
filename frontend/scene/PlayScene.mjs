@@ -1105,6 +1105,11 @@ export class PlayScene extends Scene {
                     if (msg.maxMp !== undefined) e.maxMp = msg.maxMp;
                     if (msg.level !== undefined) e.level = msg.level;
                     if (msg.exp !== undefined) e.exp = msg.exp;
+                    // 原版 SM_ABILITY 一次带全：MaxExp / Weight / MaxWeight 与等级同批下发。
+                    // 缺了 maxExp 的话升级后 EXP 条会一直拿旧阈值算（恒满）。
+                    if (msg.maxExp !== undefined) e.maxExp = msg.maxExp;
+                    if (msg.weight !== undefined) e.weight = msg.weight;
+                    if (msg.maxWeight !== undefined) e.maxWeight = msg.maxWeight;
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
                     // 战斗属性（幽灵盾/神圣战甲等 buff 改变 AC/MAC，F10 状态页实时刷新）
@@ -1321,6 +1326,8 @@ export class PlayScene extends Scene {
                     if (msg.dress !== undefined) this.self.dress = msg.dress;
                     if (msg.weapon !== undefined) this.self.weapon = msg.weapon;
                     // 负重/腕力随穿戴变化（F10 第 2 页）
+                    if (msg.weight !== undefined) this.self.weight = msg.weight;
+                    if (msg.maxWeight !== undefined) this.self.maxWeight = msg.maxWeight;
                     if (msg.wearWeight !== undefined) this.self.wearWeight = msg.wearWeight;
                     if (msg.handWeight !== undefined) this.self.handWeight = msg.handWeight;
                     if (msg.maxWearWeight !== undefined) this.self.maxWearWeight = msg.maxWearWeight;
@@ -1341,6 +1348,14 @@ export class PlayScene extends Scene {
             case 'npcSay':
                 this._showNpcDialog(msg);
                 break;
+            case 'sellPrice': {
+                // 原版 SM_SENDBUYPRICE：Recog>0 → 「N 金币」，否则「???? 金币」
+                if (!this.shopPriceEl || !this.shopSellItem) break;
+                if (msg.makeIndex !== undefined && msg.makeIndex !== this.shopSellItem.makeIndex) break;
+                const n = Number(msg.price) || 0;
+                this.shopPriceEl.textContent = n > 0 ? `价格: ${n} 金币` : '价格: ???? 金币';
+                break;
+            }
             case 'npcClose':
                 this._closeNpcDialog();
                 break;
@@ -2721,6 +2736,7 @@ export class PlayScene extends Scene {
     // 买卖界面（原版：buy=DMenuDlg 物品列表+翻页+买入；sell=DSellDlg ok 框投放）
     _showShopPanel(msg) {
         this._closeShopPanel();
+        this.shopNpcId = msg.npcId;
         if (msg.shop === 'buy') {
             this._showBuyMenu(msg);
         } else {
@@ -2756,6 +2772,11 @@ export class PlayScene extends Scene {
         priceTitle.style.cssText = 'position:absolute;left:156px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
         priceTitle.textContent = '价格';
         panel.appendChild(priceTitle);
+        // 第三列「持久」（原版 DMenuDlgDirectPaint：标题 SX(249)，行内 SX(255) 画 Grade）
+        const duraTitle = document.createElement('div');
+        duraTitle.style.cssText = 'position:absolute;left:241px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
+        duraTitle.textContent = '持久';
+        panel.appendChild(duraTitle);
         // 列表（y=30 起，保持当前位置，不挤标题）
         this.shopListEl = document.createElement('div');
         this.shopListEl.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'
@@ -2801,7 +2822,9 @@ export class PlayScene extends Scene {
             const row = document.createElement('div');
             row.style.cssText = `position:relative;height:13px;cursor:pointer;color:${idx === this.shopSel ? '#ff4444' : '#fff'};`;
             row.innerHTML = `<span style="position:absolute;left:0;">${idx === this.shopSel ? '▶' : ''}${g.name}</span>`
-                + `<span style="position:absolute;left:137px;color:#fff;">${g.price}金币</span>`;
+                + `<span style="position:absolute;left:137px;color:#fff;">${g.price}金币</span>`
+                // 持久列：原版 pcg.Grade 恒为 -1（商店货物没有耐久），所以固定画 '-'
+                + `<span style="position:absolute;left:222px;color:#fff;">-</span>`;
             row.addEventListener('click', () => { this.shopSel = idx; this._renderBuyList(); });
             this.shopListEl.appendChild(row);
         }
@@ -2839,10 +2862,10 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 标题「卖: 价格」
+        // 标题「价格: N 金币」（原版 DSellDlgDirectPaint：dmSell → '价格: ' + g_sSellPriceStr）
         this.shopPriceEl = document.createElement('div');
         this.shopPriceEl.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
-        this.shopPriceEl.textContent = '卖: ';
+        this.shopPriceEl.textContent = '价格: ';
         panel.appendChild(this.shopPriceEl);
         // 投放框 Spot (27,67) 61x52：拿起物品后点这里放入要卖的物品
         const spot = document.createElement('div');
@@ -2903,7 +2926,10 @@ export class PlayScene extends Scene {
                 }
             });
         }
-        this.shopPriceEl.textContent = '卖: ' + it.name;
+        // 原版放进投放框后立刻问价（ClMain.pas:4085 g_boQueryPrice → SendQueryPrice），
+        // 回来之前先显示物品名占位，问到价格后覆盖成「价格: N 金币」。
+        this.shopPriceEl.textContent = '价格: …';
+        this.conn.send('querySellPrice', { npcId: this.shopNpcId, makeIndex: it.makeIndex });
     }
 
     _sellOk(npcId) {
@@ -2914,7 +2940,7 @@ export class PlayScene extends Scene {
     _clearSellSpot() {
         this.shopSellItem = null;
         if (this.shopSpotEl) this.shopSpotEl.innerHTML = '';
-        if (this.shopPriceEl) this.shopPriceEl.textContent = '卖: ';
+        if (this.shopPriceEl) this.shopPriceEl.textContent = '价格: ';
     }
 
     _closeShopPanel() {
@@ -3490,20 +3516,41 @@ export class PlayScene extends Scene {
         }
     }
 
+    /**
+     * 取 HUD 位图；没有就异步补拉一次并登记，拉到后强制重绘。
+     *
+     * 原版对每个 HUD 元素是「拿到图就画、没图就跳过」（`FState.pas:3813`
+     * `d := g_WMainImages.Images[7]; if d <> nil then`），并没有「全部就绪才画」的总闸。
+     * 之前用一个全局 `_hudTexReady` 同时卡住血球和等级数字：只要那一批 getTexture 里有
+     * 一个没 settle（进图时 `scheduler.abortPending()` 会 abort 在飞请求），
+     * 血球和等级就**永久空白**——用户反馈的「血球不准时 lv 也为空」就是这个。
+     */
+    _ensureHudTex(lib, idx) {
+        const tex = lib.textures.get(idx);
+        if (tex) return tex;
+        const missing = this._hudMissing || (this._hudMissing = new Set());
+        if (missing.has(idx)) return null;
+        missing.add(idx);
+        const again = () => { missing.delete(idx); this._hudKey = null; };
+        lib.getTexture(idx).then(() => { again(); this._renderHud(); })
+            .catch(() => setTimeout(() => { again(); this._renderHud(); }, 1000));
+        return null;
+    }
+
     /** 血球/魔法球：Prguse[4]（HP 左半 + MP 右半，各按比例纵向裁切）；
      *  武士且 lv<26 用 Prguse[5] 容器 + Prguse[6] 红色液体（对齐 FState.pas:3249-3280）。
      *  纹理已在 _buildHud 预取到 WIL.textures，这里全程同步：clearRect 与 drawImage
      *  在同一个调用栈完成，浏览器不可能把「清空后的空白」单独呈现出来。 */
     _renderVitals() {
         const p = this.self;
-        if (!p || !this.vitalsCanvas || !this._hudTexReady) return;
+        if (!p || !this.vitalsCanvas) return;
         const lib = getLib('prguse');
         if (!lib) return;
         const ctx = this.vitalsCanvas.getContext('2d');
         ctx.clearRect(0, 0, this.vitalsCanvas.width, this.vitalsCanvas.height);
         if (p.job === 0 && p.level < 26) {
-            const base = lib.textures.get(5);
-            const liquid = lib.textures.get(6);
+            const base = this._ensureHudTex(lib, 5);
+            const liquid = this._ensureHudTex(lib, 6);
             if (base) ctx.drawImage(base.canvas, 0, 0);
             if (liquid) {
                 const h = liquid.canvas.height;
@@ -3513,7 +3560,7 @@ export class PlayScene extends Scene {
                 }
             }
         } else {
-            const d = lib.textures.get(4);
+            const d = this._ensureHudTex(lib, 4);
             if (d) {
                 const w = d.canvas.width;
                 const h = d.canvas.height;
@@ -3531,16 +3578,16 @@ export class PlayScene extends Scene {
     /** 等级：位图数字 Prguse[30..39]（8px/位，首位前空 8px，对齐 PomiTextOut）。 */
     _renderLevelNumber() {
         const p = this.self;
-        if (!p || !this.levelCanvas || !this._hudTexReady) return;
+        if (!p || !this.levelCanvas) return;
         const lib = getLib('prguse');
         if (!lib) return;
         const ctx = this.levelCanvas.getContext('2d');
         ctx.clearRect(0, 0, this.levelCanvas.width, this.levelCanvas.height);
-        const s = String(p.level);
+        const s = String(p.level == null ? '' : p.level);
         for (let i = 0; i < s.length; i++) {
             const digit = s.charCodeAt(i) - 48;
             if (digit < 0 || digit > 9) continue;
-            const tex = lib.textures.get(30 + digit);
+            const tex = this._ensureHudTex(lib, 30 + digit);
             if (tex) ctx.drawImage(tex.canvas, (i + 1) * 8, 0);
         }
     }

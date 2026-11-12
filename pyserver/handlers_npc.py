@@ -8,7 +8,7 @@ from __future__ import annotations
 from .npc_script import NpcScriptEngine
 from .util import BAG_SIZE, _int, _str
 
-NPC_TYPES = frozenset({"npcTalk", "npcSelect", "buyItem", "sellItem"})
+NPC_TYPES = frozenset({"npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice"})
 
 
 class NpcHandlers:
@@ -109,6 +109,39 @@ class NpcHandlers:
                 return g["price"]
         return max(1, t.price)
 
+    @staticmethod
+    def _sell_price(t) -> int:
+        """卖价 = 物品价格的一半（原版 ``TMerchant.GetSellItemPrice`` = Round(Price/2.0)）。
+
+        用 ``round`` 而不是 ``//2``：Delphi 的 ``Round`` 是银行家舍入，Python 的
+        ``round`` 行为一致（5 → 2 而不是 3）。
+        """
+        return int(round(t.price / 2.0))
+
+    def _query_sell_price(self, session, msg: dict) -> None:
+        """原版 CM_MERCHANTQUERYSELLPRICE → SM_SENDBUYPRICE。
+
+        客户端把物品放进出售框后立刻问价，界面上显示「价格: N 金币」；
+        不实现的话玩家得先把物品卖掉才知道能卖多少。
+        """
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        w = self.world
+        npc = w.npc(_int(msg, "npcId", -1))
+        if npc is None:
+            return
+        found = p.bag_item(_int(msg, "makeIndex", -1))
+        if found is None:
+            return
+        t = w.item_templates.get(int(found.get("index", 0)))
+        if t is None:
+            return
+        # 原版：价格 <= 0 时下发 0，客户端显示「???? 金币」
+        session.send_json({"type": "sellPrice", "npcId": npc.id,
+                           "makeIndex": int(found.get("makeIndex", 0)),
+                           "price": max(0, self._sell_price(t))})
+
     def _sell_item(self, session, msg: dict) -> None:
         p = self.find_by_session(session)
         if p is None:
@@ -124,7 +157,11 @@ class NpcHandlers:
         t = w.item_templates.get(int(found.get("index", 0)))
         if t is None:
             return
-        price = max(1, t.price // 2)
+        # 原版 ClientSellItem：GetSellItemPrice 为 0 时直接不成交（连提示都没有，这里补一句）
+        price = self._sell_price(t)
+        if price <= 0:
+            w.send_system(p, "这个物品卖不出价钱。")
+            return
         p.bag.remove(found)
         p.clear_quick_ref(int(found.get("makeIndex", 0)))
         p.gold += price

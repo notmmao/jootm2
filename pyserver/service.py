@@ -24,7 +24,7 @@ from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .util import U_DRESS, U_WEAPON
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
-                    encode, now_ms)
+                    encode, normalize_exp, now_ms)
 from .world_extra import (BODY_LEATHERY, BUTCH_INTERVAL_MS, BUTCH_WEAR_MAX,
                           BUTCH_WEAR_MIN, CORPSE_MS)
 
@@ -123,6 +123,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "npcSelect": self._npc_select,
             "buyItem": self._buy_item,
             "sellItem": self._sell_item,
+            # 原版 CM_QUERYSELLPRICE（ClMain.pas:3683 SendQueryPrice）→ SM_SENDBUYPRICE
+            "querySellPrice": self._query_sell_price,
             # 战斗 / 技能
             "attack": self._attack,
             "dirAttack": self._dir_attack,
@@ -344,9 +346,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             rec["home_x"], rec["home_y"] = world.start_x, world.start_y
             target_map = world.default_map
 
+        # 旧存档的 exp 是累计值，先换算成原版的「本级内经验」再建 Player
+        lv, ex = normalize_exp(rec["level"], rec["exp"])
         p = Player(id=world.new_id(), name=rec["name"], x=rec["x"], y=rec["y"],
-                   dir=rec["dir"], hp=rec["hp"], mp=rec["mp"], level=rec["level"],
-                   exp=rec["exp"], account_id=rec["account_id"],
+                   dir=rec["dir"], hp=rec["hp"], mp=rec["mp"], level=lv,
+                   exp=ex, account_id=rec["account_id"],
                    character_id=rec["id"], sex=rec["sex"], hair=rec["hair"],
                    job=rec["job"], gold=rec["gold"], home_map=rec["home_map"],
                    home_x=rec["home_x"], home_y=rec["home_y"],
@@ -487,6 +491,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         p.session.send_json({
             "type": "bagUpdate", "gold": p.gold,
             "dress": p.dress_looks(w), "weapon": p.weapon_shape(w),
+            "weight": p.bag_weight(w), "maxWeight": p.max_weight,
             "wearWeight": p.wear_weight(w), "handWeight": p.hand_weight(w),
             "maxWearWeight": p.max_wear_weight(), "maxHandWeight": p.max_hand_weight(),
             "quickSlots": [p.quick_slots[i] if p.quick_slot_valid(i) else 0

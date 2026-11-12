@@ -71,6 +71,27 @@ def exp_for_level(level: int) -> int:
     return NEED_EXPS[max(1, min(level, len(NEED_EXPS))) - 1]
 
 
+def normalize_exp(level: int, exp: int) -> tuple[int, int]:
+    """旧存档迁移：把「累计经验」换算成原版语义的「本级内经验」。
+
+    历史实现把 ``Player.exp`` 当累计总经验用（``level_for_exp`` 按累计和反查等级），
+    而原版 ``ObjBase.pas:1844 GetExp`` 的 ``m_Abil.Exp`` 是**本级内**经验，升级时
+    ``Dec(Exp, MaxExp)``。两种语义混用会让客户端出现「当前经验 1183 / 升级经验 400」。
+
+    判定：``exp < exp_for_level(level)`` 说明已经是新语义（本级内不会超过阈值），
+    原样返回；否则按旧语义逐级扣减。返回 ``(等级, 本级内经验)``。
+    """
+    level = max(1, min(int(level), len(NEED_EXPS)))
+    exp = max(0, int(exp))
+    if exp < exp_for_level(level):
+        return level, exp
+    total, lv = 0, 1
+    while lv < len(NEED_EXPS) and exp - total >= exp_for_level(lv):
+        total += exp_for_level(lv)
+        lv += 1
+    return lv, exp - total
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -504,14 +525,32 @@ class Player(Actor):
             }
         return out
 
-    def to_player_json(self, world: "GameWorld") -> dict:
-        c = self.combat
-        bag_weight = 0
+    @property
+    def max_exp(self) -> int:
+        """本级升级所需经验（原版 ``m_Abil.MaxExp = GetLevelExp(Level)``）。
+
+        用 property 而不是字段：等级一变就自动跟着变，不会像旧实现那样在
+        ``to_player_json`` 里算一次、之后永远停在登录时的旧值。
+        """
+        return exp_for_level(self.level)
+
+    def bag_weight(self, world: "GameWorld") -> int:
+        """背包总重量（原版 ``m_Abil.Weight``，只统计背包不含身上装备）。"""
+        total = 0
         for it in self.bag:
             t = self._template(world, it)
             if t is not None:
-                bag_weight += t.weight
-        mw_div = (3, 5, 4)[self.job if self.job in (0, 1, 2) else 0]
+                total += t.weight
+        return total
+
+    @property
+    def max_weight(self) -> int:
+        """最大负重（原版 ``m_Abil.MaxWeight``：战士 /3、法师 /5、道士 /4）。"""
+        div = (3, 5, 4)[self.job if self.job in (0, 1, 2) else 0]
+        return 50 + (self.level // div) * self.level
+
+    def to_player_json(self, world: "GameWorld") -> dict:
+        c = self.combat
         return {
             "id": self.id, "name": self.name, "type": "player",
             "sex": self.sex, "hair": self.hair, "job": self.job,
@@ -522,8 +561,8 @@ class Player(Actor):
             "dress": self.dress_looks(world), "weapon": self.weapon_shape(world),
             "ac": self._rng("ac"), "mac": self._rng("mac"),
             "dc": self._rng("dc"), "mc": self._rng("mc"), "sc": self._rng("sc"),
-            "maxExp": exp_for_level(self.level), "weight": bag_weight,
-            "maxWeight": 50 + (self.level // mw_div) * self.level,
+            "maxExp": self.max_exp, "weight": self.bag_weight(world),
+            "maxWeight": self.max_weight,
             "wearWeight": self.wear_weight(world), "maxWearWeight": self.max_wear_weight(),
             "handWeight": self.hand_weight(world), "maxHandWeight": self.max_hand_weight(),
             "hit": c.get("hit", 0), "speed": c.get("speed", 0),
@@ -810,7 +849,12 @@ class GameWorld(WorldExtra):
         }
         if isinstance(a, Player):
             c = a.combat
-            o.update(shield=a.shield_until > now, hidden=a.hide_until > now,
+            # 原版 SM_ABILITY 一次带全：经验/升级经验/负重/最大负重 都在这条消息里。
+            # 旧实现只发 exp 不发 maxExp，客户端 no 升级后永远拿着登录时的旧 MaxExp，
+            # EXP 条横竖都不准（面板会出现「当前经验 1183 / 升级经验 400」）。
+            o.update(maxExp=a.max_exp,
+                     weight=a.bag_weight(self), maxWeight=a.max_weight,
+                     shield=a.shield_until > now, hidden=a.hide_until > now,
                      wideHit=a.wide_hit_on, longHit=a.long_hit_on, fireHit=a.fire_hit_on,
                      ac=f"{c.get('acMin', 0)}-{c.get('acMax', 0)}",
                      mac=f"{c.get('macMin', 0)}-{c.get('macMax', 0)}",

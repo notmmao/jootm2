@@ -584,7 +584,10 @@ class WorldExtra:
         self.broadcast_around(m.map, o, m.x, m.y, SIGHT_RANGE)
 
     def level_for_exp(self, exp: int) -> int:
-        """``ExperienceTable.levelForExp``：NEED_EXPS 是每级升级阈值的累计和。"""
+        """按**累计**经验反查等级（仅用于旧存档迁移，见 ``normalize_exp``）。
+
+        ``NEED_EXPS`` 是每级升级阈值（100/200/300/400/600…），累计和才是等级门槛。
+        """
         from .world import NEED_EXPS
 
         total = 0
@@ -595,17 +598,30 @@ class WorldExtra:
         return 101
 
     def add_exp(self, p, exp: int) -> None:
-        """对齐 ``GameWorld.grantExpTo``（经验提示配色也照原版）。"""
+        """加经验 + 升级（对齐 ``ObjBase.pas:1844 GetExp``）。
+
+        ```pascal
+        Inc(m_Abil.Exp, dwExp);
+        if m_Abil.Exp >= m_Abil.MaxExp then begin
+          Dec(m_Abil.Exp, m_Abil.MaxExp);   // 只扣一次：一次加经验最多升一级
+          Inc(m_Abil.Level);
+          HasLevelUp(m_Abil.Level - 1);      // MaxExp := GetLevelExp(新等级)
+        end;
+        ```
+
+        ``m_Abil.Exp`` 是**本级内**经验，不是累计值——旧实现按累计存，
+        客户端拿「累计 1183」去比「本级 400」，EXP 条永远是满的。
+        """
         p.exp += exp
         if exp > 0:
             self.send_system(p, f"获得经验 {exp} 点。", "#ffffff", "#b00000")
-        old_level = p.level
-        new_level = self.level_for_exp(p.exp)
-        if new_level > old_level:
-            p.level = new_level
+        if p.max_exp > 0 and p.exp >= p.max_exp:
+            p.exp -= p.max_exp
+            if p.level < 101:
+                p.level += 1
             p.recompute(self)
             p.hp, p.mp = p.max_hp, p.max_mp
-            self.send_system(p, f"恭喜！你升到了 {new_level} 级。",
+            self.send_system(p, f"恭喜！你升到了 {p.level} 级。",
                              "#ffff00", "#b00000")
         self.send_stats(p)
 
