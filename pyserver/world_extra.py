@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .drop_rates import load_drop_rates
 from .gamedata import parse_map_quest, read_lines
 from .util import (
     BAG_SIZE, GROUND_ITEM_TTL_MS, SIGHT_RANGE, U_WEAPON, encode, java_div,
@@ -275,6 +276,9 @@ class WorldExtra:
     def init_extra(self) -> None:
         envir = self.config.envir_dir
         self.drop_tables = load_drop_tables(envir)
+        # 掉落倍率集中表（config/drop_rates.json）：改这里就能整体调爆率，
+        # 不用去动 MonItems 里几百个 1/n 单条概率。
+        self.drop_rates = load_drop_rates(self.config.root / "config" / "drop_rates.json")
         self.unbind_items = load_unbind_list(envir)
         self.castle = load_castle(envir)
         self.guilds: dict[str, Guild] = {}
@@ -488,15 +492,19 @@ class WorldExtra:
         table = self.drop_tables.get(m.template.name if m.template else m.name)
         if not table:
             return
+        mon = m.template.name if m.template else m.name
+        rates = self.drop_rates
         for e in table:
-            if e.sel_point < int(random.random() * e.max_point):
+            # 原版概率是 num/den（MonItems 的 `1/4`），倍率在判定时相乘。
+            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point):
                 continue
             pos = self.scatter_pos(m.map, m.x, m.y)
             if pos is None:
                 continue
             if e.item_name == "金币":
                 gold = java_div(e.count, 2) + int(random.random() * e.count)
-                gi = GroundItem(self.new_id(), None, max(1, gold), pos[0], pos[1],
+                gold = max(1, int(gold * rates.amount(mon)))
+                gi = GroundItem(self.new_id(), None, gold, pos[0], pos[1],
                                 now_ms(), m.map)
             else:
                 t = self.item_template_by_name(e.item_name)

@@ -514,6 +514,53 @@ def test_hp_sync(w, p, sess):
         w._hp_sync_cache.clear()
 
 
+def test_drop_rates(w, p):
+    """掉落倍率表：集中调爆率，不改 MonItems 单条概率。"""
+    print("\n[11] 掉落倍率表")
+    from types import SimpleNamespace
+
+    from pyserver.drop_rates import DropRates
+
+    check("默认倍率等价原版", DropRates().probability("鸡", "金币") == 1.0)
+    r = DropRates(gold=2.0, item=0.5,
+                  monsters={"鹿": {"gold": 3.0, "item": 2.0, "goldAmount": 2.5}},
+                  items={"战神油": 0.25})
+    check("按怪物覆盖与全局相乘", abs(r.probability("鹿", "金币") - 6.0) < 1e-9,
+          str(r.probability("鹿", "金币")))
+    check("按物品覆盖与类别相乘", abs(r.probability("鹿", "战神油") - 0.25) < 1e-9)
+    check("数量倍率按怪物覆盖", r.amount("鹿") == 2.5 and r.amount("鸡") == 1.0)
+    check("倍率 0 永不命中", not DropRates(item=0).hit("鸡", "鸡肉", 1, 10))
+    check("倍率极大时封顶必中", DropRates(item=1e6).hit("鸡", "鸡肉", 1, 1000))
+
+    gm = p.map or w.default_map
+    t = SimpleNamespace(name="鸡", race=51, appr=160)
+    m = Monster(id=w.new_id(), name="鸡", x=p.x + 1, y=p.y, hp=5, max_hp=5,
+                level=5, race=51, template=t, spawn_x=p.x + 1, spawn_y=p.y)
+    w.add_actor(m, gm)
+    old = w.drop_rates
+    added = []
+    try:
+        w.drop_rates = DropRates(item=0, gold=0)
+        base = set(w.ground_items)
+        w.drop_loot(m)                       # 鸡.txt 有 `1/1 鸡肉`
+        check("倍率 0 时不产生任何掉落", set(w.ground_items) == base)
+        w.drop_rates = DropRates()
+        before = set(w.ground_items)
+        w.drop_loot(m)
+        added = list(set(w.ground_items) - before)
+        check("默认倍率下 1/1 条目必掉", bool(added))
+    finally:
+        w.drop_rates = old
+        for gid in added:
+            w.ground_items.pop(gid, None)
+        if hasattr(w, "remove_actor"):
+            w.remove_actor(m.id)
+        else:
+            w.actors.pop(m.id, None)
+        if m.map is not None:
+            m.map.remove(m.id)
+
+
 def test_full_tick(w, p):
     print("\n[9] 完整 tick 与各子系统串联")
     try:
@@ -541,6 +588,7 @@ def main() -> int:
     test_summon(w, p, sess)
     test_map_quest(w, p, sess)
     test_hp_sync(w, p, sess)
+    test_drop_rates(w, p)
     test_full_tick(w, p)
     print("\n" + "=" * 64)
     print(f"结果: {PASS} PASS / {FAIL} FAIL")

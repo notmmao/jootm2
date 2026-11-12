@@ -1095,3 +1095,43 @@ CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步�
 - 原版鹿「1/30 概率生成只会逃跑的 `TChickenDeer`」仍未建模，现在鹿一律是「中立还击」。
 - 中立怪还击没有「打一会儿就放弃」的计时器，只有距离/死亡/隐身三种放弃条件；原版 `TMonster.Think` 每 3 秒用 `IsProperTarget` 复查，效果等价。
 - 练功师 race=55 在原版是 `TTrainer`（NPC 类，不参与战斗）；项目把它当普通怪处理，本轮未动。
+
+---
+
+## §28 金币/物品掉落改成集中倍率表（2026-11-12）
+
+用户要求：爆率别改单条，做成一张表按倍数调整。
+
+### 28.1 原版数据保持不动
+
+`gamedata/Mir200/Envir/MonItems/<怪物>.txt` 每行 `n/m 物品名 [数量]`，命中概率 `n/m`
+（257 个文件、199 个里面带金币条目，例如 `1/4 金币 300`）。这份数据就是「原版爆率」，
+本轮**一个字节都没改**。
+
+### 28.2 新增 config/drop_rates.json
+
+```json
+{ "gold": 1.0, "item": 1.0, "goldAmount": 1.0,
+  "monsters": { "鹿": {"gold": 2.0, "item": 2.0, "goldAmount": 1.5} },
+  "items":    { "战神油": 0.5 } }
+```
+
+- `gold` / `item`：金币条目 / 其它物品条目的**概率倍率**；`goldAmount`：金币数量倍率。
+- `monsters` 按怪物名覆盖，`items` 按物品名覆盖，两者都与全局**相乘**，概率封顶 100%。
+- 倍率 `0` = 该类不掉；文件缺失/字段非法一律按 `1.0`，不影响启动。
+- 判定：`p = rate * n / m`，`random() < p` 才掉。金币数量 `(count/2 + rand*count) * goldAmount`，最少 1。
+
+实现：`pyserver/drop_rates.py`（`DropRates.probability/amount/hit` + `load_drop_rates`），
+`world_extra.init_extra` 读 `config/drop_rates.json`，`drop_loot` 用 `rates.hit(...)` 替换原来的
+`sel_point < int(random*max_point)`。Dockerfile 本来就 `COPY config/`，随镜像生效。
+
+### 28.3 验证
+
+`test_tick_systems` 新增 [11] 共 6 条：默认倍率等价原版、怪物覆盖相乘、物品覆盖相乘、
+数量倍率覆盖、倍率 0 永不命中、倍率极大封顶必中，外加端到端 2 条（倍率 0 不产生掉落、
+默认倍率下 `1/1` 条目必掉）→ **72 PASS / 0 FAIL**。
+
+### 28.4 边界
+
+- 倍率按**怪物模板名**匹配（`Monster.csv` 的 `Name`），不是刷怪名后缀（`鸡`/`鸡0` 视作不同条目）。
+- 只影响怪物死亡掉落；商店价格、挖肉产出、任务奖励不走这张表。
