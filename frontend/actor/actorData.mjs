@@ -19,6 +19,9 @@ export const HA = {
     spell:  { start: 392, frame: 6, skip: 2, ftime: 60 },
     struck: { start: 472, frame: 3, skip: 5, ftime: 70 },
     die:    { start: 536, frame: 4, skip: 4, ftime: 120 },
+    // 挖肉：原版 Actor.pas:89 HA.ActSitdown(start 456 / frame 2 / skip 0 / ftime 300)。
+    // skip=0 表示每个方向只占 2 帧（不是 8 帧网格），actionFrames 的 dir*(frame+skip) 正好。
+    sitdown: { start: 456, frame: 2, skip: 0, ftime: 300 },
 };
 
 // 怪物动作表：name -> { stand, walk, attack, struck, die, death }

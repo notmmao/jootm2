@@ -26,6 +26,8 @@ const RUSH_INTERVAL = 360;   // 冲撞（野蛮冲撞）：对齐原版 ActRushL
 const ATTACK_ANIM_MS = 510;
 // 玩家施法动画时长（HA.spell：6 帧 × 60ms = 360ms，原版 ActSpell），与攻击动作区分
 const SPELL_ANIM_MS = 360;
+// 挖肉蹲下时长（HA.ActSitdown：2 帧 × 300ms = 600ms，原版 Actor.pas:89）
+const SITDOWN_ANIM_MS = 600;
 // 命中帧延迟：原版攻击动作（HA.hit，6 帧 × 85ms）在第 2 帧（约 170ms，武器接触点）才结算命中，
 // 故目标受击/伤害飘字/命中特效延后到此时触发，避免“先爆后砍”。
 const HIT_FRAME_MS = 170;
@@ -835,6 +837,14 @@ export class PlayScene extends Scene {
             }
             if (target) {
                 this.conn.send('butch', { actorId: target.id, x: tx, y: ty });
+                // 原版 ClMain.pas:2840 发完 CM_BUTCH 后本地再 SendMsg(CM_SITDOWN)，
+                // 不等服务端回包就播蹲下动作（HA.ActSitdown 456 / 2 帧 / 300ms）。
+                const dx = target.x - this.self.x;
+                const dy = target.y - this.self.y;
+                const d = DIRMAP[Math.sign(dx) + ',' + Math.sign(dy)];
+                if (d != null) this.self.dir = d;
+                this.self._action = 'sitdown';
+                this.self._actionAt = Date.now();
                 return;
             }
         }
@@ -1192,8 +1202,15 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'butch': {
-                // RM_BUTCH → SM_BUTCH：别人看到的挖肉动作（本移植没有 sitdown 段）。
-                // 出肉时服务端还会给挖肉者发 system 消息 + bagUpdate。
+                // RM_BUTCH → SM_BUTCH：原版客户端把它**转成 SM_SITDOWN**
+                // （ClMain.pas:4649），播放 HA.ActSitdown（456 / 2 帧 / 300ms）。
+                // 自己的动作由点击时本地播放（ClMain.pas:2840 同款预测），这里只管别人。
+                const a = this.entities.get(msg.actorId);
+                if (a) {
+                    if (msg.dir != null) a.dir = msg.dir;
+                    a._action = 'sitdown';
+                    a._actionAt = Date.now();
+                }
                 break;
             }
             case 'spellCast': {
@@ -3008,7 +3025,11 @@ export class PlayScene extends Scene {
         const selfCatchingUp = this._viewX != null
             && (Math.abs(this.self.x - this._viewX) > 0.02
                 || Math.abs(this.self.y - this._viewY) > 0.02);
+        // 原版 PlayScn.pas:2268 ActorDied：死亡 actor 会从 m_ActorList 里删掉并
+        // Insert 到「第一个活着的 actor 之前」——即所有尸体排在最前面先画。
+        // 按行绘制时，效果就是尸体永远压在活人/活怪下面（用户反馈的「尸体在人物之上」）。
         const entities = [];
+        const corpses = [];
         for (const e of this.entities.values()) {
             // 动物尸体：倒地动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
             if (e._corpse && e._dieUntil && now >= e._dieUntil) {
@@ -3021,9 +3042,11 @@ export class PlayScene extends Scene {
                 && (now - (e._lastMoveAt || 0)) > 600) {
                 e._action = 'stand';
             }
-            // 攻击/施法/受击动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击/施法）
-            const animMs = (e._action === 'spell') ? SPELL_ANIM_MS : ATTACK_ANIM_MS;
-            if ((e._action === 'attack' || e._action === 'spell' || e._action === 'struck')
+            // 攻击/施法/受击/挖肉动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击/施法）
+            const animMs = e._action === 'sitdown' ? SITDOWN_ANIM_MS
+                : (e._action === 'spell' ? SPELL_ANIM_MS : ATTACK_ANIM_MS);
+            if ((e._action === 'attack' || e._action === 'spell' || e._action === 'struck'
+                 || e._action === 'sitdown')
                 && (now - (e._actionAt || 0)) > animMs) {
                 e._action = 'stand';
             }
@@ -3042,7 +3065,7 @@ export class PlayScene extends Scene {
                     oy = (e._fromY - e.y) * 32 * (1 - t);
                 }
             }
-            entities.push({
+            const snap = {
                 x: e.x, y: e.y,   // 逻辑位置（遮挡排序用）
                 offsetX: ox, offsetY: oy,
                 // 尸体不显示名字/血条（原版 ActorDied 只降绘制层级，不画 HUD）
@@ -3056,8 +3079,10 @@ export class PlayScene extends Scene {
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
                 nameColor: e.nameColor,               // 宠物名字颜色（调色板索引）
                 layers: sp.getLayers(now),
-            });
+            };
+            (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
         }
+        entities.unshift(...corpses);
         // 掉落物交给 MapActor 按行调度，才能被同格/下一行的角色、树木、建筑正确遮挡
         this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY,
             (c, g, sx, sy) => this._drawGroundItem(c, g, sx, sy),

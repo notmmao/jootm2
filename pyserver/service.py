@@ -22,7 +22,8 @@ from .handlers_npc import NPC_TYPES, NpcHandlers
 from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .util import U_DRESS, U_WEAPON
-from .world import BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, encode, now_ms
+from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
+                    encode, now_ms)
 
 MAX_CHARS_PER_ACCOUNT = 2
 
@@ -434,11 +435,13 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if max(abs(p.x - m.x), abs(p.y - m.y)) > 2:
             w.send_system(p, "离尸体太远了。")
             return
+        p.dir = direction_toward(p.x, p.y, m.x, m.y, p.dir)
         m.butch_count += 1
         # 原版每次挖削减 m_nBodyLeathery / m_nMeatQuality，挖够才出肉；
         # 这里用两次近似（m_nBodyLeathery 初值 50~150，本移植没有该字段）。
         if m.butch_count < 2:
             w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": False,
+                                       "actorId": p.id, "dir": p.dir,
                                        "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
             w.send_system(p, "正在挖肉……")
             return
@@ -458,6 +461,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 w.drop_instance(p, it)
                 w.send_system(p, f"背包已满，{t.name}掉在地上。")
         w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": True,
+                                   "actorId": p.id, "dir": p.dir,
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
         w.broadcast_around(m.map, {"type": "entityRemove", "id": m.id},
                            m.x, m.y, SIGHT_RANGE)

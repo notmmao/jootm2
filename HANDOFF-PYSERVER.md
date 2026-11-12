@@ -1181,3 +1181,65 @@ CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步�
 - `蜡烛` 放背包（原版同）；玩家要自己装到右手槽才会点亮/消耗，未做自动装备。
 - 只补了比奇这一家服装店；盟重/其他城的服装店脚本未动（它们本来就卖轻盔以上）。
 - 新角色金币仍为 0（原版同），所以「买布衣」是给 400 金币之后的事。
+
+---
+
+## §30 尸体绘制层级与挖肉动作（2026-11-12）
+
+用户反馈两条：鹿/鸡的尸体画在人物**之上**；挖肉时角色**没有动作**。
+
+### 30.1 尸体层级：原版把死亡 actor 插到「第一个活人之前」
+
+`PlayScn.pas:2268 ActorDied`：
+
+```pascal
+for i := 0 to m_ActorList.Count-1 do
+  if not TActor(m_ActorList[i]).m_boDeath then begin
+    m_ActorList.Insert(i, actor);   // 插到最前面那个「活着的」之前
+    flag := TRUE; break;
+  end;
+if not flag then m_ActorList.Add(actor);
+```
+
+行绘制是 `for k := 0 to m_ActorList.Count-1`（`PlayScn.pas:1300`），后画的盖前面。
+所以**尸体永远排在最前、先画、压在活人/活怪下面**。我们的实现里实体就是
+`this.entities` 的插入顺序（玩家先登录、怪物后进视野），于是后加入的尸体画在最上面。
+
+修法：`PlayScene` 构建帧快照时把 `_corpse || _action === 'die'` 的实体收集到单独数组，
+`entities.unshift(...corpses)`——与 `ActorDied` 语义一致（尸体全球排最前，跨行时仍按 y 分行）。
+
+### 30.2 挖肉动作：原版是「蹲下」，不是攻击
+
+- 点击尸体：`ClMain.pas:2840` 发完 `CM_BUTCH` 后**本地**再 `SendMsg(CM_SITDOWN)`，
+  不等服务端回包就播蹲下动作。
+- 旁观者：`ClMain.pas:4649 SM_BUTCH` 分支把它**转成 `SM_SITDOWN`** 发给该 actor。
+- 帧参数：`Actor.pas:89 HA.ActSitdown:(start: 456; frame: 2; skip: 0; ftime: 300)`。
+  注意 `skip=0`——每个方向只占 2 帧，方向偏移是 `dir*2`，不是 `dir*(frame+skip)=dir*8`。
+
+我们的 `case 'butch'` 原来是空的（注释写着「本移植没有 sitdown 段」），所以点了没反应。
+
+改动：
+
+- `actorData.mjs`：HA 增加 `sitdown: { start: 456, frame: 2, skip: 0, ftime: 300 }`。
+- `ActorSprite.mjs`：`PLAYER_SEG.sitdown = 'sitdown'`；一次性动作（播完回 stand）的判断加上 sitdown。
+- `PlayScene.mjs`：Alt+左键点中尸体时本地转向 + 播 `sitdown`；收到 `butch` 时给 `msg.actorId`
+  那个实体播 `sitdown`；`SITDOWN_ANIM_MS = 600` 后回 `stand`。
+- `service._butch`：广播的 `butch` 消息补 `actorId` / `dir`，并把挖肉者 `p.dir` 转向尸体
+  （`direction_toward`），否则旁观者只能看到原地蹲下。
+
+### 30.3 验证
+
+| 项 | 结果 |
+|---|---|
+| 帧号计算（node 直读 actorData.mjs） | dir0=456、dir3=462、dir7=470，count=2/ftime=300，均 < HUMANFRAME 600 |
+| Playwright 进游戏注入 `butch` | 怪物 `_action: stand → sitdown → stand`，`dir` 被设为目标方向 |
+| 同一场景里的自己 | `sitdown → stand`（600ms 回位） |
+| 控制台 | 0 条 error / pageerror |
+| 尸体与人物同格截图 | 玩家完整可见、未被尸体遮挡（尸体先画） |
+| 回归 | `test_pyserver` 73/0、`test_tick_systems` 72/0、`test_all_messages --live` 28/0 |
+
+### 30.4 边界
+
+- 服务端仍用「挖两次出肉」近似 `m_nBodyLeathery`，没有按 Leathery/MeatQuality 精确递减。
+- 挖完 `RM_SKELETON` 后尸体直接 `entityRemove`，没有单独画骷髅帧。
+- 蹲下动作播完回站立，不会「蹲着不动等下一次挖」；原版也是每次点击重新触发。
