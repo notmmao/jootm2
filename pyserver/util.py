@@ -22,14 +22,16 @@ DOOR_OPEN_MS = 5_000
 USE_ITEM_INTERVAL_MS = 300
 EQUIP_SLOTS = 13
 
-# 怪物 AI（对齐 Java GameWorld 常量 / ObjMon2.pas）
+# 怪物 AI（对齐原版 UsrEngn.pas:1831 AddBaseObject 的 race → 类派发）
 RANGED_RACES = frozenset({82, 87, 93, 94, 104, 112, 20})
-GUARD_RACES = frozenset({20, 112})
-# 家畜（不主动攻击玩家）。原版依据 M2Share.pas:148-150
-# （ANIMAL_CHICKEN=51 / ANIMAL_DEER=52 / ANIMAL_WOLF=53）与 UsrEngn.pas 的建怪派发：
-# 51=鸡、52=鹿（1/30 概率是只会逃跑的 TChickenDeer），二者原版 DC 为 0，永远不会
-# 造成伤害；53=狼 走 TATMonster，是会攻击的，不能一起算进来。
-PASSIVE_ANIMAL_RACES = frozenset({51, 52})
+# 守卫：原版 SUPREGUARD=11 / PETSUPREGUARD=12 / ARCHER_POLICE=20 / RC_ARCHERGUARD=112
+GUARD_RACES = frozenset({11, 12, 20, 112})
+# 中立怪：不主动搜敌，**被打才还击**。原版这些 race 实例化成 TMonster，
+# 而 TMonster.Run（ObjMon.pas:415）里没有 SearchTarget 调用（只有 Wondering 乱走），
+# 目标只可能来自 TAnimalObject.Struck(hiter) → SetTargetCreat(hiter)。
+#   ANIMAL_CHICKEN=51 鸡 / ANIMAL_DEER=52 鹿·羊 / MONSTER_OMA=80 奥玛
+# 对照：53 狼 与 81~ 各类走 TATMonster，Run 里每 1.5~3 秒 SearchTarget → 主动。
+NEUTRAL_RACES = frozenset({51, 52, 80})
 RANGED_ATTACK_RANGE = 7
 RANGED_KEEP_AWAY = 4
 RANGED_CHASE_RANGE = 11

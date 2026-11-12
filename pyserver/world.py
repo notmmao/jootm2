@@ -23,7 +23,7 @@ from .gamedata import (
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
     AGGRO_RANGE, DOOR_OPEN_MS, GUARD_RACES, HEALING_INTERVAL_MS, HSET_SHAPES,
-    PASSIVE_ANIMAL_RACES,
+    NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
     SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING, SHAPE_SUCK_HEALTH,
@@ -1242,9 +1242,15 @@ class GameWorld(WorldExtra):
 
     def _resolve_target(self, m: Monster, now: int) -> Player | None:
         is_guard = m.template is not None and m.template.race in GUARD_RACES
-        # 家畜（鸡/鹿）不主动锁定玩家：原版它们的 DC 为 0，攻击也造不成伤害，
-        # 这里直接不取目标，避免「鸡在城里追着人咬」的观感。
-        if m.template is not None and m.template.race in PASSIVE_ANIMAL_RACES:
+        if m.template is not None and m.template.race in NEUTRAL_RACES:
+            # 中立怪（鸡/鹿/羊/奥玛）在原版是 TMonster：Run 里没有 SearchTarget，
+            # 只 Wondering 乱走，唯一的目标来源是被打时 TAnimalObject.Struck →
+            # SetTargetCreat(hiter)。所以这里**不搜索**，只沿用已被打出仇恨的目标，
+            # 目标死亡/隐身/跑出视野后自然放弃，回到闲逛。
+            cur = self.actor(m.target_id) if m.target_id >= 0 else None
+            if (isinstance(cur, Player) and cur.alive and cur.hide_until <= now
+                    and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE):
+                return cur
             return None
         cur = self.actor(m.target_id) if m.target_id >= 0 else None
         if (isinstance(cur, Player) and cur.alive and cur.hide_until <= now

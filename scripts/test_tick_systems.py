@@ -357,6 +357,22 @@ def test_ai_targeting(w, p):
                    spawn_x=p.x + 1, spawn_y=p.y + 1)
     w.add_actor(deer, p.map)
     check("鹿(race 52)不主动锁定玩家", w._resolve_target(deer, now) is None)
+    # 中立 ≠ 打不还手：原版 TMonster.Run 没有 SearchTarget，但 TAnimalObject.Struck
+    # 会 SetTargetCreat(hiter)，所以被打之后要会追着还击。
+    chicken.target_id = p.id
+    check("鸡被打后会还击（Struck → SetTargetCreat）", w._resolve_target(chicken, now) is p)
+    chicken.target_id = -1
+    deer.target_id = p.id
+    deer.x = p.x + 9
+    check("中立怪目标跑出仇恨范围后放弃", w._resolve_target(deer, now) is None)
+    deer.x = p.x + 1
+    deer.target_id = -1
+    from pyserver.handlers_combat import CombatHandlers
+    CombatHandlers._hate(chicken, p)
+    check("命中记仇同时写入 target_id 与 last_hiter_id",
+          chicken.target_id == p.id and chicken.last_hiter_id == p.id)
+    chicken.target_id = -1
+    chicken.last_hiter_id = -1
     wolf_t = replace(chicken_t, name="狼测试", race=53, dc=6, maxDc=8, hp=48)
     wolf = Monster(id=w.new_id(), name=wolf_t.name, x=p.x + 2, y=p.y + 1,
                    hp=48, max_hp=48, level=16, race=53, template=wolf_t,

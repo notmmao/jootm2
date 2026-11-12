@@ -126,10 +126,20 @@ class CombatHandlers:
             sx, sy = nx, ny
         return None
 
+    @staticmethod
+    def _hate(m, p) -> None:
+        """受击记仇：原版 ``TAnimalObject.Struck(hiter)`` 会 ``SetTargetCreat(hiter)``。
+
+        中立怪（race 51/52/80，原版 ``TMonster``）的 Run 里没有 SearchTarget，
+        **只有这条路径能让它们拿到目标**——不写 target_id 就变成「打不还手」。
+        """
+        m.last_hiter_id = p.id
+        m.target_id = p.id
+
     def _broadcast_magic_hit(self, p, m, damage: int, magic_id: int) -> None:
         w = self.world
         if damage > 0:
-            m.last_hiter_id = p.id
+            self._hate(m, p)
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": damage,
                                    "magicId": magic_id, "x": m.x, "y": m.y},
@@ -139,7 +149,7 @@ class CombatHandlers:
     def _broadcast_physical_hit(self, p, m, damage: int) -> None:
         w = self.world
         if damage > 0:
-            m.last_hiter_id = p.id
+            self._hate(m, p)
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": damage,
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
@@ -148,7 +158,7 @@ class CombatHandlers:
     def _broadcast_struck(self, p, m, damage: int) -> None:
         w = self.world
         if damage > 0:
-            m.last_hiter_id = p.id
+            self._hate(m, p)
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": damage,
                                    "x": m.x, "y": m.y, "noAttackAnim": True},
@@ -207,7 +217,6 @@ class CombatHandlers:
         p.dir = direction_from(p.x, p.y, m.x, m.y)
         p.target_id = m.id
         w.broadcast_move(p)
-        m.last_hiter_id = p.id
         hit_bonus = 0
         if has_skill(p, 3):
             hit_bonus += 3 * skill_level(p, 3)
@@ -230,6 +239,7 @@ class CombatHandlers:
         dmg = max(1, dam - (m.template.ac if m.template else 0))
         dmg = green_poison_bonus(m, dmg)
         m.hp = max(0, m.hp - dmg)
+        self._hate(m, p)          # 命中才记仇：未命中原版不触发 Struck
         if p.suck_health_rate > 0:
             heal = java_div(dmg * p.suck_health_rate, 100)
             if heal > 0:
@@ -324,13 +334,11 @@ class CombatHandlers:
         front = self._find_target_at(p.map, fx, fy)
         now = now_ms()
         if isinstance(front, Monster) and front.alive:
-            front.last_hiter_id = p.id
             if hit_check(p, front, hit_bonus):
                 dmg = max(1, dam - (front.template.ac if front.template else 0))
                 front.hp = max(0, front.hp - dmg)
                 self._broadcast_physical_hit(p, front, dmg)
                 self._kill_if_dead(p, front, now)
-        m.last_hiter_id = p.id
         if not hit_check(p, m, hit_bonus):
             w.send_system(p, "攻击未命中。")
             # 保真：未命中也广播 attack(miss)，让目标端在原版位置飘 MISS 飘字
@@ -341,6 +349,7 @@ class CombatHandlers:
             return
         second = sword_second_dam(p, dam, 12, 5)
         m.hp = max(0, m.hp - second)
+        self._hate(m, p)
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": second,
                                    "x": m.x, "y": m.y, "swordHit": 12},

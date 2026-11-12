@@ -1051,3 +1051,47 @@ CDP 采样 + `rAF`/`setTimeout` 心跳双测把范围缩到两处**每帧同步�
 
 - 鹿的「1/30 概率只会逃跑」这一分支没有单独建模：现在 51/52 一律不锁定玩家，行为上等价于「无害」。
 - 城里为什么会有怪：`MonGen` 刷怪点若落在城墙内，仍会刷出来（本项目的刷怪表来自原版 `Mongen.txt`，比奇省的部分刷怪点靠近城门）。目前只保证它们不会主动咬人，没有做「城内禁刷/禁攻」的额外规则（原版靠刷怪表本身避开城内）。
+
+---
+
+## §27 主动/被动怪的原版控制方式与「中立怪」补全（2026-11-12）
+
+用户问三件事：鸡鹿不主动攻击是写死的还是数据库字段控制？打它会不会还击？还有哪些同类中立怪？
+
+### 27.1 原版机制：由 Monster.DB 的 Race 字段决定，再派发成不同类
+
+`M2Server/UsrEngn.pas:1819 AddBaseObject` 是本项目唯一的建怪入口，内部是 `case nMonRace of`：
+
+| race | 常量 | 实例类 | 行为 |
+|---|---|---|---|
+| 11 / 12 / 20 / 112 | SUPREGUARD / PETSUPREGUARD / ARCHER_POLICE / RC_ARCHERGUARD | 守卫系 | 只打红名或打过自己的人 |
+| 51 | ANIMAL_CHICKEN 鸡 | `TMonster` + `m_boAnimal` | **中立**：不主动，被打还击 |
+| 52 | ANIMAL_DEER 鹿 | 29/30 `TMonster`；1/30 `TChickenDeer` | 中立；少数只会逃跑 |
+| 53 | ANIMAL_WOLF 狼 | `TATMonster` | 主动 |
+| 55 | TRAINER 练功师 | `TTrainer`（`ObjNpc.pas`，NPC 类） | 不攻击 |
+| 80 | MONSTER_OMA 奥玛 | `TMonster` | **中立** |
+| 81~ | 各类 | `TATMonster` 及其派生 | 主动 |
+
+行为差异的代码位置：
+
+- `ObjMon.pas:415 TMonster.Run` —— **完全没有 `SearchTarget` 调用**，只有一个分支 `if m_TargetCret = nil then Wondering()`（20% 概率转向、5% 概率走一步）。所以 `TMonster` 不会自己找人打。
+- `ObjMon.pas:610 TATMonster.Run` —— 每 1.5~3 秒（`m_dwSearchTime = Random(1500)+1500`）调一次 `SearchTarget`，`m_TargetCret = nil` 时每 1 秒就会找一次。
+- `ObjBase.pas:2795 TAnimalObject.Struck(hiter)` —— 挨打时 `if IsProperTarget(hiter) then SetTargetCreat(hiter)`。**这就是中立怪还击的唯一入口**。
+- `ObjBase.pas:17476` —— 死亡掉落里 `if (m_btRaceServer >= RC_ANIMAL)` 才 `ScatterGolds`；`RC_ANIMAL=50`（`Grobal2.pas:1086`）。
+- `m_boAnimal` **不代表被动**：它只管挖肉的肉品质与尸体处理。蝎子（`TScorpion`）、毒蜘蛛（`TSpitSpider`）都是 `m_boAnimal := True` 的主动怪。
+
+本项目 `gamedata/mud2/DB/Monster.csv` 里 race=52 的并不只有鹿：还有「羊」「护卫」「鹿10/20/30」；race=51 只有「鸡」；race=80 一个都没有。所以中立名单按 race 走天然包含羊。
+
+### 27.2 改动
+
+- `util.py`：`PASSIVE_ANIMAL_RACES = {51, 52}` → `NEUTRAL_RACES = {51, 52, 80}`（语义从「不攻击」纠正为「中立：不主动、被打还击」）。
+- `util.GUARD_RACES` 补 `11`（卫士）/`12`（宠物卫士）——之前漏了，导致比奇城的卫士对白名玩家也主动开打。
+- `world._resolve_target`：中立怪**不再直接 return None**，而是只沿用 `m.target_id` 里已有的目标（存活、同图、未隐身、距离 ≤ AGGRO_RANGE），不搜索新目标；目标跑远/死亡/隐身即放弃，回到闲逛。
+- `handlers_combat._hate(m, p)`：命中时同时写 `last_hiter_id` 与 `target_id`（对齐 `Struck → SetTargetCreat`）。近战、长Hit、魔法、范围伤害四条路径统一走它；**未命中不记仇**（原版 `StruckDamage` 只在真掉血时调用）。
+- 回归 `test_tick_systems` 新增 3 条：鸡被打会还击、中立怪目标跑出仇恨范围后放弃、命中记仇同时写两个字段 → **64 PASS / 0 FAIL**。
+
+### 27.3 边界
+
+- 原版鹿「1/30 概率生成只会逃跑的 `TChickenDeer`」仍未建模，现在鹿一律是「中立还击」。
+- 中立怪还击没有「打一会儿就放弃」的计时器，只有距离/死亡/隐身三种放弃条件；原版 `TMonster.Think` 每 3 秒用 `IsProperTarget` 复查，效果等价。
+- 练功师 race=55 在原版是 `TTrainer`（NPC 类，不参与战斗）；项目把它当普通怪处理，本轮未动。
