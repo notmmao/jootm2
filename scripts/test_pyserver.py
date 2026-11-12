@@ -351,6 +351,14 @@ def test_shop_goods() -> None:
         check("真实武器店 [goods] 有货", len(rs.goods_rows()) >= 10,
               f"{len(rs.goods_rows())} 行")
 
+    # 比奇「白家服装老板」：原版 1 级能买到布衣（StdItems Price=400）
+    cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Tdr-0.txt"
+    if cloth.is_file():
+        cs = NpcScript.parse(read_lines(cloth))
+        names = [r[0] for r in cs.goods_rows() if r]
+        check("比奇服装店卖 1 级布衣", "布衣(男)" in names and "布衣(女)" in names,
+              str(names[:4]))
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="pyserver 离线自检")

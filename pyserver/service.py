@@ -21,6 +21,7 @@ from .handlers_items import ITEM_TYPES, ItemHandlers
 from .handlers_npc import NPC_TYPES, NpcHandlers
 from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
+from .util import U_DRESS, U_WEAPON
 from .world import BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, encode, now_ms
 
 MAX_CHARS_PER_ACCOUNT = 2
@@ -255,17 +256,24 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
 
         base_hp, base_mp = (26, 16, 18), (12, 20, 16)
         world = self.world
+        # 原版 ObjBase.pas:16400-16425（m_boNewHuman 分支）：新角色发
+        # 蜡烛 / 金创药(小量) / 木剑 / 布衣(男|女)，用的是 !Setup.txt 的
+        # Candle / BasicDrug / WoodenSword / ClothsMan / ClothsWoman 五个名字。
+        # 原版只是塞进背包让玩家自己穿；这里把布衣与木剑直接落到装备槽，
+        # 否则 1 级角色一进游戏就是光身子（用户反馈）。
+        outfit = "布衣(男)" if sex == 0 else "布衣(女)"
+        starter = (("蜡烛", -1), ("金创药(小量)", -1),
+                   ("木剑", U_WEAPON), (outfit, U_DRESS))
         items: list[dict] = []
-        for idx, count in ((0, 1), (1, 1), (2, 2), (3, 2)):
-            t = world.item_templates.get(idx)
+        for item_name, slot in starter:
+            t = world.item_template_by_name(item_name)
             if t is None:
                 continue
-            for _ in range(count):
-                items.append({
-                    "makeIndex": world.next_item_make_index(), "index": idx,
-                    "durability": t.duraMax, "durabilityMax": t.duraMax,
-                    "lucky": 0, "slot": -1,
-                })
+            items.append({
+                "makeIndex": world.next_item_make_index(), "index": t.index,
+                "durability": t.duraMax, "durabilityMax": t.duraMax,
+                "lucky": 0, "slot": slot,
+            })
         starter_magic = 3 if job == 0 else (1 if job == 1 else 2)
         rec = {
             "account_id": session.account_id, "name": name,
