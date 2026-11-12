@@ -2287,3 +2287,78 @@ E2E GM 传送 D411 时 HUD 也正确变成「北部矿区 59:8」。真正的问
 | test_pyserver（新增 8 条：村/城品类对比 5 条 + 卖货定价 3 条） | **84/0** |
 | test_tick_systems / test_all_messages（离线+live）/ test_map_view | 123/0、31/0、34/0 |
 | 8080 重启后 live WS + 死亡重登冒烟 | PASS |
+
+## §41 第 16 轮：肉品质 / 挖矿 / 耐久折旧卖价（2026-11-13）
+
+### 41.1 肉品质（用户：挖出鹿肉有品质，品质高卖得贵）✅
+
+原版逐字核对：
+- **品质载体**：``TBaseObject.m_nMeatQuality``（ObjBase.pas:185）。
+- **初始化**（UsrEngn.pas:1835-1864，按 race 建类时）：鸡(51) ``Random(3500)+3000``
+  → 3000~6500；鹿(52)/狼(53) ``Random(8000)+8000`` → 8000~16000；其余动物 0。
+  鹿另有 1/30 概率 ``TChickenDeer`` 变种（10000~30000），本项目未做变种。
+- **扣减**：物理被打 ``Struck``（:2807-2811）每次 ``-Random(300)``；
+  魔法伤害（:4515-4517）``-nDamage*1000``；绿毒每跳（:4260）``-1000``；
+  每挖一刀（ClientGetButchItem:17479-17482）``-Random(201)+100``。
+  **打得越狠/拖得越久肉越差**。
+- **出肉**：``ApplyMeatQuality``（:20517-20535）把尸体背包里全部
+  StdMode 40 物品的 ``Dura := m_nMeatQuality`` → 耐久即品质。
+
+实现：``Monster.meat_quality`` + ``util.init_meat_quality``（两处出生点调用）+
+``handlers_combat._attack_monster/_broadcast_magic_hit/_apply_poison`` 扣减 +
+``service._butch`` 挖一刀扣品质、出肉写耐久。
+
+### 41.2 挖矿（原版有、本项目没有 → 新实现）✅
+
+原版链路逐字核对：
+- 客户端（ClMain.pas:2696）：StdMode 6 武器一律发 ``CM_HEAVYHIT``。
+- 服务端（ObjBase.pas:8819-8847）：``CM_HEAVYHIT`` + 武器耐久>0 +
+  前方格不可走 + ``Shape=19``（鹤嘴锄）→ ``PileStones`` 并 Exit。
+- ``PileStones``（:21881-21925）：前方格需有 ``TStoneMineEvent``（MINE/MINE2
+  地图每格都建，svMain.pas:867；创建存量 ``Random(200)``）；每锄存量 -1；
+  ``Random(4)=0``（nMakeMineHitRate）命中 → 武器磨损 ``Random(15)+5``；
+  命中且 ``Random(12)=0``（nMakeMineRate）→ ``MakeMine``；存量空 10 分钟
+  后 ``AddStoneMine`` 补 ``Random(80)``（Event.pas:352）。
+- ``MakeMine``（:24351-24474）：``Random(120)`` 定矿种：1~2 金矿 /
+  3~20 银矿 / 21~45 铁矿 / 46~56 黑铁矿石 / 其余铜矿；
+  ``RandomDrua`` = ``Random(13000)+3000``、1/20 再 ``+Random(10000)``。
+  背包满挖不到（:24364）。
+- 本项目 MapInfo.txt 24 张 MINE 地图（比奇矿区系），无 MINE2（宝石矿区）。
+
+实现：``world.mine_state``（惰性矿点存量）+ ``world.map_mine_type`` +
+``handlers_combat._dir_attack`` 挖矿分支（``_weapon_template/_weapon_dura/
+_damage_weapon/_pile_stones/_make_mine``）。前端：点击**相邻**不可走格 →
+``dirAttack``（重击方向），远程的墙仍走移动（原版同样被挡）。
+碎石堆视觉事件（ET_PILESTONES）本项目无事件渲染层，暂略。
+
+### 41.3 耐久/品质折旧卖价（用户：原版有就补齐）✅
+
+``GetUserItemPrice``（ObjNpc.pas:1838-1919）逐行直译进
+``handlers_npc._user_item_price``：
+- 肉(40)：耐久=品质；品质 = DuraMax 卖最贵（满补货价 88 → 卖 44），
+  偏低打折（3000 → 卖 34），**超过 DuraMax 反而暴跌**（原版 else 分支就是
+  减价，照抄）；
+- 矿(43)：UserDuraMax 强制 ≥10000，纯度同肉（超上限按 1.3 倍）；
+  黑铁矿石纯度 5000 → 卖 374；
+- 其余 StdMode>4：升级点数加价段（btValue，本项目无升级 → 跳过）→
+  按 DuraMax 比例折算 → 磨损折旧；半磨损木剑（2000/4000）卖 20；
+- 肉/矿走完自身分支后**还会再走一遍装备折旧段**（原版三个 if 顺序执行，
+  双段折旧是原版行为，照抄）；
+- 装备卖价公式：``Round(Round(原值/ DuraMax×ItemDuraMax) − 原/2/DuraMax×磨损)``。
+
+### 41.4 验证
+
+| 项目 | 结果 |
+|---|---|
+| test_pyserver（+5：肉/矿/装备折旧卖价） | **89/0** |
+| test_all_messages（+6：肉品质写入、挖矿出矿/纯度/磨损/存量/补矿；离线+live） | **37/0** |
+| test_tick_systems / test_map_view / test_sfx_map | 123/0、34/0、84/0 |
+| 8080 重启 + live WS 冒烟 | PASS |
+
+### 41.5 遗留
+
+- 鹿 1/30 ``TChickenDeer`` 变种品质未做；矿石卖价耐久超上限的 1.3 倍分支
+  需要纯度 > DuraMax 的矿（RandomDrua 上限 23000 < 30000，实际不可达，
+  仅黑铁矿石 DuraMax=30000、纯度最高 23000 恒低于上限）。
+- ET_PILESTONES 碎石堆视觉事件未渲染；挖矿无专门重击动画（复用 attack 帧）。
+- 武器耐久挖到 0 后不能再挖（原版一致），但无「武器修理」以外的损坏提示。

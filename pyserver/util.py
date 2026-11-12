@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import time
 from typing import Any
 
@@ -109,6 +110,36 @@ def java_div(a: int, b: int) -> int:
 def java_round(x: float) -> int:
     """``Math.round(double)`` == floor(x + 0.5)（注意与 Python round 的 banker's 不同）。"""
     return math.floor(x + 0.5)
+
+
+def init_meat_quality(m) -> None:
+    """原版 UsrEngn.pas:1835-1864：动物生成时初始化 m_nMeatQuality（肉品质）。
+
+    - ANIMAL_CHICKEN(51 鸡)：``Random(3500) + 3000`` → 3000~6500
+    - ANIMAL_DEER(52 鹿)：``Random(8000) + 8000`` → 8000~16000
+      （原版 1/30 概率是 TChickenDeer 变种 ``Random(20000)+10000``，m_nBodyLeathery 同 150）
+    - ANIMAL_WOLF(53 狼)：``Random(8000) + 8000`` → 8000~16000
+    其余怪物品质为 0（不可挖的怪没有品质语义）。挖肉（ClientGetButchItem）/
+    受击（Struck -Random(300)）/ 绿毒（每跳 -1000）/ 魔法伤害（-nDamage*1000）
+    都会降低品质，出肉时 ApplyMeatQuality 把品质写进肉的耐久 → 卖价随之变化。
+    """
+    race = getattr(m, "race", 0)
+    if race == 51:
+        m.meat_quality = random.randrange(3500) + 3000
+    elif race in (52, 53):
+        m.meat_quality = random.randrange(8000) + 8000
+
+
+def random_mine_dura() -> int:
+    """原版 TPlayObject.MakeMine 的 RandomDrua（ObjBase.pas:24352-24358）：
+
+    ``Random(13000) + 3000``，1/20 概率再 ``+ Random(10000)`` → 3000~23000。
+    矿石耐久即「纯度」，卖价随耐久变化（GetUserItemPrice StdMode 43）。
+    """
+    n = random.randrange(13000) + 3000
+    if random.randrange(20) == 0:
+        n += random.randrange(10000)
+    return n
 
 
 def delphi_round(x: float) -> int:

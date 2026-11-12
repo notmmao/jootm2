@@ -349,16 +349,91 @@ def run_success_paths() -> int:
                 if animal.skeleton:
                     break
             got_meat = False
+            meat_dura = None
             for it in p.bag:
                 t = w.item_templates.get(int(it.get("index", 0)))
                 if t is not None and t.name in ("肉", "鸡肉"):
                     got_meat = True
+                    meat_dura = int(it.get("durability", -1))
             check("Alt+左键挖够次数得到肉（原版 TakeBagItems）",
                   animal.skeleton and got_meat, results)
+            # 第 16 轮：肉品质 = m_nMeatQuality 写进肉耐久（ApplyMeatQuality），
+            # 出生按 UsrEngn.pas:1835-1864 初始化（鸡 3000~6500 / 鹿狼 8000~16000），
+            # 受击/中毒/挖肉都会降低。
+            check(f"肉耐久 = 尸体肉品质（ApplyMeatQuality，dura={meat_dura} "
+                  f"quality={animal.meat_quality}）",
+                  meat_dura is not None and 0 <= meat_dura <= 16000
+                  and meat_dura == animal.meat_quality, results)
             check("挖肉后尸体变骷髅但保留（原版 RM_SKELETON 不删 actor）",
                   animal.skeleton and animal.id in w.actors, results)
             check("挖肉后下发 bagUpdate",
                   any(m.get("type") == "bagUpdate" for m in s1.messages), results)
+
+        # 第 16 轮：挖矿（原版 PileStones ObjBase.pas:21881 + MakeMine:24351）。
+        # 需要 MINE 标志地图 + 鹤嘴锄（Shape 19）+ 前方不可走格。
+        w.map_flags[p.map.name] = ["MINE"]
+        real_map = p.map
+
+        class _MineMapShim:
+            """把当前地图伪装成「四面石壁」的矿区（GameMap 是 slots，不能改方法）。"""
+
+            def __init__(self, src):
+                self.name, self.actors = src.name, src.actors
+                self.width, self.height = src.width, src.height
+
+            def inside(self, x, y):
+                return True
+
+            def can_walk(self, x, y):
+                return False
+
+            def occupied(self, x, y):
+                return False
+
+        p.map = _MineMapShim(real_map)
+        pick = w.item_template_by_name("鹤嘴锄")
+        if pick is not None:
+            import random as _random
+            from pyserver.util import U_WEAPON, random_mine_dura
+            it = w.new_item_instance(pick, pick.duraMax)
+            p.equipment[U_WEAPON] = it
+            p.bag.clear()   # 原版背包满挖不到矿（MakeMine:24364 Exit），先清包
+            bag_before = len(p.bag)
+            dura_before = int(it.get("durability", 0))
+            from pyserver.util import direction_delta
+            _dx, _dy = direction_delta(2)
+            _key = (p.map.name, p.x + _dx, p.y + _dy)
+            _saw_decrement = False
+            _random.seed(20261113)
+            for _ in range(400):
+                # 矿点存量每锄 -1（不管命中），这里持续补满保证 400 锄全部有效
+                if _key in w.mine_state:
+                    _saw_decrement = _saw_decrement or w.mine_state[_key][0] < 999
+                    w.mine_state[_key][0] = 999
+                h["dirAttack"](s1, {"type": "dirAttack", "dir": 2})
+            ore_names = ("金矿", "银矿", "铁矿", "铜矿", "黑铁矿石")
+            got_ore = [x for x in p.bag[bag_before:]
+                       if w.item_templates.get(int(x.get("index", 0))) is not None
+                       and w.item_templates[int(x.get("index", 0))].name in ore_names]
+            check(f"挖矿 400 锄能挖到矿石（命中率 1/4 × 出矿率 1/12，"
+                  f"ore={[w.item_templates[int(g['index'])].name for g in got_ore]}）",
+                  len(got_ore) > 0, results)
+            if got_ore:
+                d = int(got_ore[0].get("durability", 0))
+                check(f"矿石耐久（纯度）在原版 RandomDrua 区间 3000~23000（dura={d}）",
+                      3000 <= d <= 23000, results)
+            check("挖矿磨损鹤嘴锄（DoDamageWeapon Random(15)+5）",
+                  int(it.get("durability", 0)) < dura_before, results)
+            check("矿点存量被消耗（TStoneMineEvent m_nMineCount 每锄 -1）",
+                  _saw_decrement, results)
+            # 矿点挖空 10 分钟后补矿（AddStoneMine Random(80)）
+            key = next(iter(w.mine_state))
+            w.mine_state[key] = [0, int(time.time() * 1000) - 601_000]
+            h["dirAttack"](s1, {"type": "dirAttack", "dir": 2})
+            check(f"挖空矿点 10 分钟后补矿（AddStoneMine，count={w.mine_state[key][0]}）",
+                  w.mine_state[key][1] > int(time.time() * 1000) - 1_000, results)
+            del w.map_flags[p.map.name]
+            p.map = real_map   # 还原真实地图
 
         # 返回人物选择：保留登录态与连接，不能像 logout 那样断开
         s1.messages.clear()

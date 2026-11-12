@@ -970,6 +970,21 @@ export class PlayScene extends Scene {
                 this.conn.send('pickup', { itemId: gi.id });
                 return;
             }
+            // 原版 ClMain.pas:2696：StdMode 6 武器（鹤嘴锄等重武器）攻击发
+            // CM_HEAVYHIT；点相邻石壁/矿堆（不可走格）→ 朝该方向重击，
+            // 服务端遇 Shape 19 鹤嘴锄 + MINE 地图即挖矿（ObjBase.pas:8819-8847）。
+            // 远处的墙不拦：仍按移动处理，走过去被服务端挡住（原版同样行为）。
+            const tiles = this.mapActor.map && this.mapActor.map.tiles;
+            const tile = tiles && tiles[tx] ? tiles[tx][ty] : null;
+            if (tile && !tile.canStand
+                && Math.max(Math.abs(tx - this.self.x), Math.abs(ty - this.self.y)) <= 1) {
+                const wdir = this._dirTo(tx, ty);
+                if (wdir >= 0) {
+                    this.chaseTargetId = null;
+                    this._dirAttack(wdir);
+                    return;
+                }
+            }
         }
 
         // 空地移动：记录方向，按住持续朝该方向移动（主循环按间隔节流，快速点击不累计）

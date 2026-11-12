@@ -600,6 +600,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # 扣到 ≤0 才出肉并变骷髅。所以次数是随机的 3~10 次（均值约 4），
         # 不是固定 2 次。
         m.body_leathery -= random.randint(BUTCH_WEAR_MIN, BUTCH_WEAR_MAX)
+        # 原版 ObjBase.pas:17479-17482：每挖一刀也扣 m_nMeatQuality
+        # （Random(201)+100 = 100~300）——拖太久才挖完肉品质会变差。
+        m.meat_quality = max(0, m.meat_quality - random.randint(100, 300))
         # 原版每次挖都把 m_dwDeathTick 刷新成当前时间（ObjBase.pas:17497）→
         # 持续挖肉会延长尸体的保留时间。
         m.corpse_until = now + CORPSE_MS
@@ -627,6 +630,13 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if not loot:
             w.send_system(p, "未发现任何物品。", "#ff0000")
         else:
+            # 原版 ApplyMeatQuality（ObjBase.pas:20517-20535）：把尸体背包里
+            # 全部 StdMode 40 物品的耐久设为 m_nMeatQuality —— 这就是
+            # 「肉品质」的载体，卖价随品质变化（GetUserItemPrice StdMode 40）。
+            for it in loot:
+                it_t = w.item_templates.get(int(it.get("index", 0)))
+                if it_t is not None and it_t.stdMode == 40:
+                    it["durability"] = m.meat_quality
             for it in loot:
                 if len(p.bag) < BAG_SIZE:
                     p.bag.append(it)

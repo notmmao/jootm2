@@ -113,28 +113,73 @@ class NpcHandlers:
         w.send_system(p, f"购买了 {t.name} x{count}，花费 {total} 金币。")
         self.send_bag_update(p)
 
-    def _sell_price(self, npc, t) -> int:
+    def _get_item_price(self, npc, t) -> int:
+        """原版 ``GetItemPrice``（ObjNpc.pas:999-1024）：
+
+        该店补货清单里的物品 → 价表价 ``Round(Price * 1.1)``（CheckItemPrice）；
+        不在清单但 StdMode 在 ``+N``（m_ItemTypeList）里 → ``StdItem.Price``；
+        都不满足 → ``-1``（NPC 不收）。
+        """
+        for g in self.world.goods(npc):
+            if g["index"] == t.index:
+                return delphi_round(t.price * 1.1)
+        types = getattr(getattr(npc, "script", None), "item_types", None)
+        if types and t.stdMode not in types:
+            return -1
+        return t.price
+
+    def _user_item_price(self, npc, t, it) -> int:
+        """原版 ``TMerchant.GetUserItemPrice``（ObjNpc.pas:1838-1919）逐行直译。
+
+        在 GetItemPrice 基础上按耐久折价（StdMode > 4 且 DuraMax > 0 才进入）：
+        - StdMode 40 肉：耐久 = 肉品质（ApplyMeatQuality 写入）；品质 = DuraMax
+          时卖最贵，偏低打折，超过 DuraMax 反而暴跌（原版 else 分支就是减价，
+          照抄）。
+        - StdMode 43 矿：UserDuraMax 强制 ≥10000，纯度同上逻辑（超上限按 1.3 倍）。
+        - 其余 StdMode > 4（武器装备）：升级点数 btValue[0..7] 加价（本项目无
+          升级系统 → n14=0 跳过）→ 按 DuraMax 比例折算 → 磨损折旧。
+        肉/矿走完自身分支后还会再走一遍装备折旧段（原版三个 if 顺序执行），
+        属原版行为，照抄。
+        """
+        n10 = self._get_item_price(npc, t)
+        if n10 <= 0:
+            return n10
+        it = it or {}
+        dura = int(it.get("durability", t.duraMax) or 0)
+        dumax = int(it.get("durabilityMax", t.duraMax) or 0)
+        if t.stdMode > 4 and t.duraMax > 0 and dumax > 0:
+            if t.stdMode == 40:                       # 肉（:1855-1865）
+                if dura <= dumax:
+                    n20 = n10 / 2.0 / dumax * (dumax - dura)
+                    n10 = max(2, delphi_round(n10 - n20))
+                else:
+                    n10 += delphi_round(n10 / dumax * 2.0 * (dumax - dura))
+            if t.stdMode == 43:                       # 矿（:1867-1878）
+                if dumax < 10000:
+                    dumax = 10000                     # 原版直接改 UserItem.DuraMax
+                if dura <= dumax:
+                    n20 = n10 / 2.0 / dumax * (dumax - dura)
+                    n10 = max(2, delphi_round(n10 - n20))
+                else:
+                    n10 += delphi_round(n10 / dumax * 1.3 * (dumax - dura))
+            if t.stdMode > 4:                         # 装备折旧段（:1880-1915）
+                # n14 = sum(btValue[0..7])：升级属性点，本项目无升级 → 恒 0，
+                # ``n10 div 5 * n14`` 加价段跳过。
+                n10 = delphi_round(n10 / t.duraMax * dumax)
+                n20 = n10 / 2.0 / dumax * (dumax - dura)
+                n10 = max(2, delphi_round(n10 - n20))
+        return n10
+
+    def _sell_price(self, npc, t, it=None) -> int:
         """原版 ``ClientSellItem``（ObjNpc.pas:2156）：
         ``nPrice := GetSellItemPrice(GetUserItemPrice(UserItem))``，
-        即 ``Round(GetItemPrice(...) / 2.0)``（GetSellItemPrice :2127-2130）。
-
-        ``GetItemPrice``（:999-1024）语义：
-        - 该店 ``[goods]`` 补货清单里的物品 → 补货价 ``Round(Price * 1.1)``；
-        - 不在清单但 StdMode 在脚本头 ``+N`` 列表里 → ``StdItem.Price``；
-        - 都不满足 → ``-1``，``nPrice <= 0`` 卖不掉（NPC 不收这类东西）。
-        所以本店有售的物品卖价是 ``Round(Round(Price*1.1)/2)``（如木剑 28），
-        其余物品只有类型通过才按 ``Round(Price/2)`` 收。
-        耐久折价（肉 StdMode 40 / 矿 43 / 武器装备，GetUserItemPrice:1838+）未做，
-        见 §39.7 遗留。
+        即 ``Round(GetUserItemPrice / 2.0)``（GetSellItemPrice :2127-2130）。
+        ``<=0`` → 卖不掉（sellPrice 下发 0，客户端显示「???? 金币」）。
         """
-        if npc is not None:
-            for g in self.world.goods(npc):
-                if g["index"] == t.index:
-                    return delphi_round(delphi_round(t.price * 1.1) / 2.0)
-            types = getattr(getattr(npc, "script", None), "item_types", None)
-            if types and t.stdMode not in types:
-                return -1
-        return delphi_round(t.price / 2.0)
+        n10 = self._user_item_price(npc, t, it)
+        if n10 <= 0:
+            return -1
+        return delphi_round(n10 / 2.0)
 
     def _query_sell_price(self, session, msg: dict) -> None:
         """原版 CM_MERCHANTQUERYSELLPRICE → SM_SENDBUYPRICE。
@@ -158,7 +203,7 @@ class NpcHandlers:
         # 原版：价格 <= 0 时下发 0，客户端显示「???? 金币」
         session.send_json({"type": "sellPrice", "npcId": npc.id,
                            "makeIndex": int(found.get("makeIndex", 0)),
-                           "price": max(0, self._sell_price(npc, t))})
+                           "price": max(0, self._sell_price(npc, t, found))})
 
     def _sell_item(self, session, msg: dict) -> None:
         p = self.find_by_session(session)
@@ -176,7 +221,7 @@ class NpcHandlers:
         if t is None:
             return
         # 原版 ClientSellItem：GetSellItemPrice 为 0 时直接不成交（连提示都没有，这里补一句）
-        price = self._sell_price(npc, t)
+        price = self._sell_price(npc, t, found)
         if price <= 0:
             w.send_system(p, "这个物品卖不出价钱。")
             return

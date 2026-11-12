@@ -28,7 +28,7 @@ from .util import (
     RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
     SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING, SHAPE_SUCK_HEALTH,
     SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP, YSET_SHAPES,
-    java_div, java_round, slot_accepts, slot_for,
+    java_div, java_round, init_meat_quality, slot_accepts, slot_for,
 )
 from .world_extra import BODY_LEATHERY, WorldExtra
 
@@ -646,6 +646,10 @@ class Monster(Actor):
     skeleton: bool = False
     # 挖肉磨损（原版 m_nBodyLeathery，初值 50，每次挖 Random(16)+5）
     body_leathery: int = BODY_LEATHERY
+    # 原版 m_nMeatQuality（ObjBase.pas:185）：肉品质，挖肉出肉时写进肉耐久
+    # （ApplyMeatQuality:20517），卖价随品质变化。出生按 UsrEngn.pas:1835-1864
+    # 初始化：鸡 3000~6500、鹿/狼 8000~16000；被打/中毒/挖肉都会降低。
+    meat_quality: int = 0
     next_attack_at: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
@@ -698,6 +702,10 @@ class GameWorld(WorldExtra):
         self._hp_sync_cache: dict[int, tuple[int, int]] = {}
         self._hp_sync_at = 0
         self.ground_items: dict[int, dict] = {}
+        # 挖矿矿点存量（原版 TStoneMineEvent，Event.pas:84-94）：键 (地图, x, y)
+        # 值 [剩余量, 生成/补矿 tick]。存量创建时 Random(200)，挖空 10 分钟后
+        # AddStoneMine 补 Random(80)。只对 MINE/MINE2 标志地图生效。
+        self.mine_state: dict[tuple[str, int, int], list] = {}
         self._id_gen = itertools.count(1)
         self._item_seq = itertools.count(max(1_000_000, db.max_item_make_index() + 1))
         self.day_bright = day_bright_for_hour(datetime.now().hour)
@@ -805,6 +813,7 @@ class GameWorld(WorldExtra):
                             template=t, spawn_x=pos[0], spawn_y=pos[1],
                             respawn_interval_ms=entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
                 m.exp = t.exp
+                init_meat_quality(m)
                 if t.race == 85:
                     m.hidden = True   # TStickMonster.Create: m_boFixedHideMode := True
                 self.add_actor(m, game_map)
@@ -973,6 +982,22 @@ class GameWorld(WorldExtra):
             return True
         title = self.map_titles.get(map_name, "")
         return any(k in title for k in ("洞", "矿", "穴", "墓", "窟"))
+
+    def map_mine_type(self, map_name: str) -> str | None:
+        """地图矿区标志（原版 ``Envir.Flag.boMINE / boMINE2``）。
+
+        返回 ``"mine"`` / ``"mine2"`` / ``None``。本项目 MapInfo.txt 只有 24 张
+        ``MINE`` 地图（比奇矿区系），没有 ``MINE2``（宝石矿区）。
+        原版 svMain.pas:867-883 MakeStoneMines：对 MINE/MINE2 地图每格都建
+        TStoneMineEvent；这里改为惰性登记进 ``self.mine_state``。
+        """
+        for f in self.map_flags.get(map_name, ()):
+            fu = f.strip().upper()
+            if fu == "MINE2":
+                return "mine2"
+            if fu == "MINE":
+                return "mine"
+        return None
 
     def dark_level(self, map_name: str, underground: bool | None = None) -> int:
         """对齐 ``DayBright()``：0 全亮 / 1 深夜 / 2 中等暗 / 3 正午。
@@ -1153,6 +1178,10 @@ class GameWorld(WorldExtra):
             a.poison_ticks = ticks - 1
             if a.poison_ticks <= 0:
                 a.last_poison_at = 0
+            # 原版 ObjBase.pas:4255-4260：绿毒每跳对 m_boAnimal 还扣
+            # m_nMeatQuality 1000——中毒打死的动物肉品质很低。
+            if isinstance(a, Monster) and a.meat_quality > 0:
+                a.meat_quality = max(0, a.meat_quality - 1000)
             self.send_stats(a)
             if a.hp <= 0:
                 if isinstance(a, Monster):
@@ -1280,6 +1309,7 @@ class GameWorld(WorldExtra):
                         spawn_map=home,
                         respawn_interval_ms=a.respawn_interval_ms)
             m.exp = t.exp
+            init_meat_quality(m)
             self.add_actor(m, home)
             self.broadcast_entity_add(m)
 

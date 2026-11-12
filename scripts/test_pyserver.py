@@ -419,12 +419,14 @@ def test_shop_goods() -> None:
     h = NpcHandlers.__new__(NpcHandlers)   # 只测纯函数，绕过 mixin 依赖
     h.world = types.SimpleNamespace(
         goods=lambda n: make_npc.goods_rows)   # noqa: 由 make_npc 注入
-    tw = types.SimpleNamespace(index=1, name="木剑", price=50, stdMode=5)
-    to = types.SimpleNamespace(index=2, name="护身符", price=500, stdMode=25)
+    tw = types.SimpleNamespace(index=1, name="木剑", price=50, stdMode=5, duraMax=4000)
+    to = types.SimpleNamespace(index=2, name="护身符", price=500, stdMode=25, duraMax=0)
     npc, rows = make_npc([1], [5, 6])
     make_npc.goods_rows = rows
+    # 原版链路：GetItemPrice=Round(Price*1.1)=55 → 装备折旧段（满耐久无损）
+    # → GetSellItemPrice = Round(55/2) = 28。
     check("卖本店补货物品 = Round(Round(Price*1.1)/2)（木剑 28）",
-          h._sell_price(npc, tw) == delphi_round(delphi_round(50 * 1.1) / 2.0),
+          h._sell_price(npc, tw) == 28,
           f"price={h._sell_price(npc, tw)}")
     check("卖 +N 类型外的物品被拒收（护身符 stdMode 25）",
           h._sell_price(npc, to) == -1, f"price={h._sell_price(npc, to)}")
@@ -433,6 +435,42 @@ def test_shop_goods() -> None:
     check("无 +N 的 NPC 什么类型都收，价 = Round(Price/2)",
           h._sell_price(npc2, to) == delphi_round(500 / 2.0),
           f"price={h._sell_price(npc2, to)}")
+
+    # 耐久/品质折旧（GetUserItemPrice ObjNpc.pas:1838-1919 直译）：
+    # 肉(StdMode 40)：品质 = 耐久；品质=DuraMax 卖最贵，偏低打折，超上限暴跌。
+    # 鸡肉 Price=80 → 补货价 88；DuraMax=4000。
+    tmeat = types.SimpleNamespace(index=57, name="鸡肉", price=80, stdMode=40, duraMax=4000)
+    npc3, rows3 = make_npc([57], [])
+    make_npc.goods_rows = rows3
+    it_full = {"durability": 4000, "durabilityMax": 4000}
+    it_mid = {"durability": 3000, "durabilityMax": 4000}
+    it_high = {"durability": 6500, "durabilityMax": 4000}
+    # 88 → 88（满品质）→ 卖 44；3000: 88-11=77 → 再折 77-9.6=67 → 卖 34
+    check("满品质肉卖 44（补货价 88 一半）",
+          h._sell_price(npc3, tmeat, it_full) == 44,
+          f"price={h._sell_price(npc3, tmeat, it_full)}")
+    check("品质 3000 的鸡肉卖 34（双段折旧）",
+          h._sell_price(npc3, tmeat, it_mid) == 34,
+          f"price={h._sell_price(npc3, tmeat, it_mid)}")
+    check("品质超 DuraMax 的肉暴跌（原版 else 分支）",
+          h._sell_price(npc3, tmeat, it_high) <= 2,
+          f"price={h._sell_price(npc3, tmeat, it_high)}")
+    # 矿(StdMode 43)：DuraMax 强制 ≥10000；黑铁矿石 Price=2000 → 2200；
+    # Dura 5000/DuraMax 30000：2200-917=1283 → 1283-535=748 → 卖 374。
+    tore = types.SimpleNamespace(index=198, name="黑铁矿石", price=2000, stdMode=43, duraMax=30000)
+    npc4, rows4 = make_npc([198], [])
+    make_npc.goods_rows = rows4
+    it_ore = {"durability": 5000, "durabilityMax": 30000}
+    check("纯度 5000 的黑铁矿石卖 374（双段折旧）",
+          h._sell_price(npc4, tore, it_ore) == 374,
+          f"price={h._sell_price(npc4, tore, it_ore)}")
+    # 装备磨损：木剑 Dura 2000/4000：55→55→磨损 55-13.75=41 → 卖 Round(41/2)=20。
+    # 注意先把补货清单复位回木剑（上面矿石用例覆盖了 make_npc.goods_rows）。
+    make_npc.goods_rows = rows
+    it_worn = {"durability": 2000, "durabilityMax": 4000}
+    check("半磨损木剑卖 20（装备折旧段）",
+          h._sell_price(npc, tw, it_worn) == 20,
+          f"price={h._sell_price(npc, tw, it_worn)}")
 
 
 def main() -> int:

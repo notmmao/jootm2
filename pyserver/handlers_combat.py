@@ -10,8 +10,8 @@ import random
 from typing import Any
 
 from .util import (
-    SIGHT_RANGE, U_WEAPON, _int, delphi_round, direction_delta, direction_toward,
-    java_div, java_round, now_ms,
+    BAG_SIZE, SIGHT_RANGE, U_WEAPON, _int, delphi_round, direction_delta,
+    direction_toward, java_div, java_round, now_ms, random_mine_dura,
 )
 from .world import Monster, Player
 
@@ -164,6 +164,10 @@ class CombatHandlers:
         w = self.world
         if damage > 0:
             self._hate(m, p)
+            # 原版 ObjBase.pas:4515-4517：魔法伤害对 m_boAnimal 扣
+            # m_nMeatQuality（nDamage*1000），魔法打死的动物肉品质极低。
+            if isinstance(m, Monster) and m.meat_quality > 0:
+                m.meat_quality = max(0, m.meat_quality - damage * 1000)
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": damage,
                                    "magicId": magic_id, "x": m.x, "y": m.y},
@@ -263,6 +267,10 @@ class CombatHandlers:
         dmg = max(1, dam - (m.template.ac if m.template else 0))
         dmg = green_poison_bonus(m, dmg)
         m.hp = max(0, m.hp - dmg)
+        # 原版 ObjBase.pas:2807-2811 TBaseObject.Struck：动物每次被打扣
+        # m_nMeatQuality Random(300)——砍得越狠肉越差。
+        if m.meat_quality > 0:
+            m.meat_quality = max(0, m.meat_quality - random.randint(0, 299))
         self._hate(m, p)          # 命中才记仇：未命中原版不触发 Struck
         if p.suck_health_rate > 0:
             heal = java_div(dmg * p.suck_health_rate, 100)
@@ -460,6 +468,16 @@ class CombatHandlers:
         w.broadcast_move(p)
         dx, dy = direction_delta(d)
         fx, fy = p.x + dx, p.y + dy
+        # 原版 ObjBase.pas:8819-8847：CM_HEAVYHIT（StdMode 6 武器一律发重击，
+        # ClMain.pas:2696）且武器耐久 > 0 时，若前方格不可走（石壁/矿堆）且
+        # 武器 Shape=19（鹤嘴锄）→ PileStones 挖矿并 Exit（不进 AttackDir）；
+        # 其他情况照常 AttackDir 挥砍。
+        wt = self._weapon_template(p)
+        if (wt is not None and wt.stdMode == 6 and wt.shape == 19
+                and p.map.inside(fx, fy) and not p.map.can_walk(fx, fy)
+                and self._weapon_dura(p) > 0):
+            self._pile_stones(p, dx, dy)
+            return
         front = self._find_target_at(p.map, fx, fy)
         if isinstance(front, Monster) and front.alive:
             self._attack_monster(p, front)
@@ -480,6 +498,101 @@ class CombatHandlers:
         w.broadcast_around(p.map, o, p.x, p.y, SIGHT_RANGE)
 
     # ---- 技能辅助 -------------------------------------------------------
+
+    # ---- 挖矿 -----------------------------------------------------------
+
+    def _weapon_template(self, p):
+        """当前装备武器模板（无武器 → None）。"""
+        if not p.equipment:
+            return None
+        it = p.equipment[U_WEAPON]
+        if not it:
+            return None
+        return self.world.item_templates.get(int(it.get("index", 0)))
+
+    def _weapon_dura(self, p) -> int:
+        it = (p.equipment[U_WEAPON] if p.equipment else None) or {}
+        return int(it.get("durability", 0) or 0)
+
+    def _damage_weapon(self, p, amount: int) -> None:
+        """武器磨损（原版 DoDamageWeapon）。挖到耐久 0 后原版不再可挖
+        （ObjBase.pas:8823 ``m_UseItems[U_WEAPON].Dura > 0``）。"""
+        it = (p.equipment[U_WEAPON] if p.equipment else None)
+        if not it:
+            return
+        it["durability"] = max(0, int(it.get("durability", 0) or 0) - amount)
+
+    def _pile_stones(self, p, dx: int, dy: int) -> None:
+        """原版 ``TPlayObject.PileStones``（ObjBase.pas:21881-21925）逐行直译。
+
+        前方格必须有 TStoneMineEvent（MINE/MINE2 地图每格都建，这里惰性
+        登记 ``world.mine_state``，创建时存量 ``Random(200)``）。每锄：
+        存量 -1；``Random(4)=0``（nMakeMineHitRate）命中 → 武器磨损
+        ``Random(15)+5``；命中且 ``Random(12)=0``（nMakeMineRate）→ MakeMine
+        出矿石。存量挖空后 10 分钟补 ``Random(80)``（AddStoneMine，Event.pas:352）。
+        命中原版还会在自己脚下建 ET_PILESTONES 碎石堆视觉事件（5 分钟），
+        本项目暂无事件渲染层，略。
+        """
+        w = self.world
+        mt = w.map_mine_type(p.map.name)
+        # RM_HEAVYHIT 广播（:21924）：无论是否命中都广播挥锄动作。
+        w.broadcast_around(p.map, {"type": "attack", "attackerId": p.id,
+                                   "targetId": 0, "damage": 0,
+                                   "x": p.x + dx, "y": p.y + dy},
+                           p.x, p.y, SIGHT_RANGE)
+        if mt is None:
+            return
+        key = (p.map.name, p.x + dx, p.y + dy)
+        st = w.mine_state.get(key)
+        now = now_ms()
+        if st is None:
+            # TStoneMineEvent.Create（Event.pas:84-94）：存量 Random(200)
+            st = w.mine_state[key] = [random.randrange(200), now]
+        if st[0] > 0:
+            st[0] -= 1
+            if random.randrange(4) == 0:
+                self._damage_weapon(p, random.randint(5, 19))   # Random(15)+5
+                if random.randrange(12) == 0:
+                    self._make_mine(p, mt)
+        elif now - st[1] > 600_000:
+            # AddStoneMine（Event.pas:352-356）：补 m_nAddStoneCount = Random(80)
+            st[0] = random.randrange(80)
+            st[1] = now
+
+    def _make_mine(self, p, mt: str) -> None:
+        """原版 ``TPlayObject.MakeMine``（ObjBase.pas:24351-24474）。
+
+        ``Random(120)`` 定矿种：1~2 金矿 / 3~20 银矿 / 21~45 铁矿 /
+        46~56 黑铁矿石 / 其余铜矿（M2Share.pas:1960+ 默认配置）；
+        耐久（纯度）RandomDrua = Random(13000)+3000、1/20 再 +Random(10000)。
+        背包满直接挖不到（:24364 Exit；8836 提示背包已满）。
+        MINE2（宝石矿区，sGemStone1..4）本项目 MapInfo 无配置，按同一档位
+        映射到红宝石/绿宝石矿石（仅兜底，实际不可达）。
+        """
+        w = self.world
+        if len(p.bag) >= BAG_SIZE:
+            w.send_system(p, "背包已满，无法携带更多的东西")
+            return
+        roll = random.randrange(120)
+        if mt == "mine2":
+            name = ("红宝石矿石" if roll <= 2
+                    else "绿宝石矿石" if roll <= 45 else "绿宝石矿石")
+        elif roll <= 2:
+            name = "金矿"
+        elif roll <= 20:
+            name = "银矿"
+        elif roll <= 45:
+            name = "铁矿"
+        elif roll <= 56:
+            name = "黑铁矿石"
+        else:
+            name = "铜矿"
+        t = w.item_template_by_name(name)
+        if t is None:
+            return
+        it = w.new_item_instance(t, random_mine_dura())
+        p.bag.append(it)
+        self.send_bag_update(p)
 
     def _finish_cast(self, p, t, skill: dict, lv: int, now: int,
                      cost: int, success: bool) -> None:
