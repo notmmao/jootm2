@@ -1156,6 +1156,7 @@ export class PlayScene extends Scene {
                     if (msg.weight !== undefined) e.weight = msg.weight;
                     if (msg.maxWeight !== undefined) e.maxWeight = msg.maxWeight;
                     if (msg.gold !== undefined) e.gold = msg.gold;
+                    if (msg.gm !== undefined) e.gm = !!msg.gm;   // GM 标记（Ctrl+大地图传送用）
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
                     // 战斗属性（幽灵盾/神圣战甲等 buff 改变 AC/MAC，F10 状态页实时刷新）
                     if (msg.ac !== undefined) e.ac = msg.ac;
@@ -1406,6 +1407,7 @@ export class PlayScene extends Scene {
                 break;
             case 'changeMap': {
                 // 换图快照：重建实体 + 地面物品 + 切地图
+                this.snapshot = msg;   // _renderHud 读 snapshot.map.title，不更新会一直显示旧图名
                 this.entities.clear();
                 this.groundItems.clear();
                 this._holding = false;
@@ -1715,10 +1717,27 @@ export class PlayScene extends Scene {
             + 'background:#0b0d0a;image-rendering:pixelated;';
         p.appendChild(cv);
         this._bigMapCanvas = cv;
+        // GM：Ctrl+点击大地图 = 传送到对应坐标（客户端只发 @移动 命令，
+        // 服务端校验 is_gm；坐标换算是点位变换的逆变换）。
+        cv.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (!e.ctrlKey) return;
+            const g = this._bigMapGeom;
+            if (!g || !this.self) return;
+            const rect = cv.getBoundingClientRect();
+            const scale = cv.width / rect.width;   // CSS 缩放后也要换算回画布像素
+            const px = (e.clientX - rect.left) * scale;
+            const py = (e.clientY - rect.top) * scale;
+            const gx = Math.max(0, Math.min(g.mapW - 1, Math.floor((px - g.bx) / g.w * g.mapW)));
+            const gy = Math.max(0, Math.min(g.mapH - 1, Math.floor((py - g.by) / g.h * g.mapH)));
+            this.conn.send('say', { text: `@移动 ${g.mapName} ${gx} ${gy}` });
+        });
 
         const tip = document.createElement('div');
         tip.style.cssText = 'position:absolute;left:10px;top:392px;font-size:11px;color:#9fb08a;';
-        tip.textContent = '白=自己  红=怪物  黄=NPC  蓝=玩家   |   Tab 关闭 / Esc 关闭 / 点击面板关闭';
+        tip.textContent = '白=自己  红=怪物  黄=NPC  蓝=玩家   |   Tab 关闭 / Esc 关闭 / 点击面板关闭'
+            + (this.self && this.self.gm ? '   |   GM: Ctrl+点击传送' : '');
         p.appendChild(tip);
         p.addEventListener('mousedown', (e) => {
             e.stopPropagation();
@@ -1756,6 +1775,11 @@ export class PlayScene extends Scene {
         const h = Math.max(1, Math.floor(tex.height * k));
         const bx = Math.floor((cv.width - w) / 2);
         const by = Math.floor((cv.height - h) / 2);
+        // 记录几何信息供 Ctrl+点击传送逆变换使用
+        this._bigMapGeom = {
+            bx, by, w, h, mapW, mapH,
+            mapName: sm0.name || (this.mapActor && this.mapActor.map && this.mapActor.map.name) || '',
+        };
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(tex, 0, 0, tex.width, tex.height, bx, by, w, h);
         const dot = (gx, gy, color) => {

@@ -204,7 +204,8 @@ def run_success_paths() -> int:
         s1.messages.clear()
         h["useItem"](s1, {"type": "useItem", "makeIndex": con_mi})
         check("消耗品使用后离开背包", p.bag_item(con_mi) is None, results)
-        check("消耗品恢复 HP", p.hp > 1, results)
+        # 原版药水不即时回血：AC 写入回血池 m_nIncHealth，由 regen tick 慢慢消耗
+        check("消耗品写入回血池", p.inc_health > 0, results)
 
         # 丢弃 → 拾取
         s1.messages.clear()

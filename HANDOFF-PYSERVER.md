@@ -1952,3 +1952,75 @@ end;
   - 无 pageerror / console.error
 - 回归：`test_pyserver` 73/0、`test_tick_systems` 93/0、`test_all_messages --live` 29/0、`test_sfx_map` 84/0。
 - 治愈术单测：delphi_round(3.5)=4/2.5=2/10.5=10；治愈术 lv0-3 = 11..30（原版公式 10..31 区间内）。
+
+---
+
+## §37 建角发型 / 升级不回满 / 药水缓回 / 刷怪密度 / 地图名 / GM（2026-11-12 第 11 轮反馈）
+
+### 37.1 女角色光头（#15）
+
+原版建角发送的是 `shair := IntToStr(1 + Random(5))`（`IntroScn.pas:1427`）——**随机 1..5，
+从来不是 0**；而客户端 `Actor.pas:3186` 只在 `hair*2 > 1`（即 hair >= 1）时才画头发
+（`m_nHairOffset := HUMANFRAME * (hair*2 + sex)`，hair=0 → offset = -1 不画）。
+我们前端建角默认 `hair: 0` 且允许 0..9 循环，默认值正好落在「光头」上。
+
+- `SelectCharScene.mjs`：默认/循环范围改为 1..5（对齐原版），文字显示改为直接显示 hair 值。
+- `service.py::_enter_game`：老存档 `hair <= 0` 的角色进游戏时迁移成 `1 + Random(5)`。
+
+### 37.2 升级不回满（#16）
+
+原版 `HasLevelUp → RecalcLevelAbilitys`（`ObjBase.pas:1938-1939`）只做
+`if HP > MaxHP then HP := MaxHP` 的**向下钳制**，没有任何 `:= MaxHP` 赋值——升级不会回满。
+旧实现 `p.hp, p.mp = p.max_hp, p.max_mp` 是错的，改为 `min(p.hp, p.max_hp)` 钳制。
+
+### 37.3 药水「慢慢恢复」（#17）
+
+原版 `ObjBase.pas:23335-23368`：StdMode 0 的药水**不**即时加血——
+`Inc(m_nIncHealth, StdItem.AC)` / `Inc(m_nIncSpell, StdItem.MAC)` 写进回血池；
+例外是 Shape 1（疗伤药）走 `IncHealthSpell(AC, MAC)` 立即加（`ObjBase.pas:3615`）。
+池由回血 tick 消耗（`ObjBase.pas:3782-3850`）：
+
+- tick 间隔 `600 - min(400, Level*10)` ms；
+- 每 tick 每池消耗 `Level div 10 + 5`（HP/MP 同），治愈术池恒 5；
+- HP 满 → 清空 inc_health/inc_healing；MP 满 → 清空 inc_spell。
+
+`_regen` 重写为三池合一 tick；`_consume` 改写池语义（StdMode 1=肉 2=毒药：消耗但无回血）。
+回血池为会话内状态，未持久化（原版有 btIncHealth 存档字段，量小影响可忽略，见 §37.6）。
+
+### 37.4 刷怪密度（#18）
+
+旧实现 `spawn_monsters` 把每个 MonGen 条目的数量钳到 `min(count, 3)`——MonGen.txt 里
+天然洞穴一层（D011）单条就是 30/45 只，钳完只剩 3 只，密度差 10 倍以上。已去掉钳制，
+按 `entry.count` 全量刷。重生对齐原版 ZenTime：列 7（分钟）×60s（`LocalDB.pas:1237
+dwZenTime := Str_ToInt(sData,-1)*60*1000`），每条 entry 数量补满才停（`UsrEngn.pas:1158-1172`：
+活怪数 < nCount 且距上次刷新超过 ZenTime → 一次补齐差额）。
+验证：D011 刷 122 只（= MonGen 有效条目 count 总和；「山洞蝙蝠0」无模板跳过）。
+全服怪物数从启动 ~30 涨到 3500+。
+
+### 37.5 换图后地图名不变（#19）
+
+`PlayScene.mjs case 'changeMap'` 之前**没有更新 `this.snapshot`**，`_renderHud` 读的是
+onEnter 时的旧快照 map.title → 永远显示第一张图的名字。加 `this.snapshot = msg` 即修。
+验证：@移动 0 → D011，标题从「比奇省」变为「天然洞穴一层」。
+
+### 37.6 GM 账号与 @命令（#20）
+
+- `config.GM_ACCOUNTS = frozenset({"player"})`（登录名白名单，语义对齐原版
+  `m_btPermission >= 6`）；登录时记 `session.account_name`，进游戏设 `p.is_gm`，
+  stats 里下发 `gm` 标记。
+- 命令（`service._say` 里 `@` 前缀拦截，不广播；对齐原版 `ProcessUserLineMsg`）：
+  `@移动 [地图] x y`、`@金 n`、`@等级 n`、`@制造 物品名 [数量]`、`@刷怪 怪名 [数量]`、
+  `@满`、`@帮助`。
+- 前端：大地图 Ctrl+点击 → 逆变换算格子坐标 → 发 `@移动`（服务端再校验 is_gm）；
+  面板提示按 `self.gm` 显示「GM: Ctrl+点击传送」。
+- 已知边界：gold 不在常规 stats 里（原版是 GoldChanged → SM_GOLDCHANGED 单独下发），
+  `@金` 用 `send_stats(extras={"gold"})` 补发。
+
+### 37.7 验证
+
+- 离线定点 15/15（`data/_unit_batch11.py`，已删）：hair 迁移、GM 判定、升级不回满、
+  吃药不即时回血 + 池写入 + tick 消耗、@金/@等级/@移动/@制造、D011 数量与 ZenTime。
+- E2E 8/8（Playwright）：GM 标记、@金、@移动、大地图几何与 Ctrl+传送、刷怪总量、
+  换图标题更新、无 pageerror。
+- 回归：`test_pyserver` 73/0、`test_tick_systems` 93/0、`test_all_messages --live` 29/0
+  （「消耗品恢复 HP」断言改为「消耗品写入回血池」）、`test_sfx_map` 84/0。

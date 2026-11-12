@@ -338,7 +338,7 @@ export class SelectCharScene extends Scene {
     async _openCreate(index) {
         this.createMode = true;
         this.newIndex = index;
-        this.createState = { job: 0, sex: 0, hair: 0 };   // 建角状态（同步初始化，避免 await 后才可用）
+        this.createState = { job: 0, sex: 0, hair: 1 + Math.floor(Math.random() * 5) };   // 建角状态（同步初始化，避免 await 后才可用）
         this._createBtns = [];                 // 建角按钮（含选中态图），供 _refreshCreateSelection 使用
         const left = index === 0 ? 415 : 75;   // 照 MakeNewChar：槽0在右、槽1在左
         const top = 15;
@@ -441,7 +441,7 @@ export class SelectCharScene extends Scene {
 
     /** 把当前选择的职业/性别以「按下态」高亮，并刷新状态文字（原版 TDButton.Down 语义）。 */
     _refreshCreateSelection() {
-        const st = this.createState || { job: 0, sex: 0, hair: 0 };
+        const st = this.createState || { job: 0, sex: 0, hair: 1 };
         for (const b of this._createBtns || []) {
             const on = (b.group === 'job' && st.job === b.value)
                     || (b.group === 'sex' && st.sex === b.value);
@@ -449,7 +449,7 @@ export class SelectCharScene extends Scene {
         }
         if (this._createInfo) {
             this._createInfo.textContent = `职业：${JOB_NAMES[st.job]}　`
-                + `性别：${st.sex ? '女' : '男'}　发型：${st.hair + 1}`;
+                + `性别：${st.sex ? '女' : '男'}　发型：${st.hair}`;
         }
     }
 
@@ -464,7 +464,10 @@ export class SelectCharScene extends Scene {
         this._ensurePortraits();     // 原版 SelChrNewm_btSex 同理
     }
     _setHair(d) {
-        this.createState.hair = (this.createState.hair + d + 10) % 10;
+        // 原版建角 hair = 1 + Random(5)（IntroScn.pas:1427），有效发型 1..5：
+        // 客户端只在 hair*2 > 1 时画头发（Actor.pas:3186）→ hair 0 = 光头。
+        const st = this.createState;
+        st.hair = ((st.hair - 1 + d + 5) % 5) + 1;
         this._refreshCreateSelection();
     }
 

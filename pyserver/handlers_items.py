@@ -121,16 +121,27 @@ class ItemHandlers:
     def _consume(self, p, t, it: dict) -> None:
         w = self.world
         used = False
-        if t.stdMode <= 2:
-            if t.acMin > 0:
-                p.hp = min(p.max_hp, p.hp + t.acMin)
-                used = True
-            if t.macMin > 0:
-                p.mp = min(p.max_mp, p.mp + t.macMin)
-                used = True
-            if not used:
-                p.hp = p.max_hp
-                used = True
+        if t.stdMode == 0:
+            # 原版 ObjBase.pas:23335-23368：StdMode 0 的药水**不**即时加血，
+            # AC 写 m_nIncHealth、MAC 写 m_nIncSpell 回血池，由 regen tick
+            # 按「每 tick Level div 10 + 5」慢慢消耗——这就是「药水慢慢恢复」。
+            # 例外：Shape 1（疗伤药）走 IncHealthSpell(AC, MAC) 立即加。
+            if t.shape == 1:
+                if t.acMin > 0:
+                    p.hp = min(p.max_hp, p.hp + t.acMin)
+                if t.macMin > 0:
+                    p.mp = min(p.max_mp, p.mp + t.macMin)
+                used = (t.acMin > 0 or t.macMin > 0)
+            else:
+                if t.acMin > 0:
+                    p.inc_health += t.acMin
+                    used = True
+                if t.macMin > 0:
+                    p.inc_spell += t.macMin
+                    used = True
+        elif t.stdMode in (1, 2):
+            # 原版 1=肉类（饥饿度，本项目无饥饿系统）、2=毒药类：消耗但无回血。
+            used = True
         if used:
             p.bag.remove(it)
             p.clear_quick_ref(int(it.get("makeIndex", 0)))

@@ -260,6 +260,13 @@ class Player(Actor):
     summon_id: int = -1
     target_id: int = -1
     inc_healing: int = 0
+    # 吃药写入的回血/回蓝池：原版不吃即时血，药水的 AC/MAC 写进
+    # m_nIncHealth / m_nIncSpell（ObjBase.pas:23359-23366），由 _regen 的
+    # 回血 tick 按「每 tick Level div 10 + 5」慢慢消耗（ObjBase.pas:3782-3850）。
+    inc_health: int = 0
+    inc_spell: int = 0
+    # GM 账号标记（登录时按 config.GM_ACCOUNTS 判定）。
+    is_gm: bool = False
     last_healing_at: int = 0
     poison_damage: int = 0
     last_poison_at: int = 0
@@ -739,7 +746,7 @@ class GameWorld(WorldExtra):
             t = self.monster_templates.get(entry.monster_name)
             if t is None:
                 continue
-            for _ in range(min(max(entry.count, 1), 3)):
+            for _ in range(max(entry.count, 0)):
                 pos = self._free_near(game_map, entry.x, entry.y, entry.range_)
                 if pos is None:
                     continue
@@ -853,6 +860,7 @@ class GameWorld(WorldExtra):
             # 旧实现只发 exp 不发 maxExp，客户端 no 升级后永远拿着登录时的旧 MaxExp，
             # EXP 条横竖都不准（面板会出现「当前经验 1183 / 升级经验 400」）。
             o.update(maxExp=a.max_exp,
+                     gm=isinstance(a, Player) and a.is_gm,
                      weight=a.bag_weight(self), maxWeight=a.max_weight,
                      shield=a.shield_until > now, hidden=a.hide_until > now,
                      wideHit=a.wide_hit_on, longHit=a.long_hit_on, fireHit=a.fire_hit_on,
@@ -984,17 +992,33 @@ class GameWorld(WorldExtra):
     # -- 玩家状态：回血 / buff / 毒 ---------------------------------------
 
     def _regen(self, p: Player, now: int) -> None:
-        """HP/MP 自然回复 + 治愈术持续回血（``GameWorld.regen``）。"""
+        """HP/MP 自然回复 + 药水/治愈术回血池（``ObjBase.pas:3782-3850``）。
+
+        原版把「药水回血」「回蓝」「治愈术」三个池子合在**同一个** tick：
+        间隔 dwInChsTime = 600 - min(400, Level*10) ms，每 tick 每池消耗
+        m_nPerHealth / m_nPerSpell = Level div 10 + 5、m_nPerHealing = 5；
+        HP 满时清空 inc_health/inc_healing，MP 满时清空 inc_spell。
+        """
         changed = False
-        # 治愈术是「回血池」：每次只掉 m_nPerHealing=5 点（ObjBase.pas:3825-3837），
-        # tick 间隔 dwInChsTime = 600 - min(400, Level*10) ms（ObjBase.pas:3785）。
-        # 旧实现固定 500ms；高等级原版快到 200ms，低等级慢到 600ms。
         heal_tick = 600 - min(400, p.level * 10)
-        if p.inc_healing > 0 and p.hp < p.max_hp \
+        if (p.inc_health > 0 or p.inc_spell > 0 or p.inc_healing > 0) \
                 and now - p.last_healing_at >= heal_tick:
-            heal = min(5, p.inc_healing)
-            p.hp = min(p.max_hp, p.hp + heal)
-            p.inc_healing -= heal
+            per = max(1, p.level // 10 + 5)      # m_nPerHealth / m_nPerSpell
+            hp_add = min(p.inc_health, per)
+            mp_add = min(p.inc_spell, per)
+            heal_add = min(p.inc_healing, 5)     # m_nPerHealing 恒 5
+            p.inc_health -= hp_add
+            p.inc_spell -= mp_add
+            p.inc_healing -= heal_add
+            if hp_add or heal_add:
+                p.hp = min(p.max_hp, p.hp + hp_add + heal_add)
+            if mp_add:
+                p.mp = min(p.max_mp, p.mp + mp_add)
+            if p.hp >= p.max_hp:
+                p.inc_health = 0
+                p.inc_healing = 0
+            if p.mp >= p.max_mp:
+                p.inc_spell = 0
             p.last_healing_at = now
             changed = True
         if now - self.last_regen_at < REGEN_INTERVAL_MS:

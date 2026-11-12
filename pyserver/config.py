@@ -11,6 +11,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# GM 账号（登录名）：可以使用 @命令（移动/金/等级/制造/刷怪）。
+# 对齐原版 m_btPermission >= 6 的 GM 权限语义（ObjBase.pas CmdXXX 系列）。
+GM_ACCOUNTS: frozenset[str] = frozenset({"player"})
+
 DEFAULTS: dict[str, str] = {
     "server.port": "8080",
     "db.file": "data/jootm2.db",

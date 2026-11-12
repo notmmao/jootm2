@@ -15,7 +15,7 @@ import time
 from collections import Counter
 from typing import Any, Callable
 
-from .config import ServerConfig
+from .config import GM_ACCOUNTS, ServerConfig
 from .db import Database
 from .handlers_combat import COMBAT_TYPES, CombatHandlers
 from .handlers_items import ITEM_TYPES, ItemHandlers
@@ -224,6 +224,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             session.send_json(_error("loginResult", "账号或密码错误。"))
         else:
             session.account_id = account.id
+            session.account_name = account.username
             session.send_json({"type": "loginResult", "ok": True})
 
     def _list_characters(self, session: Any, msg: dict) -> None:
@@ -348,6 +349,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
 
         # 旧存档的 exp 是累计值，先换算成原版的「本级内经验」再建 Player
         lv, ex = normalize_exp(rec["level"], rec["exp"])
+        # 发型：原版建角发送 1 + Random(5)（IntroScn.pas:1427），客户端只在
+        # hair*2 > 1（即 hair >= 1）时才画头发（Actor.pas:3186）——hair 0 = 光头。
+        # 旧版我们默认发 0，老存档里 hair==0 的角色迁移成随机 1..5。
+        if rec["hair"] <= 0:
+            rec["hair"] = random.randint(1, 5)
         p = Player(id=world.new_id(), name=rec["name"], x=rec["x"], y=rec["y"],
                    dir=rec["dir"], hp=rec["hp"], mp=rec["mp"], level=lv,
                    exp=ex, account_id=rec["account_id"],
@@ -357,7 +363,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                    map=target_map, session=session, world_ref=world,
                    bag=list(rec["items"]), storage=list(rec["storage"]),
                    skills=_load_skills(rec["skills"]),
-                   quick_slots=(list(rec["quick_slots"]) + [0] * 6)[:6])
+                   quick_slots=(list(rec["quick_slots"]) + [0] * 6)[:6],
+                   is_gm=getattr(session, "account_name", "") in GM_ACCOUNTS)
         p.distribute_items(world)
         p.recompute(world)
         if 12 in p.skills:
@@ -406,8 +413,120 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         text = _str(msg, "text")
         if p is None or not text:
             return
+        if text.startswith("@"):
+            # 原版 TPlayObject.ProcessUserLineMsg：@ 开头走命令通道，不广播。
+            if not p.is_gm:
+                self.world.send_system(p, "你没有使用该命令的权限。")
+                return
+            self._gm_command(p, text[1:].strip())
+            return
         self.world.broadcast_all({"type": "chat", "id": p.id, "name": p.name,
                                   "text": text[:500]})
+
+    # ---- GM @命令（原版 ObjBase.pas CmdXXX 系列，权限 >= 6）-------------
+
+    _GM_HELP = ("GM命令: @移动 [地图] x y  @金 数量  @等级 n  "
+                "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  @帮助")
+
+    def _gm_command(self, p, line: str) -> None:
+        w = self.world
+        parts = line.split()
+        if not parts:
+            return
+        cmd, args = parts[0].lower(), parts[1:]
+
+        def arg_int(i: int, d: int = 0) -> int:
+            try:
+                return int(args[i])
+            except (IndexError, ValueError):
+                return d
+
+        if cmd in ("帮助", "help"):
+            w.send_system(p, self._GM_HELP)
+            return
+        if cmd in ("移动", "move"):
+            # @移动 x y = 当前地图；@移动 地图名 x y = 跨图
+            if len(args) == 2:
+                map_id, x, y = (p.map.name if p.map else w.default_map.name), arg_int(0), arg_int(1)
+            elif len(args) == 3:
+                map_id, x, y = args[0], arg_int(1), arg_int(2)
+            else:
+                w.send_system(p, "用法: @移动 [地图] x y")
+                return
+            gm = w.get_or_load_map(map_id)
+            if gm is None:
+                w.send_system(p, f"地图 {map_id} 不存在。")
+                return
+            x = max(0, min(gm.width - 1, x))
+            y = max(0, min(gm.height - 1, y))
+            if p.map is not None:
+                w.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},
+                                   p.x, p.y, SIGHT_RANGE)
+            if w.change_map(p, gm.name, x, y) is not None:
+                if p.session is not None:
+                    p.session.send_json(w.map_snapshot(p, "changeMap"))
+                w.broadcast_entity_add(p)
+            return
+        if cmd in ("金", "金币", "gold"):
+            n = arg_int(0, 0)
+            if n:
+                p.gold = max(0, p.gold + n)
+                # gold 不在常规 stats 里（原版是 GoldChanged → SM_GOLDCHANGED 单独下发）
+                w.send_stats(p, {"gold": p.gold})
+                w.send_system(p, f"金币 {'+' if n > 0 else ''}{n}，现有 {p.gold}。")
+            return
+        if cmd in ("等级", "level"):
+            lv = max(1, min(100, arg_int(0, 1)))
+            p.level, p.exp = lv, 0
+            p.recompute(w)
+            w.send_stats(p)
+            w.send_system(p, f"等级已设为 {lv}。")
+            return
+        if cmd in ("制造", "make", "item"):
+            if not args:
+                w.send_system(p, "用法: @制造 物品名 [数量]")
+                return
+            count = 1
+            if len(args) >= 2 and args[-1].isdigit():
+                count = max(1, min(100, int(args[-1])))
+                args = args[:-1]
+            name = "".join(args)
+            if w.give_item(p, name, count):
+                self.send_bag_update(p)
+                w.send_system(p, f"获得了 {name} ×{count}。")
+            else:
+                w.send_system(p, f"找不到物品 {name}。")
+            return
+        if cmd in ("刷怪", "spawn"):
+            if not args:
+                w.send_system(p, "用法: @刷怪 怪名 [数量]")
+                return
+            count = arg_int(len(args) - 1, 1) if args[-1].isdigit() else 1
+            name = args[0] if not (len(args) >= 2 and args[-1].isdigit()) else " ".join(args[:-1])
+            t = w.monster_templates.get(name)
+            if t is None or p.map is None:
+                w.send_system(p, f"找不到怪物 {name}。")
+                return
+            for _ in range(max(1, count)):
+                pos = w._free_near(p.map, p.x, p.y, 3)
+                if pos is None:
+                    break
+                m = Monster(id=w.new_id(), name=t.name,
+                            x=pos[0], y=pos[1], dir=4,
+                            hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
+                            level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
+                            template=t, spawn_x=pos[0], spawn_y=pos[1],
+                            spawn_map=p.map)
+                m.exp = t.exp
+                w.add_actor(m, p.map)
+                w.broadcast_entity_add(m)
+            w.send_system(p, f"已在附近刷出 {name} ×{count}。")
+            return
+        if cmd in ("满", "full"):
+            p.hp, p.mp = p.max_hp, p.max_mp
+            w.send_stats(p)
+            return
+        w.send_system(p, "未知命令。" + self._GM_HELP)
 
     def _logout(self, session: Any, msg: dict) -> None:
         self.on_disconnect(session)

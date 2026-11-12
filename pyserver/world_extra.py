@@ -620,7 +620,10 @@ class WorldExtra:
             if p.level < 101:
                 p.level += 1
             p.recompute(self)
-            p.hp, p.mp = p.max_hp, p.max_mp
+            # 原版升级**不回满**：RecalcLevelAbilitys 只把超过新上限的 HP/MP
+            # 钳回来（ObjBase.pas:1938-1939），没有 := MaxHP 的赋值。
+            p.hp = min(p.hp, p.max_hp)
+            p.mp = min(p.mp, p.max_mp)
             self.send_system(p, f"恭喜！你升到了 {p.level} 级。",
                              "#ffff00", "#b00000")
         self.send_stats(p)
