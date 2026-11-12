@@ -6,7 +6,7 @@ sellItem / buyPrice``，脚本执行走 ``NpcScriptEngine``。
 from __future__ import annotations
 
 from .npc_script import NpcScriptEngine
-from .util import BAG_SIZE, _int, _str
+from .util import BAG_SIZE, _int, _str, delphi_round
 
 NPC_TYPES = frozenset({"npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice"})
 
@@ -113,14 +113,28 @@ class NpcHandlers:
         w.send_system(p, f"购买了 {t.name} x{count}，花费 {total} 金币。")
         self.send_bag_update(p)
 
-    @staticmethod
-    def _sell_price(t) -> int:
-        """卖价 = 物品价格的一半（原版 ``TMerchant.GetSellItemPrice`` = Round(Price/2.0)）。
+    def _sell_price(self, npc, t) -> int:
+        """原版 ``ClientSellItem``（ObjNpc.pas:2156）：
+        ``nPrice := GetSellItemPrice(GetUserItemPrice(UserItem))``，
+        即 ``Round(GetItemPrice(...) / 2.0)``（GetSellItemPrice :2127-2130）。
 
-        用 ``round`` 而不是 ``//2``：Delphi 的 ``Round`` 是银行家舍入，Python 的
-        ``round`` 行为一致（5 → 2 而不是 3）。
+        ``GetItemPrice``（:999-1024）语义：
+        - 该店 ``[goods]`` 补货清单里的物品 → 补货价 ``Round(Price * 1.1)``；
+        - 不在清单但 StdMode 在脚本头 ``+N`` 列表里 → ``StdItem.Price``；
+        - 都不满足 → ``-1``，``nPrice <= 0`` 卖不掉（NPC 不收这类东西）。
+        所以本店有售的物品卖价是 ``Round(Round(Price*1.1)/2)``（如木剑 28），
+        其余物品只有类型通过才按 ``Round(Price/2)`` 收。
+        耐久折价（肉 StdMode 40 / 矿 43 / 武器装备，GetUserItemPrice:1838+）未做，
+        见 §39.7 遗留。
         """
-        return int(round(t.price / 2.0))
+        if npc is not None:
+            for g in self.world.goods(npc):
+                if g["index"] == t.index:
+                    return delphi_round(delphi_round(t.price * 1.1) / 2.0)
+            types = getattr(getattr(npc, "script", None), "item_types", None)
+            if types and t.stdMode not in types:
+                return -1
+        return delphi_round(t.price / 2.0)
 
     def _query_sell_price(self, session, msg: dict) -> None:
         """原版 CM_MERCHANTQUERYSELLPRICE → SM_SENDBUYPRICE。
@@ -144,7 +158,7 @@ class NpcHandlers:
         # 原版：价格 <= 0 时下发 0，客户端显示「???? 金币」
         session.send_json({"type": "sellPrice", "npcId": npc.id,
                            "makeIndex": int(found.get("makeIndex", 0)),
-                           "price": max(0, self._sell_price(t))})
+                           "price": max(0, self._sell_price(npc, t))})
 
     def _sell_item(self, session, msg: dict) -> None:
         p = self.find_by_session(session)
@@ -162,7 +176,7 @@ class NpcHandlers:
         if t is None:
             return
         # 原版 ClientSellItem：GetSellItemPrice 为 0 时直接不成交（连提示都没有，这里补一句）
-        price = self._sell_price(t)
+        price = self._sell_price(npc, t)
         if price <= 0:
             w.send_system(p, "这个物品卖不出价钱。")
             return

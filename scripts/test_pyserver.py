@@ -374,6 +374,66 @@ def test_shop_goods() -> None:
         check("比奇服装店卖 1 级布衣", "布衣(男)" in names and "布衣(女)" in names,
               str(names[:4]))
 
+    # 村店/城店品类对比（用户第 15 轮反馈：新手村种类应该比主城少）。
+    # 本地 Market_Def 原版结论：不是「少」，是「品类分工 + 库存 + 倍率」：
+    # 边境村武器店(2Twe) 20 件 ≈ 比奇卫家店(2Bwe) 19 件（村多鹤嘴锄）；
+    # 边境村小店(4Tdu) 卖蜡烛/火把/卷轴/修复油/强效药，不卖小中量红蓝药；
+    # 边境村书店(5Tbo) 21 本且 %80 打折，比奇书店(5B) 23 本多集体隐身术/火墙。
+    v_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Twe-0.txt"
+    c_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-0103.txt"
+    v_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Tdu-0.txt"
+    v_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5Tbo-0132.txt"
+    c_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5B-0.txt"
+    if v_wea.is_file() and c_wea.is_file():
+        vn = {r[0] for r in NpcScript.parse(read_lines(v_wea)).goods_rows()}
+        cn = {r[0] for r in NpcScript.parse(read_lines(c_wea)).goods_rows()}
+        check("边境村武器店 ⊇ 比奇卫家店（多鹤嘴锄）", cn <= vn and "鹤嘴锄" in vn,
+              f"村独有={sorted(vn - cn)} 城独有={sorted(cn - vn)}")
+    if v_shop.is_file():
+        sn = {r[0] for r in NpcScript.parse(read_lines(v_shop)).goods_rows()}
+        check("边境村小店有蜡烛/火把/回城卷（城药店没有）",
+              {"蜡烛", "火把", "回城卷"} <= sn, str(sorted(sn)))
+        check("边境村小店不卖小量红蓝药（城药店专属）",
+              "金创药(小量)" not in sn and "魔法药(小量)" not in sn, str(sorted(sn)))
+    if v_book.is_file() and c_book.is_file():
+        vb = NpcScript.parse(read_lines(v_book))
+        cb = NpcScript.parse(read_lines(c_book))
+        vn2 = {r[0] for r in vb.goods_rows()}
+        cn2 = {r[0] for r in cb.goods_rows()}
+        check("边境村书店打 %80 折（比奇 %100）", vb.price_rate == 80,
+              f"rate={vb.price_rate}")
+        check("比奇书店比村书店多高级书（集体隐身术/火墙）",
+              {"集体隐身术", "火墙"} <= cn2 and not ({"集体隐身术", "火墙"} <= vn2),
+              f"村={len(vn2)} 城={len(cn2)}")
+
+    # 卖给 NPC 的原版定价（handlers_npc._sell_price）：
+    # ClientSellItem(ObjNpc.pas:2156) = Round(GetItemPrice/2)；GetItemPrice:
+    # 补货清单内 → Round(Price*1.1)；+N 类型外 → -1 拒收。
+    def make_npc(row_indexes, item_types):
+        goods_rows = [{"index": i, "name": f"i{i}", "price": 0, "stock": 1}
+                      for i in row_indexes]
+        sc = types.SimpleNamespace(item_types=item_types)
+        return types.SimpleNamespace(script=sc), goods_rows
+
+    from pyserver.handlers_npc import NpcHandlers
+    h = NpcHandlers.__new__(NpcHandlers)   # 只测纯函数，绕过 mixin 依赖
+    h.world = types.SimpleNamespace(
+        goods=lambda n: make_npc.goods_rows)   # noqa: 由 make_npc 注入
+    tw = types.SimpleNamespace(index=1, name="木剑", price=50, stdMode=5)
+    to = types.SimpleNamespace(index=2, name="护身符", price=500, stdMode=25)
+    npc, rows = make_npc([1], [5, 6])
+    make_npc.goods_rows = rows
+    check("卖本店补货物品 = Round(Round(Price*1.1)/2)（木剑 28）",
+          h._sell_price(npc, tw) == delphi_round(delphi_round(50 * 1.1) / 2.0),
+          f"price={h._sell_price(npc, tw)}")
+    check("卖 +N 类型外的物品被拒收（护身符 stdMode 25）",
+          h._sell_price(npc, to) == -1, f"price={h._sell_price(npc, to)}")
+    npc2, rows2 = make_npc([], [])
+    make_npc.goods_rows = rows2
+    check("无 +N 的 NPC 什么类型都收，价 = Round(Price/2)",
+          h._sell_price(npc2, to) == delphi_round(500 / 2.0),
+          f"price={h._sell_price(npc2, to)}")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="pyserver 离线自检")
