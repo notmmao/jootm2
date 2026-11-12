@@ -4,6 +4,7 @@
 let _images = null;   // { key: { x: wix路径, l: wil路径 } }
 let _maps = null;     // { mapId: map路径 }
 let _wavs = null;     // { soundId: wav路径 }
+let _mapsLower = null;  // 小写 key 索引（服务端 _base() 把 D401.map 归一成 d401）
 
 export async function loadResources() {
     const resp = await fetch('/resources/resources.json');
@@ -12,6 +13,11 @@ export async function loadResources() {
     _images = data.images || {};
     _maps = data.maps || {};
     _wavs = data.wavs || {};
+    // 服务端 gamedata._base() 把文件名统一小写登记（D401.map → "d401"），
+    // 而 MapInfo 里地图 id 是原样（D401）。矿洞/地下城这类大写 id 之前直接查表
+    // 落空 → 「地图 D401 未在 resources.json 中」卡死在加载界面。
+    _mapsLower = {};
+    for (const k of Object.keys(_maps)) _mapsLower[k.toLowerCase()] = _maps[k];
     return data;
 }
 
@@ -27,9 +33,9 @@ export function imageUrls(key) {
     return { wil: `/resources/${img.l}`, wix: `/resources/${img.x}` };
 }
 
-// 取地图文件 URL
+// 取地图文件 URL（先精确匹配，再小写兜底）
 export function mapUrl(mapId) {
-    const m = _maps?.[mapId];
+    const m = _maps?.[mapId] ?? _mapsLower?.[String(mapId).toLowerCase()];
     return m ? `/resources/${m}` : null;
 }
 

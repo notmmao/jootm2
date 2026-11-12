@@ -1878,3 +1878,77 @@ end;
 
 - 怪物叫声只在**移动事件**里按 1/8 概率触发，静止的怪不会「待机叫」；原版 `RunActSound` 的待机帧也会发声。
 - `footstepBase` 的石头/洞穴区间是从 `bng` 反推的，若发现某张图脚步不对，直接补区间即可。
+
+---
+
+## §36 遮挡半透明 / 脚步音 / 掉落闪光 / 治愈术 / 矿洞地图（2026-11-12 第 10 轮反馈）
+
+用户反馈 5 条：树/城墙图层不对（人物一直在最上面，过城门尤其明显）、点鼠标就响脚步（人被挡住没动也响）、
+掉落物没有闪光、道士治愈术太强（回血多、恢复不打断进攻节奏）、(664,214) 进矿洞卡「正在加载地图」。
+
+### 36.1 树/城墙遮挡：最后一遍重画自己必须是**半透明**（关键发现）
+
+根因在 §32.4：原版 `PlayScn.pas:1361-1383` 确实会把 `g_MySelf` / `g_FocusCret` / `g_MagicTarget`
+在行循环后再画一遍，但我们画成了**实心**。原版这一遍 `DrawChr(..., blend=TRUE, FALSE)`，
+`Actor.pas:1983 DrawEffSurface` 里 `blend=TRUE` → `DrawBlend(..., 0)`，
+`cliUtil.pas:956` `blendmode 0 = Color256Mix`（**50% 调色板混合 = 半透明**；mode 1 才是加色）。
+
+所以原版的真实效果是：**人被树/城墙/城门挡住时，人物以约 50% 透明度「透」在最上面**——
+未遮挡时半透明重画叠在自己身上 = 颜色不变（0.5s + 0.5s = s），所以平时看不出差别。
+旧实现实心重画 → 「人物一直站在树/城墙上」。
+
+修法：`MapActor.render` 的 selfSnap / focusSnap 重画都包 `ctx.globalAlpha = 0.5`。
+顺带补上 focusSnap（原版 `g_FocusCret` 同样重画，旧实现只高亮不重画）。
+
+### 36.2 脚步音：坐标没变不播
+
+服务端 `_move` 被挡时也 `broadcast_move`（坐标不变，客户端当纯转向用），
+前端 `case 'move'` 只要 id 是自己就播脚步 → 点鼠标被挡也响。
+`SoundManager` 加 `_lastMovePos` 跟踪：坐标与上次相同（纯转向/被挡）直接 break；
+换图（changeMap）清空，避免吞掉换图后第一步。真移动时左右脚交替仍由 stepFlip 负责。
+
+### 36.3 掉落物闪光：FLASHBASE=410（1.80 保留）
+
+原版 `PlayScn.pas:1417-1438`：每 `g_dwDropItemFlashTime`(MShare.pas:412 = 5s) 把 `BoFlash` 置 TRUE，
+之后每 20ms 走一帧 `g_WMainImages[FLASHBASE(410)+step]`，step 0..9 共 10 帧，
+`DrawBlend(..., 1)`（Color256Anti 加色）画在所有 actor 之后（最上层）。
+实测 1.80 `Prguse.wil` 410-418 正是这组星光（8×7 → 32×30 → 8×7，offset 自带居中），419 为 1×1 收尾。
+
+实现：`MapActor.render` 末尾遍历 groundItems，`_flash` 状态机（5s 触发 / 20ms 一帧 / 10 帧），
+`_getTex('prguse', 410+step)` + `globalCompositeOperation='lighter'`，位置 `sx(g.x)+tex.px, sy(g.y)+tex.py`。
+
+### 36.4 治愈术：数值与节奏
+
+| 项 | 原版 | 旧实现 |
+|---|---|---|
+| 威力 | `GetAttackPower(GetPower(MPow) + LoWord(SC)*2, (HiWord(SC)-LoWord(SC))*2+1)`（Magic.pas:301） | `magic_power`（掺 MC 掷点）+ **scMax**\*2 |
+| GetPower | `ROUND(n/(btTrainLv+1)*(btLevel+1)) + defPower + Random(defMaxPower-defPower)`，btTrainLv 恒 3（LocalDB.pas:382） | /4*(lv+1) 近似但用 Java round |
+| 回血池 | `m_nIncHealing` 上限 300（ObjBase.pas:4527 RM_MAGHEALING），每 tick 只掉 `m_nPerHealing=5` | 一致 |
+| tick 间隔 | `600 - min(400, Level*10)` ms（ObjBase.pas:3785） | 固定 500ms |
+
+- 新增 `heal_power()` / `delphi_round()`（Delphi Round 是**五取偶**：Round(10.5)=10，Java Math.round=11）。
+  群体治愈术（magic_id 29，MagBigHealing）同公式一并修正。
+- 「二段恢复」其实是原版行为：回血池每次滴 5 点，不是一次跳满。
+- 节奏：`_castMagic` 加 `if (!this._isIdle()) return;` + 本地立刻 `_action='spell'`
+  （对应原版 ClMain.pas:2421 `CanNextAction` 闸 + `g_dwMagicDelayTime = 200 + Delay`），
+  施法动画 360ms 内攻击/移动被锁住——恢复会打断进攻节奏了。
+
+### 36.5 矿洞地图 D401：resources.json 大小写
+
+诊断文件（E:\download\jootm2-diag-*.json）直接给出答案：`error: 地图 D401 未在 resources.json 中`。
+服务端 `gamedata._base()` 把文件名**统一小写**登记（`D401.map` → `"d401"`），而 MapInfo 里 id 是 `D401`，
+前端 `mapUrl()` 精确匹配落空 → `loadMap` 抛错 → 永远卡「正在加载地图…」。
+
+修法：`resource.mjs` 建 `_mapsLower` 小写索引，`mapUrl()` 先精确再小写兜底；
+`PlayScene` 的 onEnter / changeMap 加载失败时把 `_mapLoadError` 画在屏中央（不再无限「正在加载」）。
+
+### 36.6 验证
+
+- E2E（Playwright，登录→进游戏）：
+  - `mapUrl('D401')` → `/resources/Map/D401.map`，`loadMap('D401')` → 200×200 ✓
+  - 脚步音事件流：首移 `[1]`、同格转向/被挡 `[]`、真移动 `[2]`（左右脚交替）✓
+  - 闪光：状态机 step 0→10→off；drawImage 钩子 600ms 计数 36 次；物品区域近白像素 795→1014、峰值 239→255 ✓
+  - 截图：TestHero 在大树冠后以半透明「透」出来（正是原版效果）✓
+  - 无 pageerror / console.error
+- 回归：`test_pyserver` 73/0、`test_tick_systems` 93/0、`test_all_messages --live` 29/0、`test_sfx_map` 84/0。
+- 治愈术单测：delphi_round(3.5)=4/2.5=2/10.5=10；治愈术 lv0-3 = 11..30（原版公式 10..31 区间内）。

@@ -47,6 +47,47 @@ def spell_cost(t, lv: int) -> int:
     return java_round(t.spell / 4 * (lv + 1)) + t.defSpell
 
 
+def delphi_round(x: float) -> int:
+    """Delphi 的 Round()：四舍六入五取偶（Round(3.5)=4、Round(2.5)=2、Round(10.5)=10）。
+
+    Java 的 Math.round 是 floor(x+0.5)，在 .5 且向下为偶数时会多 1（如 10.5 → 11）。
+    治愈术威力走 GetPower（Magic.pas:61 的 ROUND），必须用 Delphi 语义。
+    """
+    f = int(x // 1) if x >= 0 else -int(-x // 1)
+    d = abs(x) - abs(f)
+    if d < 0.5:
+        return f
+    if d > 0.5:
+        return f + (1 if x > 0 else -1)
+    if f % 2 == 0:
+        return f
+    return f + (1 if x > 0 else -1)
+
+
+def heal_power(p, t, lv: int) -> int:
+    """治愈术回血量（原版 Magic.pas:301 SKILL_HEALLING / :172 MagBigHealing）。
+
+    nPower := GetAttackPower(GetPower(MPow(UserMagic)) + LoWord(SC) * 2,
+                             (HiWord(SC) - LoWord(SC)) * 2 + 1);
+    其中 GetPower（Magic.pas:59）= ROUND(n / (btTrainLv+1) * (btLevel+1))
+        + btDefPower + Random(btDefMaxPower - btDefPower)，btTrainLv 恒为 3
+        （LocalDB.pas:382 硬编码），GetAttackPower（ObjBase.pas:2416）= base + Random(range+1)。
+    注意是 SC **下限**×2 而不是上限；不掺 MC。旧实现用 magic_power（带 MC 掷点）
+    再加 scMax*2，回血量大约是原版的 2~4 倍。
+    """
+    mpow = t.power + int(random.random() * (t.maxPower - t.power))     # MPow：Random 不含上界
+    base = (delphi_round(mpow / (3 + 1) * (lv + 1)) + t.defPower
+            + int(random.random() * max(0, t.defMaxPower - t.defPower)))
+    sc_lo = p.combat.get("scMin", 0)
+    sc_hi = p.combat.get("scMax", 0)
+    lo = base + sc_lo * 2
+    rng = max(0, (sc_hi - sc_lo) * 2 + 1)
+    luck = getattr(p, "luck", 0)
+    if luck > 0 and int(random.random() * 10) == 0:   # GetAttackPower 的幸运暴击
+        return lo + rng
+    return lo + int(random.random() * (rng + 1))
+
+
 def magic_power(p, t, lv: int) -> int:
     base = t.power + int(random.random() * (t.maxPower - t.power + 1))
     scaled = (java_round(base / 4 * (lv + 1)) + t.defPower
@@ -701,7 +742,7 @@ class CombatHandlers:
         """castMagic 的效果分派；返回是否施放成功（决定是否加熟练度）。"""
         w = self.world
         if is_heal_magic(magic_id):
-            heal = max(1, magic_power(p, t, lv) + p.combat.get("scMax", 0) * 2)
+            heal = max(1, heal_power(p, t, lv))
             p.inc_healing = min(300, p.inc_healing + heal)
             w.send_system(p, f"施展了 {t.name}。")
             w.send_stats(p)
@@ -827,7 +868,7 @@ class CombatHandlers:
                 return True
             return False
         if magic_id == 29:
-            heal = max(1, magic_power(p, t, lv) + p.combat.get("scMax", 0) * 2)
+            heal = max(1, heal_power(p, t, lv))
             healed = 0
             for nb in w.nearby(p.map, p.x, p.y, 5):
                 if isinstance(nb, Player) and nb.alive and nb.hp < nb.max_hp:

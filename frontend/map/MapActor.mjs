@@ -969,6 +969,7 @@ export class MapActor {
         const hudQueue = this._hudQueue || (this._hudQueue = []);
         hudQueue.length = 0;
         let selfSnap = null;
+        let focusSnap = null;
         for (let gy = top; gy <= bottom; gy++) {
             tPhase = performance.now();
             // 大对象层（照 PlayScn.pas 第二遍：`Width<>48 or Height<>32` 才在这里画；
@@ -1021,15 +1022,32 @@ export class MapActor {
                     if (e.maxHp || e.name) hudQueue.push(e, anchorX, anchorY);
                     // 记住自己：原版 PlayScn.pas:1361 画完行循环后要把自己再画一遍
                     if (e.isSelf) selfSnap = [e, anchorX, anchorY];
+                    // 选中目标（g_FocusCret）同样在行循环后重画一遍（PlayScn.pas:1369-1376）
+                    if (e.isFocus && !e.isSelf) focusSnap = [e, anchorX, anchorY];
                 }
             }
             perf.add('ent', performance.now() - tPhase);
         }
 
         // 原版 PlayScn.pas:1361-1383：按行画完之后把「自己」（以及选中目标/施法目标）
-        // **再画一遍**，所以人物永远压在所有实体之上。以前只靠「尸体 unshift 到列表最前」，
-        // 但按行绘制会重新按 y 分桶 → 同一/下一行的尸体照样盖住人（面朝上时最明显）。
-        if (selfSnap) this._drawEntity(ctx, selfSnap[0], selfSnap[1], selfSnap[2]);
+        // **再画一遍**。以前只靠「尸体 unshift 到列表最前」，但按行绘制会重新按 y 分桶
+        // → 同一/下一行的尸体照样盖住人（面朝上时最明显）。
+        // 关键细节：这一遍 DrawChr 的 blend 参数是 **TRUE**（Actor.pas:1983 DrawEffSurface
+        // → DrawBlend(..., 0) = Color256Mix 半透明）——所以原版的实际效果是：
+        //   人被树/城墙/城门挡住时，人物以约 50% 透明度「透」在最上面，而不是实心盖在树上。
+        // 旧实现画成实心 → 「人物一直站在树/城墙上」。 FocusCret/MagicTarget 同为 TRUE。
+        if (selfSnap) {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            this._drawEntity(ctx, selfSnap[0], selfSnap[1], selfSnap[2]);
+            ctx.restore();
+        }
+        if (focusSnap) {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            this._drawEntity(ctx, focusSnap[0], focusSnap[1], focusSnap[2]);
+            ctx.restore();
+        }
 
         // 原版 DrawScrn.pas:296-321：血条 + 名字单独一遍，压在所有精灵之上；
         // DrawScrn.pas:306 明确要求 `not actor.m_boDeath` → 尸体不画血条。
@@ -1037,6 +1055,31 @@ export class MapActor {
             this._drawHeadHud(ctx, hudQueue[i], hudQueue[i + 1], hudQueue[i + 2]);
         }
         hudQueue.length = 0;
+
+        // 原版 PlayScn.pas:1417-1438「地面物品闪亮」：每 g_dwDropItemFlashTime(5s) 把
+        // BoFlash 置 TRUE，之后每 20ms 走一帧 FLASHBASE(410)+step，step 0..9 共 10 帧，
+        // DrawBlend(..., 1)（Color256Anti 加色提亮）叠在最上层。1.80 的 Prguse.wil
+        // 410-418 正是这组「由小变大再变小」的星光（8×7 → 32×30 → 8×7），419 为 1×1 收尾。
+        if (groundItems) {
+            const now = Date.now();
+            const it = Array.isArray(groundItems) ? groundItems : groundItems.values();
+            for (const g of it) {
+                if (g.y < top || g.y > bottom) continue;
+                const st = g._flash || (g._flash = {});
+                if (now - (st.last || 0) > 5000) {
+                    st.last = now; st.on = true; st.step = 0; st.stepAt = now;
+                }
+                if (!st.on) continue;
+                if (now - st.stepAt >= 20) { st.stepAt = now; st.step++; }
+                if (st.step >= 10) { st.on = false; continue; }
+                const tex = this._getTex('prguse', 410 + st.step);
+                if (!tex) continue;
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.drawImage(tex.canvas, sx(g.x) + tex.px, sy(g.y) + tex.py);
+                ctx.restore();
+            }
+        }
     }
 
     /** 画一个实体的精灵层（隐身半透明 / 悬停提亮 / 中毒染色）。 */

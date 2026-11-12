@@ -22,7 +22,7 @@ from .gamedata import (
 )
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
-    AGGRO_RANGE, DOOR_OPEN_MS, GUARD_RACES, HEALING_INTERVAL_MS, HSET_SHAPES,
+    AGGRO_RANGE, DOOR_OPEN_MS, GUARD_RACES, HSET_SHAPES,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
@@ -986,8 +986,12 @@ class GameWorld(WorldExtra):
     def _regen(self, p: Player, now: int) -> None:
         """HP/MP 自然回复 + 治愈术持续回血（``GameWorld.regen``）。"""
         changed = False
+        # 治愈术是「回血池」：每次只掉 m_nPerHealing=5 点（ObjBase.pas:3825-3837），
+        # tick 间隔 dwInChsTime = 600 - min(400, Level*10) ms（ObjBase.pas:3785）。
+        # 旧实现固定 500ms；高等级原版快到 200ms，低等级慢到 600ms。
+        heal_tick = 600 - min(400, p.level * 10)
         if p.inc_healing > 0 and p.hp < p.max_hp \
-                and now - p.last_healing_at >= HEALING_INTERVAL_MS:
+                and now - p.last_healing_at >= heal_tick:
             heal = min(5, p.inc_healing)
             p.hp = min(p.max_hp, p.hp + heal)
             p.inc_healing -= heal

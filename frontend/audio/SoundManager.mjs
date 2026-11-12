@@ -268,6 +268,7 @@ class SoundManager {
         this._bgmReplayTimer = null;    // 原版 46 秒周期重播主场景音乐
         this.selfId = null;
         this.stepFlip = false;
+        this._lastMovePos = null;   // 自己上一次移动消息的坐标：纯转向/被挡（坐标没变）不播脚步
         this.prevGold = null;
         this.prevHp = null;
         this.prevLevel = null;
@@ -290,6 +291,7 @@ class SoundManager {
         this.prevGold = null;
         this.prevHp = null;
         this.prevLevel = null;
+        this._lastMovePos = null;
         return this;
     }
 
@@ -676,10 +678,17 @@ class SoundManager {
                 break;
             case 'changeMap':
                 if (msg.player && msg.player.id != null) this.selfId = msg.player.id;
+                this._lastMovePos = null;   // 换图后坐标可能相同，别把第一步吞掉
                 this.play(SFX.spaceMoveIn, { gap: 400 });
                 break;
             case 'move':
                 if (this.selfId !== null && msg.id === this.selfId) {
+                    // 纯转向 / 被障碍挡住（服务端广播但坐标没变）不播脚步声：
+                    // 原版脚步在 SM_WALK/SM_RUN 动作第 1/4 帧触发，而 SM_WALK 只在真正走动时下发。
+                    const moved = this._lastMovePos == null
+                        || this._lastMovePos.x !== msg.x || this._lastMovePos.y !== msg.y;
+                    this._lastMovePos = { x: msg.x, y: msg.y };
+                    if (!moved) break;
                     let base = SFX.walkL;
                     if (this.terrainAt) {
                         try {

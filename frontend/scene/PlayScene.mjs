@@ -218,6 +218,7 @@ export class PlayScene extends Scene {
     async onEnter() {
         const { map, player, nearby, groundItems } = this.snapshot;
         this.self = player;
+        this._mapLoadError = null;
         this.entities.clear();
         this.entities.set(player.id, player);
         this._registerSound(player);
@@ -243,6 +244,8 @@ export class PlayScene extends Scene {
                 (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; });
         } catch (e) {
             console.error('[play]', e);
+            // 地图加载失败（如资源清单里没有该图）：留着错误文案，别永远「正在加载地图…」
+            this._mapLoadError = String((e && e.message) || e);
         } finally {
             this._mapLoadingText = null;
         }
@@ -658,6 +661,15 @@ export class PlayScene extends Scene {
     _castMagic(magicId) {
         // 纯被动技能（基本剑术3/精神力战法4/攻杀7）不可施放
         if (PASSIVE_MAGICS.has(magicId)) return;
+        // 原版 ClMain.pas:2421 施法前提是 CanNextAction（上一个动作播完）；
+        // 没有这道闸，治愈/施毒可以插在攻击动作里连续按，恢复完全不打断进攻节奏。
+        if (!this._isIdle()) return;
+        // 本地立刻进施法动作（不等服务端回包）： SPELL_ANIM_MS 内 _isIdle()=false，
+        // 攻击/移动被锁住——对应原版 g_dwMagicDelayTime = 200 + Magic.DB Delay。
+        if (this.self) {
+            this.self._action = 'spell';
+            this.self._actionAt = Date.now();
+        }
         // 战士主动技能（半月/烈火/野蛮）：朝面向方向施放，不选目标（原版 EffectType=0 分支）
         if (SWORD_SKILLS.has(magicId)) {
             this.conn.send('castMagic', { magicId, targetX: this.self.dir, targetY: 0, targetId: 0 });
@@ -1407,6 +1419,7 @@ export class PlayScene extends Scene {
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
                 if (msg.map) {
                     const p = this.self || { x: 0, y: 0 };
+                    this._mapLoadError = null;
                     this._mapLoadingText = '正在加载地图…';
                     this.mapActor.enter(msg.map.name, p.x, p.y,
                         (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; })
@@ -1414,7 +1427,7 @@ export class PlayScene extends Scene {
                             this._miniMapIndex = msg.miniMapIndex;
                             this._loadMiniMapTexture(this._miniMapIndex);
                         })
-                        .catch(console.error)
+                        .catch((e) => { console.error('[play]', e); this._mapLoadError = String((e && e.message) || e); })
                         .finally(() => { this._mapLoadingText = null; });
                 }
                 break;
@@ -3052,6 +3065,16 @@ export class PlayScene extends Scene {
             ctx.font = '14px SimSun,serif';
             ctx.textAlign = 'left';
             ctx.fillText(this._mapLoadingText || '正在加载地图…', 10, 18);
+            if (this._mapLoadError) {
+                ctx.fillStyle = 'rgba(0,0,0,.85)';
+                ctx.fillRect(0, 270, 800, 60);
+                ctx.fillStyle = '#ff6b6b';
+                ctx.font = '14px SimSun,serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('地图加载失败：' + this._mapLoadError, 400, 296);
+                ctx.fillStyle = '#e8d9b0';
+                ctx.fillText('请把此截图发给开发者，或刷新页面重试', 400, 318);
+            }
             ctx.restore();
             return;
         }
