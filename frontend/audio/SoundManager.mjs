@@ -714,8 +714,12 @@ class SoundManager {
                 const atkWeapon = atk != null ? (this._entWeapon.get(atk) || 0) : 0;
 
                 // 攻击方：原版 SM_HIT/SM_POWERHIT… 第 2 帧播武器音（按 m_btWeapon 分类）+ 特攻人声。
-                // noAttackAnim 是「纯受击」广播（对方只播 SM_STRUCK），miss 时原版也不走攻击动作。
-                if (!msg.noAttackAnim && !msg.miss && atk != null) {
+                // 「攻击动作」与「命中」是两条独立消息：服务端先无条件 SendRefMsg(RM_HIT,…)
+                // （ObjGuard.pas:49、ObjMon.pas:684/814），命中判定失败只是不发 RM_STRUCK。
+                // 客户端 Actor.pas:2271-2283 在 SM_HIT 分支无条件设置 m_nWeaponSound，
+                // 所以 **MISS 也有挥空武器音**，只是没有受击方的弯腰音/惨叫。
+                // noAttackAnim 是我们自造的「纯受击」广播（对方只发 SM_STRUCK），才要跳过。
+                if (!msg.noAttackAnim && atk != null) {
                     if (atkIsPlayer) {
                         this.play(weaponHitSound(atkWeapon), { gap: 90, key: `hit${atk}` });
                         const v = SWORD_VOICE[msg.swordHit];

@@ -29,6 +29,17 @@ const DIM_LUM = 48;
 /** cells 语义（三态 + 空态）：0=未画 1=真实地砖 2=借像素 3=确定没内容（索引 -1 / 地图外） */
 const CELL_EMPTY = 3;
 
+// 原版黑暗视野：cliUtil.pas:594-599 DrawFog 的 DarkLevel 分级
+//   1 = HeavyDarkColorLevel（深夜/地下）、2 = LightDarkColorLevel（傍晚）、
+//   3 = DengunColorLevel（正午微暗）；PlayScn.pas:745 ApplyLightMap 会先按
+//   m_LightMap 把人物及光源周围的 fogmask 点亮，所以画面中心是一个圆形亮区。
+// 这里用「整屏暗色 + destination-out 径向挖洞」等价实现，光圈半径按分级递增。
+const FOG_LEVELS = {
+    1: { alpha: 0.86, radius: 132 },
+    2: { alpha: 0.56, radius: 190 },
+    3: { alpha: 0.26, radius: 250 },
+};
+
 /** 与 render 完全一致的可见格范围（导出供启动阶段预加载复用，保证集合一模一样）。 */
 export function visibleRange(m, cx, cy, viewW, viewH) {
     const halfW = Math.ceil(viewW / 2 / TILE_W) + 2;
@@ -147,6 +158,12 @@ export class MapActor {
         this._cy = 0;
         this._shiftX = 0;
         this._shiftY = 0;
+        // 视野暗度（0 = 全亮）。由 PlayScene 按服务端 SM_NEWMAP/SM_CHANGEMAP
+        // 的 cdir = DayBright() 设置；对应原版 PlayScn.pas:2388 的 DarkLevel。
+        this.darkLevel = 0;
+        this._fogMask = null;
+        this._fogHoleR = 0;
+        this._fogHoleCanvas = null;
     }
 
     /**
@@ -1049,6 +1066,10 @@ export class MapActor {
             ctx.restore();
         }
 
+        // 原版 PlayScn.pas:1471-1474：DrawFog 画在 ObjSurface 上、MSurface.Draw
+        // 之前，也就是压住地面与所有精灵；血条/名字属于之后的 DrawScrn，不受影响。
+        this._drawFog(ctx, sx(cx), sy(cy));
+
         // 原版 DrawScrn.pas:296-321：血条 + 名字单独一遍，压在所有精灵之上；
         // DrawScrn.pas:306 明确要求 `not actor.m_boDeath` → 尸体不画血条。
         for (let i = 0; i < hudQueue.length; i += 3) {
@@ -1080,6 +1101,49 @@ export class MapActor {
                 ctx.restore();
             }
         }
+    }
+
+    /**
+     * 黑暗视野（原版 DrawFog + ApplyLightMap）：整屏暗化，人物周围留一个
+     * 径向渐变的圆形亮区。0 = g_boViewFog false，完全不画。
+     */
+    _drawFog(ctx, px, py) {
+        const lv = this.darkLevel | 0;
+        const cfg = FOG_LEVELS[lv];
+        if (!cfg) return;
+        const w = this.viewW, h = this.viewH;
+        const mask = this._fogMask || (this._fogMask = document.createElement('canvas'));
+        if (mask.width !== w || mask.height !== h) {
+            mask.width = w; mask.height = h;
+        }
+        const mc = mask.getContext('2d');
+        mc.globalCompositeOperation = 'source-over';
+        mc.clearRect(0, 0, w, h);
+        mc.fillStyle = `rgba(0,0,0,${cfg.alpha})`;
+        mc.fillRect(0, 0, w, h);
+        const hole = this._fogHole(cfg.radius);
+        mc.globalCompositeOperation = 'destination-out';
+        mc.drawImage(hole, Math.round(px - cfg.radius), Math.round(py - cfg.radius));
+        mc.globalCompositeOperation = 'source-over';
+        ctx.drawImage(mask, 0, 0);
+    }
+
+    /** 预生成「挖洞」用的径向 alpha 渐变（中心全挖空 → 边缘不挖）。 */
+    _fogHole(r) {
+        if (this._fogHoleR === r && this._fogHoleCanvas) return this._fogHoleCanvas;
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = r * 2;
+        const c = cv.getContext('2d');
+        const g = c.createRadialGradient(r, r, 0, r, r, r);
+        g.addColorStop(0, 'rgba(0,0,0,1)');
+        g.addColorStop(0.35, 'rgba(0,0,0,0.98)');
+        g.addColorStop(0.7, 'rgba(0,0,0,0.55)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g;
+        c.fillRect(0, 0, r * 2, r * 2);
+        this._fogHoleR = r;
+        this._fogHoleCanvas = cv;
+        return cv;
     }
 
     /** 画一个实体的精灵层（隐身半透明 / 悬停提亮 / 中毒染色）。 */

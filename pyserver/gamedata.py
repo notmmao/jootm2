@@ -71,6 +71,9 @@ class MonGen:
 @dataclass(frozen=True, slots=True)
 class MapInfo:
     titles: dict[str, str] = field(default_factory=dict)
+    # MapInfo.txt 的 ``[map title] FLAG FLAG ...`` 尾部标志（大写 token 集合）。
+    # 原版 LocalDB.pas:570-790 解析 DARK/DAY/MINE/SAFE/... 到 TMapFlag。
+    flags: dict[str, set[str]] = field(default_factory=dict)
     gates: list[Gate] = field(default_factory=list)
 
 
@@ -108,7 +111,11 @@ def parse_map_info(path: Path) -> MapInfo:
             if close < 0:
                 continue
             kv = line[1:close].strip().split(None, 1)
-            info.titles[kv[0].strip()] = kv[1].strip() if len(kv) > 1 else kv[0].strip()
+            map_id = kv[0].strip()
+            info.titles[map_id] = kv[1].strip() if len(kv) > 1 else map_id
+            tail = line[close + 1:].strip()
+            if tail:
+                info.flags[map_id] = {t.upper() for t in tail.split() if t}
         elif "->" in line:
             left, right = line.split("->", 1)
             src, dst = left.strip().split(), right.strip().split()

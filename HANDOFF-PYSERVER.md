@@ -2024,3 +2024,114 @@ onEnter 时的旧快照 map.title → 永远显示第一张图的名字。加 `t
   换图标题更新、无 pageerror。
 - 回归：`test_pyserver` 73/0、`test_tick_systems` 93/0、`test_all_messages --live` 29/0
   （「消耗品恢复 HP」断言改为「消耗品写入回血池」）、`test_sfx_map` 84/0。
+
+---
+
+## §38 第 12 轮反馈：MISS 音效 / 矿洞视野 / 怪物名 / 洞穴换图（2026-11-12）
+
+### 38.1 #21 MISS 不是「完全没声音」，是缺挥空武器音
+
+旧实现 `SoundManager.mjs` 的 attack 分支写成
+`if (!msg.noAttackAnim && !msg.miss && atk != null)`，MISS 直接跳过攻击音再 `break`，
+所以一声都没有。原版把「攻击动作」和「命中」拆成两条消息：
+
+- 服务端先**无条件** `SendRefMsg(RM_HIT, …)`（`ObjGuard.pas:49`、`ObjMon.pas:684/814/886`），
+  再调 `_Attack(wHitMode, Target)`；命中失败只是不发 `RM_STRUCK`。
+- 客户端 `Actor.pas:2270-2283` 的 `SM_HIT` 分支无条件按 `m_btWeapon div 2`
+  设 `m_nWeaponSound`（挥武器音），`RunActSound` 在动作帧播出。
+
+所以 **MISS 有挥空声、没有受击弯腰音/惨叫**。改成
+`if (!msg.noAttackAnim && atk != null)`，`if (msg.miss) break;` 保留（跳过受击方）。
+`noAttackAnim` 是我们自造的「纯受击」广播，仍要跳过。
+
+验证：注入 `attack(miss)` → `[53]`（武器音）；同路径命中 → `[53, 474]`（怪挨打音）。
+
+### 38.2 #22 矿洞视野（DrawFog / ApplyLightMap）
+
+原版链路：
+
+| 环节 | 依据 |
+|---|---|
+| 服务端 `SM_NEWMAP` / `SM_CHANGEMAP` 第 4 参数 `cdir = DayBright()` | `ObjBase.pas:5618 / 5796` |
+| 客户端 `DarkLevel := cdir; g_boViewFog := DarkLevel <> 0` | `PlayScn.pas:2388-2390`、`ClMain.pas:4812-4815` |
+| `DayBright()`：DARK→1 / DAYLIGHT→0 / bright=1→0 / bright=3→1 / 其余→2 | `ObjBase.pas:4283-4293` |
+| `g_nGameTime` 按真实小时分四档 | `FrnEngn.pas:85-91` |
+| 三级暗度 HeavyDark/LightDark/Dengun | `cliUtil.pas:594-599 DrawFog` |
+| 人物/光源周围的光圈 fogmask | `PlayScn.pas:745-775 ApplyLightMap`、`DrawLightEffect` |
+| fog 画在 ObjSurface 上、血条之前 | `PlayScn.pas:1471-1474` |
+
+本项目此前只有昼夜图标（`_setDayBright`），完全没有 fog → 全亮。本轮：
+
+- `gamedata.parse_map_info` 解析 `[map title] FLAG...` 尾部标志（`DARK/DAY/MINE/...`）；
+- `GameWorld.is_underground()` / `dark_level()` 按 DayBright 语义算 0/1/2；
+- `map_snapshot` 下发 `darkLevel` + `underground`，`dayChanging` 广播同时带暗度；
+- `day_bright_for_hour()` 从「均分四段」改成原版 `FrnEngn.pas` 的分档表
+  （5-10/16-22→1、11/23→2、4/15→0、0-3/12-14→3）；
+- `MapActor._drawFog()`：整屏暗色 + `destination-out` 径向渐变挖出人物周围圆形亮区，
+  `darkLevel` 1/2/3 → alpha 0.86/0.56/0.26、半径 132/190/250；画在精灵之后、血条之前；
+- 前端 `_applyBrightness()` 统一处理 enterGame / changeMap / dayChanging。
+
+**有意偏离**：原版 `D401 比奇矿区` 只有 `MINE` 标志、没有 `DARK`，严格 `DayBright()`
+白天是全亮的；`D011 天然洞穴` 更是没有任何标志。按用户「矿洞应有视野」的实测记忆，
+把 `MINE`/`DARK` 标志以及标题含「洞/矿/穴/墓/窟」的地图并入 `is_underground()` 恒暗；
+`DAY` 恒亮，其余地表随昼夜。这是配置语义近似，改判定即可回到严格 DayBright。
+
+验证：截图对比暗化开 / 关，画面平均亮度 **18 → 63**；HUD（DOM 层）与血条不受影响。
+
+### 38.3 #23 「僵尸3 / 僵尸20」= Monster.DB 变体编号泄漏
+
+权威依据：`M2Share.pas:3630 FilterShowName` —— 从名字里第一个数字或 `-` 处截断；
+`ObjBase.pas:2654 GetShowName` 调它，`ClientQueryUserName`（`:2638`）下发 `SM_USERNAME`。
+Monster.DB 里同名怪有多个变体（外观/命中/行走参数不同），转成本项目的
+`Monster.csv` 时为了 key 唯一加了数字后缀（273 个名字里 144 个带尾数字；
+「僵尸」10 个变体、「跳跳蜂」9 个……），`MonGen.txt` 也用带后缀的名字索引模板。
+
+修：`world.filter_show_name()` + `Monster.brief_json()` 下发包掉后缀；
+玩家名字**不剥**（`Player.brief_json` 原样）。现在 D401 里显示「僵尸」「洞蛆」。
+
+### 38.4 #24 洞穴换图：服务端没错，错在前端时序与在途消息
+
+先排除服务端：离线模拟 `D401 (76,14) --dir4--> (76,15)` 踩门，
+`changeMap` 正确带 `{name:D411, title:"北部矿区", miniMapIndex:14, darkLevel:1}`；
+E2E GM 传送 D411 时 HUD 也正确变成「北部矿区 59:8」。真正的问题有三个：
+
+1. **点位比例取错对象**：小地图/大地图用 `snapshot.map.width/height` 去除 `tex.width/height`
+   得到「像素/格」。换图瞬间快照已经是新图、底图还是上一张（或反过来），点位整体偏移。
+   原版公式是 `mx = x*48 div 32`（1.5 像素/格 x）、`my = y*32 div 32`（1 像素/格 y），
+   每张 mmap 都按该地图格数生成（实测 120 张洞穴 mmap 全部符合：D401 200×200 → 300×199、
+   D411 100×100 → 152×99、D011 400×400 → 600×399）。改为把 `kx/ky` **绑定在纹理上**
+   （mmap 加载时记录，兜底缩略图记各向同性 scale），大地图 Ctrl+点击的逆变换同步改。
+2. **底图换得太晚**：`_loadMiniMapTexture` 原先放在 `mapActor.enter().then()` 里，
+   地图瓦片预取期间底图还是旧的。改为 `changeMap` 一到就立即换，并在纹理/地图就绪后
+   重绘已打开的大地图。
+3. **在途 move 把人弹回**：`changeMap` 到达客户端前发出的 `move` 仍在途，会落在
+   **新地图**继续走；而 `D401 (76,15) → D411 (59,8)` 与回程门 `D411 (60,7) → D401 (77,14)`
+   紧挨着，多走一步就弹回比奇矿区 —— 正是用户报告的「名字还是比奇矿区，坐标 (77,14)」。
+   全库 2434 条门里有 **113 条**落点紧邻回程门（祖玛阁自身循环门最多）。
+   加 `Player.map_change_at` + `service._move` 350ms 短锁，等效原版
+   `SM_CHANGEMAP` 后的 `CancelAction` 停顿。
+
+**其它洞穴核查**：`MiniMap.txt` 登记的 120 张 D/E 类地图，mmap 尺寸与
+`格数×1.5 / 格数×1` 全部吻合；只有 `D718/D719` 共用 index 57 且没有 `.map`
+文件（原版配置如此，进不去）。210 个门目标地图没登记 MiniMap.txt（多为室内小屋），
+走兜底缩略图，属原版行为。
+
+### 38.5 验证
+
+| 项目 | 结果 |
+|---|---|
+| Playwright E2E（本轮 `data/_e2e_batch12.py`，已清理） | **13/13**，无 pageerror |
+| 新增永久回归 `scripts/test_map_view.py` | **34/0** |
+| `test_pyserver` / `test_tick_systems` | 73/0、93/0 |
+| `test_all_messages --live 8080` | 29/0 |
+| `test_sfx_map` | 84/0 |
+| 走门实测 | `D401 76,15 → D411 59,8`，HUD「北部矿区 59:8」，kx/ky = 1.52/0.99 |
+| 视野像素 | 暗 18 / 亮 63（关闭 fog 后） |
+
+### 38.6 遗留
+
+- fog 只做了人物中心一个光圈，没还原 `m_LightMap` 的多光源（火把、蜡烛、魔法光），
+  也没有「免蜡」（`g_boForceNotViewFog`）。
+- `dayChanging` 只在服务端 tick 每分钟检查一次，切小时不是瞬时。
+- 地下判定用 MapInfo 标志 + 中文标题关键字，属于配置语义近似；
+  若某张图误判，改 `GameWorld.is_underground()` 的判定集合即可。

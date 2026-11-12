@@ -251,8 +251,9 @@ export class PlayScene extends Scene {
         }
 
         this._miniMapIndex = this.snapshot.miniMapIndex;
-        this._loadMiniMapTexture(this._miniMapIndex);   // 小地图底图（mmap.wil）
-        this._setDayBright(this.snapshot.dayBright);   // 昼夜时段图标
+        const sm = (this.snapshot && this.snapshot.map) || {};
+        this._loadMiniMapTexture(this._miniMapIndex, sm.width, sm.height);   // 小地图底图（mmap.wil）
+        this._applyBrightness(this.snapshot);   // 昼夜图标 + 视野暗度（DarkLevel）
         this._keyDown = (e) => this._onKeyDown(e);
         this._keyUp = (e) => this._onKeyUp(e);
         document.addEventListener('keydown', this._keyDown);
@@ -337,6 +338,7 @@ export class PlayScene extends Scene {
             + 'image-rendering:pixelated;';
         root.appendChild(this.dayIconEl);
         this._dayBright = -1;
+        this._underground = false;   // 地下/矿区：视野恒暗（服务端 map_snapshot 下发）
 
         // 小地图（原版 PlayScn.pas DrawMiniMap：右上 (SCREENWIDTH-120, 0)、120×120、1 格 = 1 像素）
         this.miniMapCanvas = document.createElement('canvas');
@@ -1356,8 +1358,9 @@ export class PlayScene extends Scene {
                 this._addSysMsg(msg.text);
                 break;
             case 'dayChanging':
-                // 昼夜时段变化（原版 SM_DAYCHANGING），只换图标、不做变暗
-                this._setDayBright(msg.dayBright);
+                // 原版 SM_DAYCHANGING（ObjBase.pas:5726）连 DarkLevel 一起下发，
+                // 不只是换图标：地下地图由 _underground 覆盖成恒暗。
+                this._applyBrightness(msg);
                 break;
             case 'itemDrop':
                 this.groundItems.set(msg.id, msg);
@@ -1408,6 +1411,7 @@ export class PlayScene extends Scene {
             case 'changeMap': {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.snapshot = msg;   // _renderHud 读 snapshot.map.title，不更新会一直显示旧图名
+                this._applyBrightness(msg);   // 新地图的 DarkLevel / underground
                 this.entities.clear();
                 this.groundItems.clear();
                 this._holding = false;
@@ -1423,12 +1427,15 @@ export class PlayScene extends Scene {
                     const p = this.self || { x: 0, y: 0 };
                     this._mapLoadError = null;
                     this._mapLoadingText = '正在加载地图…';
+                    // 小地图底图（mmap.wil）与地图瓦片预取无关，必须立即换：
+                    // 以前放在 enter().then() 里，预取期间仍是上一张图的底图，
+                    // 而 snapshot 已是新图 → 点位按新格数归一化到旧底图，整体偏移。
+                    this._miniMapIndex = msg.miniMapIndex;
+                    this._loadMiniMapTexture(this._miniMapIndex, msg.map.width, msg.map.height)
+                        .then(() => { if (this._bigMapOpen) this._renderBigMap(); });
                     this.mapActor.enter(msg.map.name, p.x, p.y,
                         (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; })
-                        .then(() => {
-                            this._miniMapIndex = msg.miniMapIndex;
-                            this._loadMiniMapTexture(this._miniMapIndex);
-                        })
+                        .then(() => { if (this._bigMapOpen) this._renderBigMap(); })
                         .catch((e) => { console.error('[play]', e); this._mapLoadError = String((e && e.message) || e); })
                         .finally(() => { this._mapLoadingText = null; });
                 }
@@ -1499,6 +1506,23 @@ export class PlayScene extends Scene {
     }
 
     /**
+     * 原版 SM_NEWMAP / SM_CHANGEMAP 的第 4 参数 cdir = DayBright()
+     * （ObjBase.pas:5618/5796），客户端 PlayScn.pas:2388 写入 DarkLevel 并
+     * 据此开关 g_boViewFog；SM_DAYCHANGING（ClMain.pas:4812）同理。
+     * 地下/矿区（MapInfo 的 MINE/DARK 标志）视野恒暗，不受昼夜影响。
+     */
+    _applyBrightness(s) {
+        if (!s) return;
+        if (s.underground !== undefined) this._underground = !!s.underground;
+        if (s.dayBright !== undefined) this._setDayBright(s.dayBright);
+        const b = s.dayBright != null ? s.dayBright : this._dayBright;
+        let dl = s.darkLevel;
+        if (dl == null) dl = (b === 1) ? 0 : (b === 3 ? 1 : 2);
+        if (this._underground) dl = Math.max(1, dl);
+        if (this.mapActor) this.mapActor.darkLevel = dl | 0;
+    }
+
+    /**
      * 加载小地图底图：直接用客户端资源 mmap.wil（原版 `FrmMain.WMMap`），
      * 索引来自服务端 MiniMap.txt（`mapSnapshot.miniMapIndex`，-1 = 该地图没有小地图）。
      * 图是 1.5 像素/格（原版 DrawMiniMap 的 `XX*48 div 32`、`YY*32 div 32`）。
@@ -1509,8 +1533,8 @@ export class PlayScene extends Scene {
      * 那张 900×599 的别的地图；正确应是 index 100（1052×699 ≈ 700 格×1.5 /
      * 700 格×1），这正是「大地图 / 小地图点位跟地形对不上」的根因。
      */
-    async _loadMiniMapTexture(index) {
-        // 优先用 mmap.wil（原版 WMMap，1.5 像素/格，索引来自 MiniMap.txt，需 -1）
+    async _loadMiniMapTexture(index, mapW = 0, mapH = 0) {
+        // 优先用 mmap.wil（原版 WMMap，x 1.5 / y 1 像素每格，索引来自 MiniMap.txt，需 -1）
         if (index != null && index > 0) {
             const lib = getLib('mmap');
             if (lib) {
@@ -1519,6 +1543,10 @@ export class PlayScene extends Scene {
                     if (tex && tex.canvas) {
                         this._miniMapTex = tex.canvas;
                         this._miniMapScale = 1.5;
+                        // 「像素/格」比例绑定在纹理自身上：换图时若新底图还在加载，
+                        // 旧纹理仍用自己的比例，不会被新地图的格数带偏。
+                        this._miniMapKx = mapW > 0 ? tex.canvas.width / mapW : 1.5;
+                        this._miniMapKy = mapH > 0 ? tex.canvas.height / mapH : 1.0;
                         return;
                     }
                 } catch (e) {
@@ -1576,6 +1604,8 @@ export class PlayScene extends Scene {
         ctx.drawImage(raw, 0, 0, c.width, c.height);
         this._miniMapTex = c;
         this._miniMapScale = scale;
+        this._miniMapKx = scale;
+        this._miniMapKy = scale;
     }
 
     /** 绘制小地图：裁剪玩家周围 120×120 像素 + 自己（白）/怪物（红）/NPC（黄）/其他玩家（蓝）点。 */
@@ -1597,12 +1627,12 @@ export class PlayScene extends Scene {
         // 1052×699，正好对应 700×700 格的 `mx=x*1.5, my=y`。这里用
         // 「纹理像素 / 地图格数」归一化，等价于原版公式，且对兜底自生成缩略图
         // 同样成立；窗口起点钳制在底图内，保证 w/h 不会变负导致底图整块不画。
-        const sm = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
-        const sc = this._miniMapScale || 1.5;
-        const mapW = Math.max(1, sm.width || tex.width / sc);
-        const mapH = Math.max(1, sm.height || tex.height / sc);
-        const kx = tex.width / mapW;
-        const ky = tex.height / mapH;
+        // 点位比例绑定在纹理上（mmap: x=1.5 / y=1 像素每格，等价原版
+        // mx=x*48 div 32、my=y*32 div 32；兜底缩略图: 各向同性 scale）。
+        // 不能取 snapshot.map.width/height：换图时新快照可能配上仍在加载的旧底图，
+        // 用新格数归一化旧纹理会让点位整体偏移（矿区/洞穴换位后尤其明显）。
+        const kx = this._miniMapKx || 1.5;
+        const ky = this._miniMapKy || 1.0;
         const px = Math.round(p.x * kx);
         const py = Math.round(p.y * ky);
         // 以玩家为中心取 120×120 窗口，越界时钳到底图边缘（不能再让 w/h 变负）。
@@ -1729,8 +1759,10 @@ export class PlayScene extends Scene {
             const scale = cv.width / rect.width;   // CSS 缩放后也要换算回画布像素
             const px = (e.clientX - rect.left) * scale;
             const py = (e.clientY - rect.top) * scale;
-            const gx = Math.max(0, Math.min(g.mapW - 1, Math.floor((px - g.bx) / g.w * g.mapW)));
-            const gy = Math.max(0, Math.min(g.mapH - 1, Math.floor((py - g.by) / g.h * g.mapH)));
+            const gx = Math.max(0, Math.min(g.mapW - 1,
+                Math.floor((px - g.bx) / ((g.kx || 1.5) * (g.k || 1)))));
+            const gy = Math.max(0, Math.min(g.mapH - 1,
+                Math.floor((py - g.by) / ((g.ky || 1.0) * (g.k || 1)))));
             this.conn.send('say', { text: `@移动 ${g.mapName} ${gx} ${gy}` });
         });
 
@@ -1767,9 +1799,11 @@ export class PlayScene extends Scene {
         // `mx=x*48 div 32, my=y*32 div 32`（正确索引下 1052×699 ↔ 700×700 格）。
         // 修正 MiniMap.txt 的 1-based off-by-one 后，点位才真正落在对应地形上。
         const sm0 = (this.snapshot && this.snapshot.map) || (this.mapActor && this.mapActor.map) || {};
-        const sc = this._miniMapScale || 1.5;
-        const mapW = Math.max(1, sm0.width || tex.width / sc);
-        const mapH = Math.max(1, sm0.height || tex.height / sc);
+        // 与小地图同一口径，比例绑定纹理，避免换图时序错配。
+        const kx = this._miniMapKx || 1.5;
+        const ky = this._miniMapKy || 1.0;
+        const mapW = Math.max(1, tex.width / kx);
+        const mapH = Math.max(1, tex.height / ky);
         const k = Math.min((cv.width - 16) / tex.width, (cv.height - 16) / tex.height);
         const w = Math.max(1, Math.floor(tex.width * k));
         const h = Math.max(1, Math.floor(tex.height * k));
@@ -1777,14 +1811,14 @@ export class PlayScene extends Scene {
         const by = Math.floor((cv.height - h) / 2);
         // 记录几何信息供 Ctrl+点击传送逆变换使用
         this._bigMapGeom = {
-            bx, by, w, h, mapW, mapH,
+            bx, by, w, h, mapW, mapH, k, kx, ky,
             mapName: sm0.name || (this.mapActor && this.mapActor.map && this.mapActor.map.name) || '',
         };
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(tex, 0, 0, tex.width, tex.height, bx, by, w, h);
         const dot = (gx, gy, color) => {
-            const dx = Math.round(bx + (gx / mapW) * w);
-            const dy = Math.round(by + (gy / mapH) * h);
+            const dx = Math.round(bx + gx * kx * k);
+            const dy = Math.round(by + gy * ky * k);
             ctx.fillStyle = color;
             ctx.fillRect(dx - 1, dy - 1, 3, 3);
         };

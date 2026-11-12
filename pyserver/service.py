@@ -384,6 +384,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         p = self.find_by_session(session)
         if p is None:
             return
+        # 换图短锁：changeMap 到达客户端前发出的 move 仍在途，若不丢弃，
+        # 会落在新地图被当成继续走，紧邻落点的回程门会把玩家立刻弹回原图
+        # （表现为「进了下一层但地图名还是上一层」）。见 world.change_map。
+        if now_ms() - p.map_change_at < 350:
+            return
         direction = _int(msg, "dir", -1)
         if direction < 0 or direction > 7:
             return

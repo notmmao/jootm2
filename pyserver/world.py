@@ -114,13 +114,33 @@ def direction_toward(fx: int, fy: int, tx: int, ty: int, fallback: int) -> int:
 
 
 def day_bright_for_hour(hour: int) -> int:
-    if 5 <= hour <= 9:
-        return 0
-    if 10 <= hour <= 16:
+    """原版 ``FrnEngn.pas:85-91`` 的 ``g_nGameTime`` 分档（按真实小时）。
+
+    1 = 白天（全亮）、3 = 深夜、0/2 = 过渡。之前是均分四段，与原版不符，
+    ``DayBright()`` 的暗度计算必须建立在这张表上。
+    """
+    if hour in (5, 6, 7, 8, 9, 10, 16, 17, 18, 19, 20, 21, 22):
         return 1
-    if 17 <= hour <= 19:
+    if hour in (11, 23):
         return 2
+    if hour in (4, 15):
+        return 0
     return 3
+
+
+def filter_show_name(name: str) -> str:
+    """原版 ``M2Share.pas:3630 FilterShowName``：名字从第一个数字/减号处截断。
+
+    Monster.DB 里同名怪有多个变体（不同外观/命中/行走参数），转成本项目的
+    Monster.csv 时为了 key 唯一加了数字后缀（僵尸/僵尸1/僵尸2/僵尸20…）；
+    MonGen.txt 也用带后缀的名字索引模板。原版下发给客户端的显示名走
+    ``TBaseObject.GetShowName`` → ``FilterShowName``，所以玩家看到的始终是
+    「僵尸」「骷髅」「稻草人」，而不是「僵尸3」「僵尸20」。
+    """
+    for i, ch in enumerate(name):
+        if ('0' <= ch <= '9') or ch == '-':
+            return name[:i]
+    return name
 
 
 # ---------------------------------------------------------------- 地图
@@ -220,6 +240,8 @@ class Actor:
 @dataclass(slots=True)
 class Player(Actor):
     account_id: int = 0
+    # 换图锁：防止换图瞬间仍在途的 move 落在新地图，踩中相邻回程门被弹回。
+    map_change_at: int = 0
     character_id: int = 0
     sex: int = 0
     hair: int = 0
@@ -626,6 +648,9 @@ class Monster(Actor):
     def brief_json(self) -> dict:
         # 同 Player：slots dataclass 在 3.10~3.12 下禁用零参数 super()。
         o = Actor.brief_json(self)
+        # 原版 GetShowName → FilterShowName：Monster.csv 的「僵尸3/僵尸20」等
+        # 变体编号不能显示给玩家（M2Share.pas:3630）。
+        o["name"] = filter_show_name(self.name)
         if self.master_id >= 0 and 0 <= self.slave_exp_level < len(SLAVE_COLORS):
             o["nameColor"] = SLAVE_COLORS[self.slave_exp_level]
         # 尸体仍要作为实体下发给客户端（原版 SM_DEATH 保留 actor，画 ActDeath 帧）
@@ -665,6 +690,7 @@ class GameWorld(WorldExtra):
         self.available_maps = scan_available_maps(config.map_dir)
         info: MapInfo = parse_map_info(config.envir_dir / "MapInfo.txt")
         self.map_titles = info.titles
+        self.map_flags = info.flags          # DARK / DAY / MINE 等地图标志
         # 与 Java 一致：两端都没有 .map 文件的连接不生效。
         self.gates_by_src: dict[str, list[Gate]] = {}
         kept = 0
@@ -790,6 +816,10 @@ class GameWorld(WorldExtra):
             p.map.remove(p.id)
         p.x, p.y = x, y
         target.add(p)
+        # 原版 SM_CHANGEMAP 后客户端 CancelAction 停住动作；这里用短锁拦下
+        # 换图消息到达前已在网络中的 move，否则会落在新地图继续走，
+        # 容易一脚踩中紧邻落点的回程门被弹回（例如 D401 (76,15) ↔ D411 (60,7)）。
+        p.map_change_at = now_ms()
         return target
 
     def try_move(self, a: Actor, direction: int) -> bool:
@@ -904,6 +934,40 @@ class GameWorld(WorldExtra):
                 if (a.alive or self._corpse_visible(a))
                 and max(abs(a.x - x), abs(a.y - y)) <= radius]
 
+    def is_underground(self, map_name: str) -> bool:
+        """地下/矿区地图恒暗（视野受限）。
+
+        原版 ``ObjBase.pas:4283 DayBright`` 只认 ``boDARKness``；本项目的
+        MapInfo.txt 里比奇矿区是 ``MINE``、天然洞穴没有任何标志，但客户端
+        1.76/1.80 在这些地下地图都需要火把视野。这里把 ``DARK``/``MINE``
+        标志以及标题里的「洞/矿/穴/墓」并入地下判定，作为配置层近似。
+        """
+        flags = self.map_flags.get(map_name, ())
+        if any(f.startswith("MINE") or f.startswith("DARK") for f in flags):
+            return True
+        title = self.map_titles.get(map_name, "")
+        return any(k in title for k in ("洞", "矿", "穴", "墓", "窟"))
+
+    def dark_level(self, map_name: str, underground: bool | None = None) -> int:
+        """对齐 ``DayBright()``：0 全亮 / 1 深夜 / 2 中等暗 / 3 正午。
+
+        ``SM_NEWMAP``、``SM_CHANGEMAP`` 的第 4 参数 cdir 就是 ``DayBright()``
+        （ObjBase.pas:5618/5796），客户端 ``PlayScn.pas:2388`` 收下后写入
+        ``DarkLevel`` 并据此开关 ``g_boViewFog``。
+        """
+        if underground is None:
+            underground = self.is_underground(map_name)
+        flags = self.map_flags.get(map_name, ())
+        if any(f.startswith("DAY") for f in flags):       # boDAYLIGHT
+            return 0
+        if underground:                                    # boDARKness
+            return 1
+        if self.day_bright == 1:
+            return 0
+        if self.day_bright == 3:
+            return 1
+        return 2
+
     def map_snapshot(self, p: Player, msg_type: str) -> dict:
         game_map = p.map or self.default_map
         p.seen.clear()
@@ -918,6 +982,8 @@ class GameWorld(WorldExtra):
                     "title": self.map_titles.get(game_map.name, game_map.name),
                     "width": game_map.width, "height": game_map.height},
             "dayBright": self.day_bright,
+            "darkLevel": self.dark_level(game_map.name),
+            "underground": self.is_underground(game_map.name),
             "miniMapIndex": self.map_mini_index.get(game_map.name, -1),
             "player": p.to_player_json(self),
             "nearby": nearby,
@@ -1079,7 +1145,9 @@ class GameWorld(WorldExtra):
         if bright == self.day_bright:
             return
         self.day_bright = bright
-        self.broadcast_all({"type": "dayChanging", "dayBright": bright})
+        # darkLevel 用「非地下地图」口径下发，地下地图由客户端按 underground 覆盖成恒暗。
+        dl = 0 if bright == 1 else (1 if bright == 3 else 2)
+        self.broadcast_all({"type": "dayChanging", "dayBright": bright, "darkLevel": dl})
 
     def _close_timed_out_doors(self, now: int) -> None:
         for game_map in self.maps.values():
