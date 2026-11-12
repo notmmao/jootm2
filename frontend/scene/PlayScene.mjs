@@ -190,6 +190,12 @@ export class PlayScene extends Scene {
         this.entities = new Map();      // id -> 实体快照
         this.sprites = new Map();       // id -> ActorSprite
         this.mapActor = new MapActor(SCREEN_WIDTH, MAPSURFACEHEIGHT);
+        // 免蜡：原版 MShare.pas 的 g_boForceNotViewFog（True = 强制不查看雾）。
+        // 客户端偏好，和音效开关一样持久化；系统菜单里可随时切换。
+        this._noFog = (() => {
+            try { return localStorage.getItem('jootm2.noFog') === '1'; } catch { return false; }
+        })();
+        this.mapActor.forceNotViewFog = this._noFog;
         this._holding = false;       // 鼠标按住状态（按住持续移动，松开停止）
         this._mouseRun = false;      // 是否跑（右键）
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
@@ -218,6 +224,10 @@ export class PlayScene extends Scene {
     async onEnter() {
         const { map, player, nearby, groundItems } = this.snapshot;
         this.self = player;
+        // 正常登录服务端必然已复活（HP<=0 → 出生点 HP=14），这里按快照兜底，
+        // 保证换角色/重进不会残留上一局的黑白屏。
+        this._selfDead = !!(player && player.dead);
+        this.mapActor.selfDead = this._selfDead;
         this._mapLoadError = null;
         this.entities.clear();
         this.entities.set(player.id, player);
@@ -527,6 +537,21 @@ export class PlayScene extends Scene {
     _toggleSound() {
         const on = sound.toggle();
         this._log(on ? '[系统] 音效已开启。' : '[系统] 音效已关闭。');
+    }
+
+    /**
+     * 免蜡开关：原版 MShare.pas ``g_boForceNotViewFog``，
+     * ``PlayScn.pas:1471`` 的 ``if g_boViewFog and not g_boForceNotViewFog``。
+     * 打开后完全跳过 ApplyLightMap + DrawFog，画面恒亮（老玩家俗称「免蜡」）。
+     */
+    _toggleNoFog() {
+        this._noFog = !this._noFog;
+        try { localStorage.setItem('jootm2.noFog', this._noFog ? '1' : '0'); } catch { /* 隐私模式 */ }
+        if (this.mapActor) this.mapActor.forceNotViewFog = this._noFog;
+        if (this._syncFogBtn) this._syncFogBtn();
+        this._log(this._noFog
+            ? '[系统] 免蜡已开启：视野全亮，不再受黑暗/火把限制。'
+            : '[系统] 免蜡已关闭：黑暗区域需要蜡烛、火把或火墙照明。');
     }
 
     /** 返回人物选择（原版 Alt-X / 退出角色）：保持登录态与 WS 连接。 */
@@ -1264,6 +1289,20 @@ export class PlayScene extends Scene {
                     }
                 }
                 if (this.castTarget === msg.id) this.castTarget = null;
+                // 原版 SM_NOWDEATH（Actor.pas:2388-2395）：自己死亡 → PlayBGM
+                // (bmg_gameover) + m_boDeath，PlayScn.pas:1476 把 ObjSurface
+                // 切成 ceGrayScale 黑白屏，服务端不回城、不换图。
+                if (this.self && msg.id === this.self.id) {
+                    this._selfDead = true;
+                    if (this.mapActor) this.mapActor.selfDead = true;
+                    this._holding = false;
+                    this._pendingStep = false;
+                    this._dirAttackHolding = false;
+                    this._mouseDir = -1;
+                    this.chaseTargetId = null;
+                    this._clearPicked();
+                    this._log('[系统] 你被击败了。按 Esc →「返回角色选择」重新登录即可在出生点复活。', '#ff8a8a');
+                }
                 break;
             }
             case 'butch': {
@@ -1412,6 +1451,10 @@ export class PlayScene extends Scene {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.snapshot = msg;   // _renderHud 读 snapshot.map.title，不更新会一直显示旧图名
                 this._applyBrightness(msg);   // 新地图的 DarkLevel / underground
+                // 换图即视为复活/重登，清掉死亡黑白屏（死亡期间服务端不会换图，
+                // 这里主要防 GM 传送 / 异常快照把死亡状态带进新场景）。
+                this._selfDead = !!(msg.player && msg.player.dead);
+                this.mapActor.selfDead = this._selfDead;
                 this.entities.clear();
                 this.groundItems.clear();
                 this._holding = false;
@@ -1891,11 +1934,19 @@ export class PlayScene extends Scene {
             b.addEventListener('mousedown', (e) => e.stopPropagation());
             b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
             p.appendChild(b);
+            return b;
         };
         mk('返回游戏', () => this._closeSystemMenu());
         mk('大地图 (Tab)', () => { this._closeSystemMenu(); this._openBigMap(); });
         mk('小地图 (V)', () => { this._closeSystemMenu(); this._toggleMiniMap(); });
         mk('音效：开 / 关', () => this._toggleSound());
+        // 免蜡（原版 g_boForceNotViewFog）：开 = 强制全亮，关 = 需要蜡烛/火把。
+        const fogBtn = mk('', () => this._toggleNoFog());
+        this._syncFogBtn = () => {
+            fogBtn.textContent = `免蜡：${this._noFog ? '开（全亮）' : '关（需火把）'}`;
+            fogBtn.style.color = this._noFog ? '#9fe08a' : '#ffe9a8';
+        };
+        this._syncFogBtn();
         mk('背包 (F9)', () => { this._closeSystemMenu(); this._toggleBag(); });
         mk('状态 (F10)', () => { this._closeSystemMenu(); this.statePage = 0; this._toggleStateWin(); });
         mk('技能 (F11)', () => { this._closeSystemMenu(); this._openSkillSetup(); });
@@ -3249,26 +3300,84 @@ export class PlayScene extends Scene {
                 poison: !!e._poison,                  // 红毒（掉血）绿色调
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
                 nameColor: e.nameColor,               // 宠物名字颜色（调色板索引）
+                // 原版 m_nLight / m_nChrLight（ObjBase.pas:3387、SM_LOGON 的
+                // Hibyte(cdir)）：服务端按 U_RIGHTHAND 蜡烛/火把下发 3，否则 1；
+                // NPC 是 TNormNpc.m_nLight=2。供 m_LightMap 收集多光源。
+                light: e.light != null ? e.light : (isSelf ? 1 : 0),
                 layers: sp.getLayers(now),
             };
             (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
         }
         entities.unshift(...corpses);
         perf.add('build', performance.now() - tBuild);
+        // 原版 PlayScn.pas:1398-1411：魔法特效 TMagicEff.Light 与场景事件
+        // TClEvent.m_nLight（火墙/火堆/神圣战甲术）也要 AddLight，施法瞬间
+        // 周围会跟着亮一下。每帧从当前特效列表重建，复用同一个数组。
+        const lights = this.mapActor.extraLights;
+        lights.length = 0;
+        for (const fx of this.effects) {
+            if (fx.x == null || fx.y == null) continue;
+            const lit = fx.kind === 'ground' || fx.kind === 'elfFire'
+                || fx.kind === 'hit' || fx.kind === 'fly'
+                || fx.kind === 'firegun' || fx.kind === 'beam';
+            if (lit) lights.push({ x: fx.x, y: fx.y, level: 1 });
+        }
         // 掉落物交给 MapActor 按行调度，才能被同格/下一行的角色、树木、建筑正确遮挡
         let tPhase = performance.now();
         this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY,
-            (c, g, sx, sy) => this._drawGroundItem(c, g, sx, sy),
+            (c, g, sx, sy, slot) => this._drawGroundItem(c, g, sx, sy, slot),
             this.groundItems);
         perf.add('map', performance.now() - tPhase);
         tPhase = performance.now();
         this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
         perf.add('fx', performance.now() - tPhase);
+        // 原版 PlayScn.pas:1471-1481：死亡时 g_boViewFog := FALSE，跳过
+        // ApplyLightMap/DrawFog，改在 ObjSurface 上画 ceGrayScale 黑白画面。
+        // 这里只对离屏 back buffer 生效；DOM HUD / 小地图属于之后的 DrawScrn，
+        // 与原版一样保持彩色。
+        if (this._selfDead) this._drawDeathGray(ctx);
         tPhase = performance.now();
         this._renderHud();
         this._renderMiniMap();
         this._renderBigMap();   // 大地图打开时逐帧刷新自己/怪物位置
         perf.add('hud', performance.now() - tPhase);
+    }
+
+    /**
+     * 原版 PlayScn.pas:1476 的 ``g_DeathColorEffect = ceGrayScale``：
+     * 死亡后把整张 ObjSurface 的调色板映射成灰度。canvas 2d 没有 8 位
+     * 调色板，用一次 ``filter='grayscale(1)'`` 的自身重绘等价实现（GPU 合成，
+     * 比逐帧 getImageData 快得多）；不支持 filter 的浏览器退化成灰纱覆盖。
+     * 死亡提示条画在最上层，告诉玩家怎么复活——原版靠 Alt-X 退出角色，
+     * 这里统一走系统菜单「返回角色选择」。
+     */
+    _drawDeathGray(ctx) {
+        const cv = ctx.canvas;
+        if (cv) {
+            ctx.save();
+            if ('filter' in ctx) {
+                ctx.filter = 'grayscale(1) brightness(0.72)';
+                ctx.globalCompositeOperation = 'copy';
+                ctx.drawImage(cv, 0, 0);
+            } else {
+                ctx.fillStyle = 'rgba(120,120,120,0.55)';
+                ctx.fillRect(0, 0, SCREEN_WIDTH, MAPSURFACEHEIGHT);
+            }
+            ctx.restore();
+        }
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.78)';
+        ctx.fillRect(0, 186, SCREEN_WIDTH, 62);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.font = 'bold 20px SimSun,serif';
+        ctx.fillStyle = '#e8d9b0';
+        ctx.fillText('你 已 死 亡', SCREEN_WIDTH / 2, 194);
+        ctx.font = '13px SimSun,serif';
+        ctx.fillStyle = '#c8b98e';
+        ctx.fillText('按 Esc →「返回角色选择」，重新登录即可在出生点复活',
+                     SCREEN_WIDTH / 2, 221);
+        ctx.restore();
     }
 
     // 实体精灵缓存（entityAdd 替换对象后重建）
@@ -3565,20 +3674,32 @@ export class PlayScene extends Scene {
     // 单个地面物品（原版 PlayScn.pas 的 `for j` 行循环里绘制 DropedItemList）。
     // 锚点 = 格中心：`ix + HALFX - Width/2`、`iy + HALFY - Height/2`
     // （HALFX=24 / HALFY=16，Grobal2.pas）。sx/sy 由 MapActor 按行传入。
-    _drawGroundItem(ctx, g, sx, sy) {
+    _drawGroundItem(ctx, g, sx, sy, slot = 0) {
         if (!this.self) return;
+        // 原版把同格物品全叠在格中心；这里按同格序号做几像素的确定性错开，
+        // 让「一格最多 5 件」的堆叠看得清（拾取判定仍按格，不受偏移影响）。
+        const ox = slot ? ((slot % 3) - 1) * 7 : 0;
+        const oy = slot ? (Math.floor(slot / 3) - 1) * 5 : 0;
         ctx.save();
         if (g.gold > 0) {
-            // 金币堆：黄色圆点（原版用金币袋图，暂用圆点）
-            ctx.fillStyle = '#fbbf24';
-            ctx.beginPath();
-            ctx.arc(sx + 24, sy + 16, 5, 0, Math.PI * 2);
-            ctx.fill();
+            // 金币堆：原版按数量分 5 档钱袋图标（M2Share.pas:3568 GetGoldShape，
+            // <30→112 ≥30→113 ≥70→114 ≥300→115 ≥1000→116，DnItems 库）；
+            // 服务端已在 itemDrop/groundItems 里下发 looks。取不到贴图时
+            // 才退回黄色圆点占位。
+            if (g.looks > 0 && this._drawDropTex(ctx, g.looks, sx + ox, sy + oy)) {
+                // 已按钱袋图标绘制
+            } else {
+                ctx.fillStyle = '#fbbf24';
+                ctx.beginPath();
+                ctx.arc(sx + 24 + ox, sy + 16 + oy, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         } else if (g.looks > 0) {
             // 物品：DnItems[looks] 图标（原版掉落物贴图）
-            this._drawDropTex(ctx, g.looks, sx, sy);
+            this._drawDropTex(ctx, g.looks, sx + ox, sy + oy);
         }
-        if (g.name) {
+        // 同格多件时只给第一件画名字，避免文字糊成一片
+        if (g.name && slot === 0) {
             ctx.font = '11px SimSun,serif';
             ctx.textAlign = 'center';
             ctx.fillStyle = '#fff';
@@ -3587,7 +3708,8 @@ export class PlayScene extends Scene {
         ctx.restore();
     }
 
-    // 绘制掉落物物品图标（DnItems 库，异步加载 + 缓存）
+    // 绘制掉落物物品图标（DnItems 库，异步加载 + 缓存）。
+    // 返回 true = 已绘制；false = 贴图未就绪（调用方可画占位）。
     _drawDropTex(ctx, looks, sx, sy) {
         if (!this._dropTex) this._dropTex = new Map();
         if (!this._dropTexLoading) this._dropTexLoading = new Set();
@@ -3603,12 +3725,10 @@ export class PlayScene extends Scene {
                     }).catch(() => this._dropTexLoading.delete(looks));
                 }
             }
-            // 加载中占位
-            ctx.fillStyle = '#4ade80';
-            ctx.fillRect(sx + 19, sy + 11, 10, 10);
-            return;
+            return false;
         }
         ctx.drawImage(tex.canvas, sx + (48 - tex.width) / 2, sy + (32 - tex.height) / 2);
+        return true;
     }
 
     _renderHud() {

@@ -111,6 +111,24 @@ def java_round(x: float) -> int:
     return math.floor(x + 0.5)
 
 
+def delphi_round(x: float) -> int:
+    """Delphi 的 ``Round()``：四舍六入五取偶（3.5→4、2.5→2、10.5→10）。
+
+    Delphi 源码里到处是 ROUND（商店定价 ``Round(StdItem.Price*1.1)``、
+    治愈术 GetPower、``Math.round`` 的 Java 移植是 floor(x+0.5)，在 .5
+    且向下为偶数时会多 1，不能混用。
+    """
+    f = int(x // 1) if x >= 0 else -int(-x // 1)
+    d = abs(x) - abs(f)
+    if d < 0.5:
+        return f
+    if d > 0.5:
+        return f + (1 if x > 0 else -1)
+    if f % 2 == 0:
+        return f
+    return f + (1 if x > 0 else -1)
+
+
 def clamp(v: int, lo: int, hi: int) -> int:
     return lo if v < lo else (hi if v > hi else v)
 

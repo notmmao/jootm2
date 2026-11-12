@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .gamedata import read_lines
+from .util import delphi_round
 
 MAX_DEPTH = 64
 
@@ -82,9 +83,11 @@ def _decode(line: str) -> Cmd:
 class NpcScript:
     def __init__(self):
         self.sections: dict[str, Section] = {}
-        # M2 商人脚本头的 ``%100`` = 按 StdItems 原价出售（%150 = 1.5 倍）。
-        # 见 Market_Def/*.txt：每个商店第二行都是 %100，紧随 +N 分类行。
+        # M2 ``LocalDB.pas:3251-3256``：``%N`` 是 m_nPriceRate，**只有 N >= 55
+        # 才接受**，否则保持默认 100；``+N`` 加入 m_ItemTypeList（CheckItemType），
+        # 是 ``TMerchant.GetItemPrice`` 在没有价格记录时的 StdMode 过滤条件。
         self.price_rate: int = 100
+        self.item_types: list[int] = []
 
     def section(self, label: str) -> Section | None:
         sec = self.sections.get(label)
@@ -131,12 +134,22 @@ class NpcScript:
                 script.sections[label] = cur
                 state = "NONE"
                 continue
-            # 脚本头的价格倍率行（`%100` / `(@buy @sell) %100 +5 +6`），位于首个段之前。
-            # 原版 M2 用它乘 StdItems 的 Price；Java 版与之前的 Python 版都没解析。
+            # 脚本头（位于首个 [@段] 之前）：价格倍率 ``%100`` 与商品类型 ``+5``。
+            # 原版 LocalDB.pas:3251-3268 逐行解析，%rate 只有 >=55 才写入。
             if cur is None:
-                m = re.search(r"%\s*(\d+)", line)
-                if m:
-                    script.price_rate = max(1, min(1000, int(m.group(1))))
+                if line.startswith('%'):
+                    m = re.search(r"%\s*(\d+)", line)
+                    if m:
+                        r = int(m.group(1))
+                        if r >= 55:
+                            script.price_rate = max(1, min(1000, r))
+                elif line.startswith('+'):
+                    try:
+                        n = int(line[1:].strip())
+                        if n >= 0:
+                            script.item_types.append(n)
+                    except ValueError:
+                        pass
                 continue
             if line.startswith("#"):
                 upper = line.upper()
@@ -192,7 +205,12 @@ class NpcScript:
             for line in stmt.text.split("\n"):
                 t = line.strip()
                 if t and not t.startswith(";"):
-                    rows.append(t.split())
+                    parts = t.split()
+                    # 原版 LocalDB.pas:3261-3268 用 GetValidStrCap 取三列，
+                    # 且 `if (s48 <> '') and (s50 <> '')` 才登记：名字与
+                    # 刷新时间缺一不可。少列的行是残缺配置，直接忽略。
+                    if len(parts) >= 3:
+                        rows.append(parts)
         return rows
 
 
@@ -398,27 +416,31 @@ class NpcScriptEngine:
     def goods(self, npc) -> list[dict]:
         """返回 ``[{"index","name","price","stock"}]``。
 
-        M2 ``Market_Def`` 的真实列义（见脚本头 ``%100`` 与 +N 分类行）是：
-        ``[goods]`` 每行 = ``物品名 库存数量 刷新时间``，**第二列不是单价**；
-        购买价 = ``StdItems.csv 的 Price × 脚本头 % 倍率``（%100 即原价）。
-        Java 版把第二列当成 price 直出，导致武器店/首饰店清一色「10 金币」；
-        这里按 M2 语义纠正，倍率仍由各商店脚本自己决定。
+        M2 ``Market_Def`` 的真实列义（脚本头 ``%100`` + ``+N`` 分类行）是：
+        ``[goods]`` 每行 = ``物品名 库存数量 刷新时间``，**第二列不是单价**。
+
+        买价链路（本地 Delphi 源码逐字核对）：
+        ``ObjNpc.pas:798-823 CheckItemPrice`` 首次补货写入
+        ``Round(StdItem.Price * 1.1)`` → ``:999-1024 GetItemPrice`` 取该记录
+        → ``:1385-1412 GetUserPrice`` = ``Round(nPrice / 100 * m_nPriceRate)``。
+        所以实际售价是 **原价的 1.1 倍再乘脚本倍率**，不是原价。
+        1.76 玩家实测价（木剑 55 / 青铜剑 990 / 凝霜 8800 / 修罗 11000）
+        正好等于 StdItems.csv 的 50 / 900 / 8000 / 10000 × 1.1，
+        这就是用户反馈 27「武器没这么便宜」的根因。
         """
         out: list[dict] = []
         if npc is None or npc.script is None:
             return out
         rate = getattr(npc.script, "price_rate", 100) or 100
         for parts in npc.script.goods_rows():
-            if not parts:
-                continue
             t = self.world.item_template_by_name(parts[0])
             if t is None:
                 continue
             try:
-                stock = int(parts[1]) if len(parts) > 1 else 0
+                stock = int(parts[1])
             except ValueError:
                 stock = 0
-            # 物品模板里的 price 就是 M2 的 StdItems.Price（原价）
-            price = max(1, round(t.price * rate / 100))
+            base = delphi_round(t.price * 1.1)          # CheckItemPrice
+            price = max(1, delphi_round(base / 100 * rate))   # GetUserPrice
             out.append({"index": t.index, "name": t.name, "price": price, "stock": stock})
         return out

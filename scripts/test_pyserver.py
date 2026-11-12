@@ -316,7 +316,11 @@ def test_live(port: int) -> None:
 
 
 def test_shop_goods() -> None:
-    """M2 [goods] 列义：第二列是库存，价格 = StdItems.Price × 脚本头 % 倍率。"""
+    """M2 [goods]：第二列是库存；买价 = Round(Round(Price*1.1)/100*%倍率)。
+
+    原版链路 ObjNpc.pas:798-823 CheckItemPrice → 999-1024 GetItemPrice
+    → 1385-1412 GetUserPrice，详见 NpcScriptEngine.goods 的注释。
+    """
     print("\n[商店价格] Market_Def / NpcScriptEngine.goods")
     import types
 
@@ -327,8 +331,16 @@ def test_shop_goods() -> None:
     ])
     check("脚本头 %150 解析为价格倍率", script.price_rate == 150,
           f"rate={script.price_rate}")
+    check("+N 分类行解析为 item_types", script.item_types == [5, 6],
+          f"types={script.item_types}")
     check("[goods] 行按空白切分", script.goods_rows() == [["木剑", "10", "10"],
                                                         ["青铜剑", "5", "3"]])
+    # 原版 LocalDB.pas:3251-3256：%rate 只有 >=55 才接受，否则保持默认 100；
+    # LocalDB.pas:3261-3268：三列缺一不可。
+    low = NpcScript.parse(["%50", "[@main]", "[goods]", "木剑 10 10", "残缺行"])
+    check("%rate <55 不生效", low.price_rate == 100, f"rate={low.price_rate}")
+    check("[goods] 不足三列的行被忽略",
+          low.goods_rows() == [["木剑", "10", "10"]], str(low.goods_rows()))
 
     t1, t2 = ItemTemplate(), ItemTemplate()
     t1.index, t1.name, t1.price = 1, "木剑", 50
@@ -337,8 +349,11 @@ def test_shop_goods() -> None:
         item_template_by_name=lambda n: {"木剑": t1, "青铜剑": t2}.get(n))
     npc = types.SimpleNamespace(script=script)
     goods = NpcScriptEngine(world).goods(npc)
-    check("价格取 StdItems.Price × 倍率，不再把库存 10 当单价",
-          [g["price"] for g in goods] == [75, 1350],
+    from pyserver.util import delphi_round
+    expected = [delphi_round(delphi_round(50 * 1.1) / 100 * 150),
+                delphi_round(delphi_round(900 * 1.1) / 100 * 150)]
+    check("买价 = Round(Round(StdItems.Price*1.1)/100*%倍率)",
+          [g["price"] for g in goods] == expected,
           str([(g["name"], g["price"], g["stock"]) for g in goods]))
     check("第二列落到 stock", [g["stock"] for g in goods] == [10, 5])
 

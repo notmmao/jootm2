@@ -10,8 +10,8 @@ import random
 from typing import Any
 
 from .util import (
-    SIGHT_RANGE, U_WEAPON, _int, direction_delta, direction_toward, java_div,
-    java_round, now_ms,
+    SIGHT_RANGE, U_WEAPON, _int, delphi_round, direction_delta, direction_toward,
+    java_div, java_round, now_ms,
 )
 from .world import Monster, Player
 
@@ -45,23 +45,6 @@ def skill_level(p, magic_id: int) -> int:
 
 def spell_cost(t, lv: int) -> int:
     return java_round(t.spell / 4 * (lv + 1)) + t.defSpell
-
-
-def delphi_round(x: float) -> int:
-    """Delphi 的 Round()：四舍六入五取偶（Round(3.5)=4、Round(2.5)=2、Round(10.5)=10）。
-
-    Java 的 Math.round 是 floor(x+0.5)，在 .5 且向下为偶数时会多 1（如 10.5 → 11）。
-    治愈术威力走 GetPower（Magic.pas:61 的 ROUND），必须用 Delphi 语义。
-    """
-    f = int(x // 1) if x >= 0 else -int(-x // 1)
-    d = abs(x) - abs(f)
-    if d < 0.5:
-        return f
-    if d > 0.5:
-        return f + (1 if x > 0 else -1)
-    if f % 2 == 0:
-        return f
-    return f + (1 if x > 0 else -1)
 
 
 def heal_power(p, t, lv: int) -> int:

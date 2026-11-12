@@ -147,6 +147,7 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "npcSelect": {"type": "npcSelect", "npcId": npc_id, "value": "@main"},
         "buyItem": {"type": "buyItem", "npcId": npc_id, "index": 0, "count": 1},
         "sellItem": {"type": "sellItem", "npcId": npc_id, "makeIndex": -1},
+        "querySellPrice": {"type": "querySellPrice", "npcId": npc_id, "makeIndex": -1},
         "createGuild": {"type": "createGuild", "name": "测试行会"},
         "joinGuild": {"type": "joinGuild", "name": "测试行会"},
         "guildInfo": {"type": "guildInfo"},
@@ -219,11 +220,25 @@ def run_success_paths() -> int:
             check("拾取后物品回背包且地面项消失",
                   gi.id not in w.ground_items and p.bag_item(eq_mi) is not None, results)
 
-        # 购买
-        gold_before = p.gold
-        s1.messages.clear()
-        h["buyItem"](s1, {"type": "buyItem", "npcId": npc.id, "index": 0, "count": 1})
-        check("购买扣金币并生成物品", p.gold < gold_before and len(p.bag) > 0, results)
+        # 购买：原版 TMerchant.ClientBuyItem 只在 m_GoodsList（[goods] 货单）
+        # 里找商品，货单外的 StdItems 模板一律不能买。
+        buy_npc = next((n for n in w.npcs.values() if w.goods(n)), None)
+        if buy_npc is not None:
+            buy_goods = w.goods(buy_npc)
+            target = min(buy_goods, key=lambda g: g["price"])
+            p.gold = max(p.gold, target["price"] + 100)
+            gold_before, bag_before = p.gold, len(p.bag)
+            h["buyItem"](s1, {"type": "buyItem", "npcId": buy_npc.id,
+                              "index": target["index"], "count": 1})
+            check("购买货单内商品扣金币并生成物品",
+                  p.gold < gold_before and len(p.bag) > bag_before, results)
+            outside = next((i for i in w.item_templates
+                            if all(g["index"] != i for g in buy_goods)), None)
+            if outside is not None:
+                g0 = p.gold
+                h["buyItem"](s1, {"type": "buyItem", "npcId": buy_npc.id,
+                                  "index": outside, "count": 1})
+                check("货单外物品不可购买", p.gold == g0, results)
 
         # NPC 对话
         s1.messages.clear()
@@ -246,9 +261,11 @@ def run_success_paths() -> int:
                   results)
             if goods:
                 t0 = w.item_templates.get(goods[0]["index"])
-                check("首个商品价格 = StdItems.Price × % 倍率",
-                      t0 is not None and goods[0]["price"]
-                      == max(1, round(t0.price * (merchant.script.price_rate or 100) / 100)),
+                from pyserver.util import delphi_round
+                rate = merchant.script.price_rate or 100
+                want = max(1, delphi_round(delphi_round(t0.price * 1.1) / 100 * rate))
+                check("首个商品价格 = Round(Round(Price*1.1)/100*%倍率)",
+                      t0 is not None and goods[0]["price"] == want,
                       results)
 
         # 行会 / 组队 / 仓库
@@ -355,6 +372,23 @@ def run_success_paths() -> int:
         check("角色列表附带上次地图坐标（供选角界面预载纹理）",
               bool(chars) and all(set(("map", "x", "y")) <= set(c) for c in chars),
               results)
+
+        # 第 13 轮 25：死亡存档（HP<=0）重登，原版 UsrEngn.pas:576-600
+        # 回出生点附近并给 HP := 14，不是满血、也不是留在死亡地图。
+        rec = service.db.find_character(p.name)
+        if rec is not None:
+            rec = dict(rec)
+            rec["hp"] = 0
+            service.db.update_character(rec)
+            s3 = FakeSession()
+            for m in ({"type": "login", "username": p.name, "password": "test12345"},
+                      {"type": "enterGame", "name": p.name},
+                      {"type": "noticeOk", "name": p.name}):
+                service.on_message(s3, json.dumps(m, ensure_ascii=False))
+            p3 = service.find_by_session(s3)
+            check("死亡存档重登：回出生点且 HP=14（原版 UsrEngn）",
+                  p3 is not None and p3.hp == 14 and not p3.dead
+                  and p3.map.name == p3.home_map, results)
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):

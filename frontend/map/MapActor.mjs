@@ -7,6 +7,7 @@
 // 平滑卷动：render 接收 shiftX/shiftY（玩家移动插值），坐标收口在 screenX/screenY。
 
 import { loadMap } from './Maps.mjs';
+import { LightMap, loadLightMasks } from './LightMap.mjs';
 import { getLib } from '../image/Images.mjs';
 import { PALETTE_RGBA } from '../gfx/palette.mjs';
 import { perf } from '../core/perf.mjs';
@@ -164,6 +165,18 @@ export class MapActor {
         this._fogMask = null;
         this._fogHoleR = 0;
         this._fogHoleCanvas = null;
+        // ---- 原版 m_LightMap 多光源（PlayScn.pas:1327-1412 / 1471） ----
+        // g_boForceNotViewFog：True = 免蜡烛，直接跳过 DrawFog（全亮）。
+        this.forceNotViewFog = false;
+        // g_boNoDarkness or g_MySelf.m_boDeath → g_boViewFog := FALSE：
+        // 死亡时不再压暗，改由 PlayScene 叠 ceGrayScale 黑白效果。
+        this.selfDead = false;
+        // 每帧由 PlayScene 注入的技能/场景特效光源（火墙、火堆、魔法弹）。
+        this.extraLights = [];
+        this._lightMap = new LightMap();
+        this._lightMasks = null;      // lig0a..f 解码后的 6 张 alpha 贴图
+        this._fogBright = null;       // 每帧累加的 fogmask 缓冲
+        loadLightMasks().then((masks) => { this._lightMasks = masks; });
     }
 
     /**
@@ -1024,7 +1037,17 @@ export class MapActor {
             // 本行地面物品：先于实体绘制，后续行的对象/角色才能正确遮挡它
             const drops = dropsByRow.get(gy);
             if (drops) {
-                for (const g of drops) drawDrop(ctx, g, sx(g.x), sy(g.y));
+                // 原版同格物品都叠在格中心（一格最多 5 件，见 Envir.pas:230）。
+                // 把「同格第几件」传给绘制回调，让前端做几像素的确定性错开，
+                // 否则 BOSS「爆了」时一格里的几件完全重叠、看不出也点不到。
+                const cells = this._dropCells || (this._dropCells = new Map());
+                cells.clear();
+                for (const g of drops) {
+                    const key = g.x + ':' + g.y;
+                    const slot = cells.get(key) || 0;
+                    cells.set(key, slot + 1);
+                    drawDrop(ctx, g, sx(g.x), sy(g.y), slot);
+                }
             }
             // 实体（照原版：锚点 = 格子左上角，图左上 = 格左+px, 格顶+py）
             const row = byRow.get(gy);
@@ -1068,7 +1091,7 @@ export class MapActor {
 
         // 原版 PlayScn.pas:1471-1474：DrawFog 画在 ObjSurface 上、MSurface.Draw
         // 之前，也就是压住地面与所有精灵；血条/名字属于之后的 DrawScrn，不受影响。
-        this._drawFog(ctx, sx(cx), sy(cy));
+        this._drawFog(ctx, sx(cx), sy(cy), cx, cy, entities);
 
         // 原版 DrawScrn.pas:296-321：血条 + 名字单独一遍，压在所有精灵之上；
         // DrawScrn.pas:306 明确要求 `not actor.m_boDeath` → 尸体不画血条。
@@ -1104,13 +1127,26 @@ export class MapActor {
     }
 
     /**
-     * 黑暗视野（原版 DrawFog + ApplyLightMap）：整屏暗化，人物周围留一个
-     * 径向渐变的圆形亮区。0 = g_boViewFog false，完全不画。
+     * 黑暗视野：原版 ClearLightMap → AddLight → ApplyLightMap(FogCopy) → DrawFog。
+     *
+     * cliUtil.pas:160-224 的 ColorLevel 表按 fogmask n∈[0,30] 把像素乘上
+     *   HeavyDark (n+1)/31 / LightDark (3n+47)/140 / Dengun (3n+120)/214，
+     * 也就是「n 越大越亮、n=0 最暗」。canvas 2d 没有 8 位调色板，这里等价地：
+     *   1) 把每张 lig0*.dat 预解码成「黑 + alpha=n/30」的画布，多光源用
+     *      'lighter' 累加 alpha（= FogCopy 的 paddd 累加，饱和 255 即 n>=30）；
+     *   2) 整屏铺 cfg.alpha 的暗色，再用 'destination-out' 贴累加缓冲挖掉暗度。
+     * 保留项目已有的 cfg.alpha 作为「全暗」基准，避免把昼夜观感整体改暗。
+     *
+     * 光源本身严格走原版亮度网格（LightMap.mjs）：同格取更亮等级、
+     * CheckOverLight 去重、UpdateBright 邻域抑制，所以一排火把不会无限叠亮。
+     * lig0*.dat 尚未加载完时退回旧的单中心径向孔，保证不会黑屏。
      */
-    _drawFog(ctx, px, py) {
+    _drawFog(ctx, px, py, cx, cy, entities) {
         const lv = this.darkLevel | 0;
         const cfg = FOG_LEVELS[lv];
-        if (!cfg) return;
+        // PlayScn.pas:1469/1471：免蜡（g_boForceNotViewFog）与死亡都不画雾；
+        // 死亡分支在 1476 改画 ceGrayScale（由 PlayScene 处理）。
+        if (!cfg || this.forceNotViewFog || this.selfDead) return;
         const w = this.viewW, h = this.viewH;
         const mask = this._fogMask || (this._fogMask = document.createElement('canvas'));
         if (mask.width !== w || mask.height !== h) {
@@ -1121,11 +1157,77 @@ export class MapActor {
         mc.clearRect(0, 0, w, h);
         mc.fillStyle = `rgba(0,0,0,${cfg.alpha})`;
         mc.fillRect(0, 0, w, h);
-        const hole = this._fogHole(cfg.radius);
-        mc.globalCompositeOperation = 'destination-out';
-        mc.drawImage(hole, Math.round(px - cfg.radius), Math.round(py - cfg.radius));
-        mc.globalCompositeOperation = 'source-over';
+
+        if (this._lightMasks) {
+            const bright = this._fogBright || (this._fogBright = document.createElement('canvas'));
+            if (bright.width !== w || bright.height !== h) {
+                bright.width = w; bright.height = h;
+            }
+            const bc = bright.getContext('2d');
+            bc.globalCompositeOperation = 'source-over';
+            bc.clearRect(0, 0, w, h);
+            bc.globalCompositeOperation = 'lighter';
+            for (const L of this._collectLights(cx, cy, entities)) {
+                const m = this._lightMasks[L.level];
+                if (!m) continue;
+                // PlayScn.pas:758-768：贴到 (lxx-(W-48)/2, lyy-(H-32)/2-5)：
+                // 相当于以格中心为基准，水平 +14、垂直 -5 的偏移。
+                const dx = Math.round(this.screenX(L.x) + TILE_W / 2 - m.width / 2
+                                      + 14 + (L.shiftX || 0));
+                const dy = Math.round(this.screenY(L.y) + TILE_H / 2 - m.height / 2
+                                      - 5 + (L.shiftY || 0));
+                if (dx >= w || dy >= h || dx + m.width <= 0 || dy + m.height <= 0) continue;
+                bc.drawImage(m.canvas, dx, dy);
+            }
+            bc.globalCompositeOperation = 'source-over';
+            mc.globalCompositeOperation = 'destination-out';
+            mc.drawImage(bright, 0, 0);
+            mc.globalCompositeOperation = 'source-over';
+        } else {
+            const hole = this._fogHole(cfg.radius);
+            mc.globalCompositeOperation = 'destination-out';
+            mc.drawImage(hole, Math.round(px - cfg.radius), Math.round(py - cfg.radius));
+            mc.globalCompositeOperation = 'source-over';
+        }
         ctx.drawImage(mask, 0, 0);
+    }
+
+    /** PlayScn.pas:1327-1412 的 AddLight 收集顺序，返回登记成功的光源。 */
+    _collectLights(cx, cy, entities) {
+        const lm = this._lightMap;
+        lm.clear();
+        const m = this.map;
+        // 1) 地图自带静态光源（TMapUnitInfo.btLight，Envir.pas:33）：
+        //    视口 +5/-4 格，nocheck=FALSE。灯柱/火盆/城内灯笼都来自这里。
+        const halfW = Math.ceil(this.viewW / 2 / TILE_W) + 5;
+        const halfH = Math.ceil(this.viewH / 2 / TILE_H) + 4;
+        for (let gy = Math.round(cy) - halfH; gy <= Math.round(cy) + halfH; gy++) {
+            for (let gx = Math.round(cx) - halfW; gx <= Math.round(cx) + halfW; gx++) {
+                const col = m.tiles[gx];
+                const t = col && col[gy];
+                if (t && t.light > 0) {
+                    lm.addLight(gx, gy, 0, 0, Math.min(5, t.light), false, cx, cy);
+                }
+            }
+        }
+        // 2) actor：原版 `if (actor=g_MySelf) or (actor.Light>0) then
+        //    AddLight(..., actor.Light, actor=g_MySelf)`，自己 nocheck=TRUE。
+        //    服务端按 U_RIGHTHAND（蜡烛/火把，StdMode 30）下发 light=3，
+        //    没带灯时给 1 的基础微光（原版 m_nChrLight，SM_LOGON 的 Hibyte(cdir)）。
+        for (const e of entities || []) {
+            if (!e.isSelf && !(e.light > 0)) continue;
+            const level = e.isSelf ? (e.light != null ? e.light : 1) : e.light;
+            lm.addLight(e.x, e.y, e.shiftX || 0, e.shiftY || 0,
+                        level, !!e.isSelf, cx, cy);
+        }
+        // 3+4) TMagicEff.Light / TClEvent.m_nLight（火墙、火堆、神圣战甲术）
+        for (const L of this.extraLights) {
+            if (L.level > 0) {
+                lm.addLight(L.x, L.y, L.shiftX || 0, L.shiftY || 0,
+                            L.level, false, cx, cy);
+            }
+        }
+        return lm.entries(cx, cy);
     }
 
     /** 预生成「挖洞」用的径向 alpha 渐变（中心全挖空 → 边缘不挖）。 */

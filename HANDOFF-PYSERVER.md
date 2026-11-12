@@ -2135,3 +2135,102 @@ E2E GM 传送 D411 时 HUD 也正确变成「北部矿区 59:8」。真正的问
 - `dayChanging` 只在服务端 tick 每分钟检查一次，切小时不是瞬时。
 - 地下判定用 MapInfo 标志 + 中文标题关键字，属于配置语义近似；
   若某张图误判，改 `GameWorld.is_underground()` 的判定集合即可。
+
+## §39 第 13/14 轮：m_LightMap 多光源 + 免蜡 / 死亡黑白屏 / 掉落「爆了」/ 商店价格 / 金币图标 / 蜘蛛毒 / 食人花（2026-11-13）
+
+### 39.1 m_LightMap 多光源（原版 PlayScn.pas）
+
+- 新增 `frontend/map/LightMap.mjs`：`LMX=30 / LMY=26 / MAXLIGHT=5`，
+  `LightMask0..5` 亮度核（与 `PlayScn.pas:36-128` 常量逐值比对通过）、
+  `ClearLightMap / UpdateBright / CheckOverLight / AddLight` 等价逻辑、
+  `loadLightMasks()` 加载 `Data/lig0a.dat..lig0f.dat`（前 8 字节
+  `<ii` 宽高，后跟 `w*h` 字节 fogmask，值 0..30）。
+- `Maps.mjs` 保存 `.map` tile 的 `btLight`（`light` 字节，原版 Envir.pas:33
+  「0..1..4 光源强度」），此前解析出来直接丢弃。
+- `MapActor.mjs::_drawFog` 重写：每帧 Clear → 收集光源（地图 btLight 格、
+  玩家 `m_nChrLight=3`、NPC light=2/守卫 4、特效光源）→ `AddLight` →
+  `ApplyLightMap` 用 6 张 lig0 贴图 additive 累加 → `destination-out`
+  挖掉整屏暗色（近似原版 `DrawFog` 的 ColorLevel 压暗）。
+- 服务端 `brief_json` 下发 `light`：玩家右手持武器且耐久>0 → 3
+  （ObjBase.pas:3384），NPC 2、守卫 4（ObjNpc.pas:5652 / ObjGuard）。
+- **免蜡开关**：系统菜单新增「免蜡：开 / 关」，`localStorage['jootm2.forceNotViewFog']`
+  持久化，等价 `MShare.pas g_boForceNotViewFog`（PlayScn.pas:1471
+  `if g_boViewFog and not g_boForceNotViewFog`）。
+
+### 39.2 死亡黑白屏（用户反馈 25）
+
+- `kill_player` 不再立刻满血回城：广播 `death` 后停尸原地（hp=0、
+  `p.dead=True`），前端 `PlayScene` 收自身 `death` 置 `_selfDead`，
+  渲染整屏黑白（近似 `ceGrayScale`）+ 关闭 fog（原版 `g_boViewFog := FALSE`），
+  拦截移动/攻击/施法；BGM `gameover` 继续播（原版 SM_NOWDEATH →
+  `PlayBGM(bmg_gameover)`，Actor.pas:2388）。
+- 复活走「返回角色选择 → 重登」：`service._do_enter` 登录时 HP<=0 按
+  `UsrEngn.pas:576-600` 回出生点 ±2 格随机 + `HP := 14`（不再满血）。
+- 消息分派加死亡拦截：死亡玩家发 move/attack/magic 等直接忽略。
+
+### 39.3 掉落「爆了」（用户反馈 26）
+
+- `scatter_pos` 重写为原版 `GetDropPosition`（ObjBase.pas:1534）：从半径 1
+  逐格方形扫描（不是只取外环），首格无物品即用；找不到空位回退「同圈
+  占用最少格」（原版 n24<8），最后才退尸体中心；范围 `DropWide=3`。
+- `add_ground_item`：同格金币 `<=2000` 合并（Envir.pas:215），非金币同格
+  上限 **5 件**（`ObjList.Count >= 5` 拒绝，Envir.pas:230）——BOSS 100 行
+  `1/1` 掉落不再被「一格一件」挤成大圈，而是按原版语义堆叠。
+- 前端同格多件掉落按序号微偏移绘制，拾取判定仍按格。
+
+### 39.4 商店价格（用户反馈 27）
+
+- 核对 `LocalDB.pas:3251`（`[goods]` 行 = `物品名 库存 刷新时间`，第二列
+  不是单价）+ `ObjNpc.pas`：`GetUserPrice = Round(Price/100*rate)`、
+  `CheckItemPrice` 补货价 = `Round(StdItem.Price * 1.1)`、
+  `%rate` 只有 `>=55` 才接受、`+N` 是 `m_ItemTypeList` 类型过滤。
+- `npc_script.py`：价格改为 `delphi_round(Price * 1.1) * rate / 100`
+  （原版先 1.1 后乘倍率）；`NpcScript` 解析 `+N` 存 `item_types`；
+  `goods()` 增加 `CheckItemType` 过滤与 3-token 行约束。
+- 把 `delphi_round` 上移到 `util.py`（handlers_combat 里同样语义的两份
+  实现合一）。卫家店实测：木剑 55 / 青铜剑 990 / 修罗 11000（= Price×1.1），
+  与 1.76 原版一致。
+
+### 39.5 金币图标 / 蜘蛛毒 / 食人花（用户第 14 轮反馈）
+
+- **金币图标**：`M2Share.pas:3568 GetGoldShape` 分 5 档
+  （<30→112、≥30→113、≥70→114、≥300→115、≥1000→116，DnItems 钱袋）。
+  `GroundItem.to_json` 金币分支下发真实 looks（此前恒 0 → 客户端画圆点），
+  前端金币走 `_drawDropTex(looks)`，贴图未就绪才退回圆点。
+- **蜘蛛毒**：`TSpitSpider.SpitAttack`（ObjMon.pas:706）——
+  `m_boUsePoison` 的怪命中伤害>0 后 `Random(AntiPoison+20)=0` →
+  `POISON_DECHEALTH 30s point1`。race 82（毒蜘蛛/剧毒蜘蛛/沙虫等）与
+  race 119（花吻蜘蛛，TBigPoisionSpider）毒；race 118（天狼蜘蛛）
+  显式 `m_boUsePoison := False` 不毒。挂在 `_apply_hit_to_player` 尾部
+  （远程飞矢与近战路径共用）。
+- **食人花**：race 85 = `TStickMonster`（ObjMon2.pas:154）——
+  `m_boStickMode=True` 永不移动、`m_boFixedHideMode=True` 潜地，
+  目标 `abs<4` 出土（ComeOut）、`>4` 或无目标潜回（ComeDown），
+  只打相邻格。服务端 `Monster.hidden` 字段 + `_stick_ai`；隐藏不进
+  `_sight_actors/nearby`，出土广播 `entityAdd`、潜回 `entityRemove`。
+- **挖肉产出**：`butchable` 增加 race 82/85（构造里 `m_boAnimal := True`；
+  118/119 为 False 不可挖）。新增 `roll_butch_loot`：挖空尸体按该怪
+  MonItems 表掷骰（原版 `TakeBagItems` 语义，ObjBase.pas:17491），
+  食人花叶(`食人树叶`) 1/1、果实 1/5、毒蜘蛛牙齿 1/3 都走这条链；
+  无掉落表才回退「鸡→鸡肉 / 其余→肉」，背包空提示「未发现任何物品。」。
+  `new_item_instance` 顺带补 `name` 字段。
+
+### 39.6 验证
+
+| 项目 | 结果 |
+|---|---|
+| `test_pyserver` / `test_tick_systems`（新增 19 条本轮用例） | **76/0、123/0** |
+| `test_all_messages --live 8080`（新增死亡重登用例） | **31/0** |
+| `test_map_view` / `test_sfx_map` | 34/0、84/0 |
+| Playwright 浏览器冒烟（登录→PlayScene→无 pageerror） | PASS，darkLevel=1，金币/掉落路径无异常 |
+
+### 39.7 遗留
+
+- 光源快照只下发了 `light`，`m_nMagLight`（魔法瞬时光）未做；
+  火墙/火堆 `TClEvent.m_nLight` 光源待接（特效光源钩子已预留）。
+- lig0 贴图 additive 合成是 canvas 近似，不是原版 `FogCopy` 的逐像素
+  ColorLevel 表压暗；极暗场景层次感与原版有可见差异。
+- 商店未扣库存（原版 `List20.Delete(ii)`）；`querySellPrice` 卖价仍是
+  `Price/2`，原版按耐久折算。
+- 天狼蜘蛛(118) 攻击伤害路径 OK 但它原版是 `THighRiskSpider`（高风险
+  双倍暴击未做）。

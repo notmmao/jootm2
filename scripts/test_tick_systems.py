@@ -299,9 +299,16 @@ def test_ranged(w, p, sess):
     p.hp = 10
     p.revival_ring = False
     sess.drain()
+    home_before = (p.map, p.x, p.y)
     w._apply_hit_to_player(m, p, 999)
-    check("玩家被打死走 kill_player（广播 death）",
-          "death" in sess.types() and p.hp > 0, f"hp={p.hp}")
+    # 原版 SM_NOWDEATH：死亡停在原地等黑白屏，服务端不回城、不满血；
+    # 复活靠重登（UsrEngn.pas:576-600 给 HP=14）。用户反馈 25。
+    check("玩家被打死：广播 death 且停在原地 HP=0",
+          "death" in sess.types() and p.hp == 0 and p.dead
+          and (p.map, p.x, p.y) == home_before,
+          f"hp={p.hp} dead={p.dead}")
+    p.dead = False
+    p.hp, p.mp = p.max_hp, p.max_mp
 
 
 def test_ai_targeting(w, p):
@@ -561,6 +568,121 @@ def test_drop_rates(w, p):
             m.map.remove(m.id)
 
 
+def test_spider_stick_gold(w, p):
+    """金币图标分档 / 吐毒蜘蛛中毒 / 食人花 stick AI 与挖肉产出。"""
+    print("\n[11.5] 金币图标 / 蜘蛛中毒 / 食人花")
+    from types import SimpleNamespace
+
+    from pyserver.world_extra import gold_shape
+
+    # 1) GetGoldShape 五档（M2Share.pas:3568）
+    check("金币 <30 → 112", gold_shape(1) == 112 and gold_shape(29) == 112)
+    check("金币 ≥30 → 113", gold_shape(30) == 113)
+    check("金币 ≥70 → 114", gold_shape(70) == 114)
+    check("金币 ≥300 → 115", gold_shape(300) == 115)
+    check("金币 ≥1000 → 116", gold_shape(1000) == 116)
+
+    gm = p.map or w.default_map
+    import random as _r
+    # 2) 吐毒蜘蛛 race 82 命中可中毒（antiPoison=0 时概率 1/20）
+    spider = Monster(id=w.new_id(), name="毒蜘蛛", x=p.x + 2, y=p.y,
+                     hp=50, max_hp=50, level=16, race=82,
+                     template=SimpleNamespace(name="毒蜘蛛", race=82, appr=163,
+                                              dc=2, maxDc=9, acMax=9, walkSpeed=800,
+                                              attackSpeed=1000),
+                     spawn_x=p.x + 2, spawn_y=p.y)
+    w.add_actor(spider, gm)
+    p.combat["antiPoison"] = 0
+    p.hp = p.max_hp = 5000
+    p.poison_ticks = 0
+    try:
+        _r.seed(7)
+        hit = False
+        for _ in range(500):
+            p.poison_ticks = 0
+            w._apply_hit_to_player(spider, p, 5)
+            if p.poison_ticks > 0:
+                hit = True
+                break
+        check("race 82 命中会挂 POISON_DECHEALTH", hit,
+              f"ticks={p.poison_ticks} damage={p.poison_damage}")
+        check("蜘蛛毒每跳 1 点（point=1）", p.poison_damage == 1)
+        check("蜘蛛毒时长 30s → 12 跳", p.poison_ticks == 12)
+        # 118 天狼蜘蛛不毒：把 race 换掉再打
+        spider.template.race = 118
+        poisoned = False
+        for _ in range(500):
+            p.poison_ticks = 0
+            w._apply_hit_to_player(spider, p, 5)
+            if p.poison_ticks > 0:
+                poisoned = True
+                break
+        check("race 118 天狼蜘蛛不毒（m_boUsePoison=False）", not poisoned)
+    finally:
+        p.poison_ticks = 0
+        w.actors.pop(spider.id, None)
+        if spider.map is not None:
+            spider.map.remove(spider.id)
+
+    # 3) 食人花：出生潜地 → 玩家靠近出土 → 离开潜回 → 永不移动
+    flower = Monster(id=w.new_id(), name="食人花", x=p.x + 5, y=p.y,
+                     hp=84, max_hp=84, level=20, race=85,
+                     template=SimpleNamespace(name="食人花", race=85, appr=10,
+                                              dc=2, maxDc=6, acMax=9, walkSpeed=800,
+                                              attackSpeed=1000),
+                     spawn_x=p.x + 5, spawn_y=p.y)
+    flower.hidden = True
+    w.add_actor(flower, gm)
+    base_pos = (flower.x, flower.y)
+    try:
+        w._monster_ai(flower, now_ms())
+        check("食人花玩家距离 5 → 保持潜地", flower.hidden)
+        # 玩家挪到距离 2 → 出土
+        p.x, p.y = base_pos[0] - 2, base_pos[1]
+        w._monster_ai(flower, now_ms())
+        check("食人花玩家距离 <4 → 出土", not flower.hidden)
+        # 玩家站相邻格 → 会攻击（不移动）
+        p.x, p.y = base_pos[0] - 1, base_pos[1]
+        p.hp = p.max_hp = 5000
+        w._monster_ai(flower, now_ms())
+        check("食人花只站原地攻击，位置不变", (flower.x, flower.y) == base_pos,
+              f"pos={(flower.x, flower.y)}")
+        # 玩家跑远 → 潜回
+        p.x, p.y = base_pos[0] - 9, base_pos[1]
+        w._monster_ai(flower, now_ms())
+        check("食人花玩家距离 >4 → 潜回", flower.hidden)
+        check("潜地怪不进视野快照",
+              all(a.id != flower.id for a in w._sight_actors(gm, p.x, p.y)))
+    finally:
+        w.actors.pop(flower.id, None)
+        if flower.map is not None:
+            flower.map.remove(flower.id)
+
+    # 4) butchable：82/85 可挖，118/81 不可挖
+    check("食人花(85) 可挖肉",
+          w.butchable(SimpleNamespace(template=SimpleNamespace(race=85, appr=10))))
+    check("毒蜘蛛(82) 可挖肉",
+          w.butchable(SimpleNamespace(template=SimpleNamespace(race=82, appr=163))))
+    check("天狼蜘蛛(118) 不可挖",
+          not w.butchable(SimpleNamespace(template=SimpleNamespace(race=118, appr=119))))
+    check("黑锷蜘蛛(81) 不可挖",
+          not w.butchable(SimpleNamespace(template=SimpleNamespace(race=81, appr=118))))
+
+    # 5) 挖肉产出走 MonItems：食人花叶 1/1 必得
+    flower2 = Monster(id=w.new_id(), name="食人花", x=p.x + 3, y=p.y,
+                      hp=84, max_hp=84, level=20, race=85,
+                      template=SimpleNamespace(name="食人花", race=85, appr=10),
+                      spawn_x=p.x + 3, spawn_y=p.y)
+    try:
+        loot = w.roll_butch_loot(flower2, p)
+        names = [it.get("name") for it in loot]
+        check("挖食人花必得食人树叶（MonItems 1/1）", "食人树叶" in names, str(names))
+        check("挖食人花产出仅树叶/果实（不散落地上）",
+              all(n in ("食人树叶", "食人花果实") for n in names), str(names))
+    finally:
+        w.actors.pop(flower2.id, None)
+
+
 def test_full_tick(w, p):
     print("\n[11] 完整 tick 与各子系统串联")
     try:
@@ -666,6 +788,77 @@ def test_exp_semantics(w, p) -> None:
     check("weight = 背包重量", st.get("weight") == p.bag_weight(w))
     check("exp_for_level(101) 不越界", exp_for_level(101) > 0)
 
+def test_drop_scatter_and_stack(w, p) -> None:
+    """第 13 轮 26：原版 GetDropPosition 确定性铺格 + AddToMap 格上限。"""
+    from pyserver.util import U_RIGHTHAND, now_ms
+    from pyserver.world_extra import GroundItem
+
+    class FakeMap:
+        """只保留 scatter_pos 需要的两个接口，排除真实地图上的墙/怪物干扰。"""
+        def __init__(self):
+            self.actors = {}
+        def can_walk(self, x, y):
+            return 0 <= x < 40 and 0 <= y < 40
+
+    fm = FakeMap()
+    saved = w.ground_items
+    w.ground_items = {}
+    cx, cy = 20, 20
+    seq = []
+    try:
+        for _ in range(30):
+            pos = w.scatter_pos(fm, cx, cy, 3)
+            if pos is None:
+                break
+            gi = GroundItem(w.new_id(), {"index": 0}, 0, pos[0], pos[1], now_ms(), fm)
+            w.add_ground_item(gi)
+            seq.append(pos)
+        # ObjBase.pas:1543-1550：i=1 时 ii=-1、III=-1 是第一个被检查的格
+        check("GetDropPosition 第一格 = 左上 (-1,-1)",
+              seq and seq[0] == (cx - 1, cy - 1), str(seq[:3]))
+        check("完全确定性、无随机（重复调用同状态结果一致）",
+              len(seq) > 1 and w.scatter_pos(fm, cx, cy, 3) == w.scatter_pos(fm, cx, cy, 3))
+        check("30 件物品铺满 30 个不同格（俗称「爆了」）",
+              len(set(seq)) >= 25, f"unique={len(set(seq))}")
+        check("优先铺 3x3，第 10 件才扩到 5x5 外环",
+              seq[9] == (cx - 2, cy - 2), str(seq[9] if len(seq) > 9 else None))
+        check("不会散到半径 3 之外",
+              all(max(abs(x - cx), abs(y - cy)) <= 3 for x, y in seq))
+
+        # Envir.pas:230：同格非金币物品最多 5 件
+        w.ground_items = {}
+        made = sum(1 for _ in range(7)
+                   if w.add_ground_item(GroundItem(w.new_id(), {"index": 0}, 0,
+                                                  5, 5, now_ms(), fm)))
+        check("同格非金币物品最多 5 件", made == 5, f"made={made}")
+
+        # Envir.pas:205-225：同格金币 <=2000 合并成一堆
+        w.ground_items = {}
+        g1 = GroundItem(w.new_id(), None, 100, 6, 6, now_ms(), fm)
+        g2 = GroundItem(w.new_id(), None, 200, 6, 6, now_ms(), fm)
+        w.add_ground_item(g1)
+        w.add_ground_item(g2)
+        golds = [g for g in w.ground_items.values() if g.is_gold()]
+        check("同格金币合并为一堆且数量相加",
+              len(golds) == 1 and golds[0].gold == 300,
+              str([(g.id, g.gold) for g in golds]))
+    finally:
+        w.ground_items = saved
+
+    # 第 13 轮多光源：U_RIGHTHAND（蜡烛/火把，StdMode 30）→ m_nLight=3
+    lamp = next((t for t in w.item_templates.values() if t.stdMode == 30), None)
+    old = p.equipment[U_RIGHTHAND]
+    try:
+        check("无火把时基础微光 = 1（Hibyte(cdir)）", p.light_level() == 1)
+        if lamp is not None:
+            p.equipment[U_RIGHTHAND] = {"index": lamp.index, "durability": 100}
+            check("装备火把（StdMode 30）→ m_nLight = 3", p.light_level() == 3)
+            p.equipment[U_RIGHTHAND] = {"index": lamp.index, "durability": 0}
+            check("火把耐久耗尽 → 退回 1", p.light_level() == 1)
+    finally:
+        p.equipment[U_RIGHTHAND] = old
+
+
 def main() -> int:
     print("=" * 64)
     print("jootm2 tick 子系统 / 装备属性 / MapQuest 回归")
@@ -681,6 +874,8 @@ def main() -> int:
     test_map_quest(w, p, sess)
     test_hp_sync(w, p, sess)
     test_drop_rates(w, p)
+    test_drop_scatter_and_stack(w, p)
+    test_spider_stick_gold(w, p)
     test_corpse_lifecycle(w, p)
     test_exp_semantics(w, p)
     test_full_tick(w, p)

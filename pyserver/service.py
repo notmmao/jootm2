@@ -172,6 +172,14 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         msg_type = msg.get("type")
         if not isinstance(msg_type, str):
             return
+        # 原版 m_boDeath：死亡后停在黑白屏，只能聊天 / 返回角色选择 / 退出，
+        # 不能走动、攻击、施法、吃药、买东西（服务端一并拦，防止绕过客户端）。
+        if msg_type not in ("ping", "login", "register", "listCharacters",
+                            "createCharacter", "deleteCharacter", "enterGame",
+                            "noticeOk", "say", "logout", "backToSelect"):
+            dead_owner = self.find_by_session(session)
+            if dead_owner is not None and getattr(dead_owner, "dead", False):
+                return
         handler = self._handlers.get(msg_type)
         if handler is not None:
             try:
@@ -369,7 +377,21 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         p.recompute(world)
         if 12 in p.skills:
             p.long_hit_on = True       # 刺杀剑术登录自动开启（ObjBase.pas）
-        p.hp, p.mp = p.max_hp, p.max_mp
+        # 原版 UsrEngn.pas:576-600：登录时 m_Abil.HP <= 0（上次死亡）会
+        # ClearStatusTime、按 PK 状态切 home/红名死亡地图，落点
+        # ``m_nHomeX - 2 + Random(5)``，并把 HP := 14（不是满血复活）。
+        # 正常登录则沿用存档 HP/MP（原版 HP 是持久化的），只钳到上限。
+        if p.hp <= 0:
+            p.dead = False
+            home = world.get_or_load_map(p.home_map) or world.default_map
+            p.map = home
+            p.x = max(0, min(home.width - 1, p.home_x - 2 + random.randint(0, 4)))
+            p.y = max(0, min(home.height - 1, p.home_y - 2 + random.randint(0, 4)))
+            p.dir = 4
+            p.hp, p.mp = 14, 0
+        else:
+            p.hp = min(p.hp, p.max_hp)
+            p.mp = min(p.mp, p.max_mp)
         session.player_name = p.name
         world.add_player(p)
 
@@ -590,19 +612,29 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # RM_SKELETON：尸体变成骷髅，但**不**删除（仍留到 makeGhost 时间）。
         m.body_leathery = BODY_LEATHERY
         m.skeleton = True
-        # 肉名依据本地 MonItems：鸡.txt → 鸡肉（StdItems index 57），
-        # 狼.txt / 羊.txt → 肉（index 3）；鹿无掉落表，原版由类直接给肉。
-        name = "鸡肉" if "鸡" in (m.name or "") else "肉"
-        t = w.item_template_by_name(name)
-        if t is not None:
-            it = w.new_item_instance(t, max(1, t.duraMax))
-            if len(p.bag) < BAG_SIZE:
-                p.bag.append(it)
-                self.send_bag_update(p)
-                w.send_system(p, f"挖到了{t.name}。")
-            else:
-                w.drop_instance(p, it)
-                w.send_system(p, f"背包已满，{t.name}掉在地上。")
+        # 原版 TakeBagItems（ObjBase.pas:17491）：动物死亡不散落物品，MonItems
+        # 掉落表留在「尸体背包」，挖空后一次性全给玩家；背包空才是
+        # 「未发现任何物品！！！」（SysMsg sYouFoundNothing，红色）。
+        # 食人花叶 1/1、食人花果实 1/5、毒蜘蛛牙齿 1/3 都走这条链。
+        loot = w.roll_butch_loot(m, p)
+        if not loot:
+            # 无掉落表的动物（鹿等）原版由类直接给肉：鸡 → 鸡肉（index 57），
+            # 狼/羊 → 肉（index 3）。
+            name = "鸡肉" if "鸡" in (m.name or "") else "肉"
+            t = w.item_template_by_name(name)
+            if t is not None:
+                loot = [w.new_item_instance(t, max(1, t.duraMax))]
+        if not loot:
+            w.send_system(p, "未发现任何物品。", "#ff0000")
+        else:
+            for it in loot:
+                if len(p.bag) < BAG_SIZE:
+                    p.bag.append(it)
+                    w.send_system(p, f"挖到了{it.get('name', '物品')}。")
+                else:
+                    w.drop_instance(p, it)
+                    w.send_system(p, f"背包已满，{it.get('name', '物品')}掉在地上。")
+            self.send_bag_update(p)
         w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": True,
                                    "actorId": p.id, "dir": p.dir,
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)

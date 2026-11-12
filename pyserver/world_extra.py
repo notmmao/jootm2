@@ -42,6 +42,30 @@ BUTCH_INTERVAL_MS = 600
 
 # ---------------------------------------------------------------- 数据结构
 
+def gold_shape(n_gold: int) -> int:
+    """原版 ``M2Share.pas:3568 GetGoldShape``：金币在地上按数量分 5 档外形。
+
+    ```pascal
+    Result := 112;
+    if nGold >= 30 then Result := 113;
+    if nGold >= 70 then Result := 114;
+    if nGold >= 300 then Result := 115;
+    if nGold >= 1000 then Result := 116;
+    ```
+    外形号是 DnItems.wil 的图标索引（112 小钱袋 → 116 大钱袋）。
+    """
+    s = 112
+    if n_gold >= 30:
+        s = 113
+    if n_gold >= 70:
+        s = 114
+    if n_gold >= 300:
+        s = 115
+    if n_gold >= 1000:
+        s = 116
+    return s
+
+
 @dataclass(slots=True)
 class GroundItem:
     id: int
@@ -57,8 +81,10 @@ class GroundItem:
 
     def to_json(self, name: str, looks: int) -> dict:
         if self.is_gold():
+            # 原版金币堆外形按数量分档（M2Share.pas:3568 GetGoldShape），
+            # 之前恒下发 looks=0，客户端只能画一颗圆点。
             return {"id": self.id, "x": self.x, "y": self.y, "gold": self.gold,
-                    "name": "金币", "looks": 0}
+                    "name": "金币", "looks": gold_shape(self.gold)}
         return {"id": self.id, "x": self.x, "y": self.y, "gold": 0,
                 "name": name, "looks": looks}
 
@@ -93,11 +119,14 @@ class Npc:
     seen: set[int] = field(default_factory=set)
 
     def brief_json(self) -> dict:
+        # 原版 TNormNpc.Create（ObjNpc.pas:5646-5652）设 m_nLight := 2，
+        # TSuperGuard 是 4。客户端 m_LightMap 据此给 NPC 脚下加一圈光，
+        # 所以城里站在商人旁边会明显亮一块（免蜡关闭时）。
         return {"id": self.id, "name": self.name, "type": "npc",
                 "x": self.x, "y": self.y, "dir": self.dir,
                 "hp": 1, "maxHp": 1, "race": self.race, "raceImg": self.race_img,
                 "appr": self.appr, "level": self.level, "merchant": self.merchant,
-                "face": self.face}
+                "face": self.face, "light": 2}
 
 
 @dataclass(slots=True)
@@ -395,7 +424,8 @@ class WorldExtra:
     def new_item_instance(self, t, dura: int | None = None) -> dict:
         d = dura if dura is not None else t.duraMax
         return {"makeIndex": self.next_item_make_index(), "index": t.index,
-                "durability": d, "durabilityMax": t.duraMax, "lucky": 0, "slot": -1}
+                "name": t.name, "durability": d, "durabilityMax": t.duraMax,
+                "lucky": 0, "slot": -1}
 
     def count_item(self, p, name: str) -> int:
         if name == "金币":
@@ -455,9 +485,10 @@ class WorldExtra:
                               gi.x, gi.y, SIGHT_RANGE)
 
     def drop_instance(self, p, it: dict) -> GroundItem:
+        # 原版玩家丢物品也走 DropItemDown(1) 的 GetDropPosition，但脚下格通常
+        # 空着，这里保留「丢在脚下」的交互；格上限/金币合并仍按 AddToMap。
         gi = GroundItem(self.new_id(), it, 0, p.x, p.y, now_ms(), p.map)
-        self.ground_items[gi.id] = gi
-        self._broadcast_item_drop(gi)
+        self.add_ground_item(gi)
         return gi
 
     def drop_item(self, p, make_index: int) -> bool:
@@ -486,28 +517,71 @@ class WorldExtra:
         return True
 
     def scatter_pos(self, game_map, cx: int, cy: int, max_range: int = 3):
-        """原版 M2Server ``GetDropPosition``（ObjBase.pas:1534-1582）：
+        """原版 ``TBaseObject.GetDropPosition``（ObjBase.pas:1534-1584）。
 
-        从半径 1 起逐圈环形扩散（``i := 1 to nRange``），优先选**没有其他掉落物**
-        的可站格；一圈都找不到才扩大半径，最后才回退到尸体所在格。
-        旧实现是在 ±3 范围里随机撒 50 次，物品经常落到离尸体很远的格子上，
-        与「掉在怪物脚边」的观感不符。
+        ```pascal
+        for i := 1 to nRange do
+          for ii := -i to i do            // 行
+            for III := -i to i do         // 列
+              if GetItemEx(nDX,nDY,nItemCount) = nil and bo2C then Break;
+        ```
+
+        关键三点，旧实现全错了：
+        1. 每轮扫的是 **整个 (2i+1)² 方形**（不是只取外环），所以总是从
+           尸体左上方那一格开始，按行逐格铺开；
+        2. **完全确定性、没有 random**，BOSS 一次掉几十上百件时就会一圈圈
+           铺满一大片，这就是玩家俗称的「爆了」；
+        3. 一圈都没有空格时，回退到「占用件数最少」的格（原版 n24 < 8），
+           否则退回尸体所在格。
+
+        ``GetItemEx``（Envir.pas:1276-1310）统计该格 OS_ITEMOBJECT 数量；
+        ``chFlag != 0``、有门、有**活着**的 actor 时 bo2C=False，不能放东西。
+        ``AddToMap``（Envir.pas:192-262）再限制同格最多 5 件（金币合并例外）。
         """
-        occupied = {(gi.x, gi.y) for gi in self.ground_items.values()
-                    if gi.map is game_map}
+        counts: dict[tuple[int, int], int] = {}
+        for gi in self.ground_items.values():
+            if gi.map is game_map:
+                k = (gi.x, gi.y)
+                counts[k] = counts.get(k, 0) + 1
+        # OS_MOVINGOBJECT 且 not m_boDeath → bo2C := False
+        blocked = {(a.x, a.y) for a in game_map.actors.values() if a.alive}
+        least, least_pos = 999, (cx, cy)
         for i in range(1, max(1, max_range) + 1):
-            cand = []
             for dy in range(-i, i + 1):
                 for dx in range(-i, i + 1):
-                    if max(abs(dx), abs(dy)) != i:
-                        continue
                     x, y = cx + dx, cy + dy
-                    if (x, y) in occupied or not game_map.can_walk(x, y):
+                    if not game_map.can_walk(x, y) or (x, y) in blocked:
                         continue
-                    cand.append((x, y))
-            if cand:
-                return random.choice(cand)
+                    n = counts.get((x, y), 0)
+                    if n == 0:
+                        return (x, y)            # 找到第一个空格立刻返回
+                    if n < least:
+                        least, least_pos = n, (x, y)
+        if least < 8:
+            return least_pos
         return (cx, cy) if game_map.can_walk(cx, cy) else None
+
+    def add_ground_item(self, gi: GroundItem) -> bool:
+        """原版 ``TEnvirnoment.AddToMap``（Envir.pas:192-262）。
+
+        - 同格金币合并，且总量 ``<= 2000`` 才合并（否则另起一堆）；
+        - 非金币物品同格最多 **5 件**（``ObjList.Count >= 5`` 直接拒绝）；
+        - 合并时沿用旧 makeIndex，客户端先删旧堆再下发新数量。
+        """
+        if gi.is_gold():
+            for other in self.ground_items.values():
+                if (other.map is gi.map and other.x == gi.x and other.y == gi.y
+                        and other.is_gold() and other.gold + gi.gold <= 2000):
+                    other.gold += gi.gold
+                    other.created_at = now_ms()
+                    self._broadcast_item_drop(other)
+                    return False
+        elif sum(1 for o in self.ground_items.values()
+                 if o.map is gi.map and o.x == gi.x and o.y == gi.y) >= 5:
+            return False
+        self.ground_items[gi.id] = gi
+        self._broadcast_item_drop(gi)
+        return True
 
     def drop_loot(self, m) -> None:
         table = self.drop_tables.get(m.template.name if m.template else m.name)
@@ -534,8 +608,36 @@ class WorldExtra:
                 dura = max(1, java_div(t.duraMax * (20 + int(random.random() * 81)), 100))
                 gi = GroundItem(self.new_id(), self.new_item_instance(t, dura), 0,
                                 pos[0], pos[1], now_ms(), m.map)
-            self.ground_items[gi.id] = gi
-            self._broadcast_item_drop(gi)
+            self.add_ground_item(gi)
+
+    def roll_butch_loot(self, m, p) -> list[dict]:
+        """挖肉产出：原版 ``TPlayObject.ClientGetButchItem``（ObjBase.pas:17491）
+        挖空尸体后 ``TakeBagItems(BaseObject)`` —— 动物死亡不散落物品，
+        MonItems 掉落表一直留在「尸体背包」里，挖空一次性全给玩家。
+
+        这里在挖空的瞬间按同一张表掷骰（与 ``drop_loot`` 相同的 num/den 概率），
+        金币直接入账，物品返回实例列表由调用方放进背包。
+        """
+        mon = m.template.name if m.template else m.name
+        table = self.drop_tables.get(mon)
+        if not table:
+            return []
+        rates = self.drop_rates
+        out: list[dict] = []
+        for e in table:
+            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point):
+                continue
+            if e.item_name == "金币":
+                gold = max(1, java_div(e.count, 2) + int(random.random() * e.count))
+                p.gold += int(gold * rates.amount(mon))
+                self.send_stats(p, extras={"gold"})
+                continue
+            t = self.item_template_by_name(e.item_name)
+            if t is None:
+                continue
+            dura = max(1, java_div(t.duraMax * (20 + int(random.random() * 81)), 100))
+            out.append(self.new_item_instance(t, dura))
+        return out
 
     def ground_items_json(self, p) -> list[dict]:
         out = []
@@ -550,15 +652,26 @@ class WorldExtra:
 
     @staticmethod
     def butchable(m) -> bool:
-        """原版 ``m_boAnimal``（M2Share.pas: RC_ANIMAL=50 / CHICKEN=51 / DEER=52 / WOLF=53）。
+        """原版 ``m_boAnimal``（各怪物类构造函数里的赋值）。
 
-        本仓库 Monster.csv 里 race 52 还含「护卫」(appr 71) 之类非动物，
-        用动物 appr 白名单（羊 43 / 狼 70 / 鸡 160 / 鹿 161）排除。
+        ```pascal
+        TSpitSpider.Create:    m_boAnimal := True;   // race 82（ObjMon.pas:664）
+        TStickMonster.Create:  m_boAnimal := True;   // race 85（ObjMon2.pas:166）
+        TBigPoisionSpider:     m_boAnimal := False;  // race 119
+        THighRiskSpider:       m_boAnimal := False;  // race 118
+        ```
+        race 51/52/53 是鸡/鹿/羊类动物，但本仓库 Monster.csv 里 race 52 还含
+        「护卫」(appr 71) 之类非动物，用动物 appr 白名单（羊 43 / 狼 70 /
+        鸡 160 / 鹿 161）排除。食人花死亡不散落物品、尸体靠 Alt+左键挖出
+        （食人花叶 1/1、食人花果实 1/5，见 MonItems/食人花.txt）。
         """
         t = getattr(m, "template", None)
         if t is None:
             return False
-        return int(t.race) in (51, 52, 53) and int(t.appr) in (43, 70, 160, 161)
+        race = int(t.race)
+        if race in (51, 52, 53):
+            return int(t.appr) in (43, 70, 160, 161)
+        return race in (82, 85)
 
     def kill_monster(self, m, now: int, killer=None) -> None:
         m.alive = False
@@ -641,6 +754,14 @@ class WorldExtra:
                 return
 
     def kill_player(self, p) -> None:
+        # 原版 SM_NOWDEATH（Actor.pas:2388-2395）：客户端 m_boDeath := TRUE，
+        # 播死亡音效与 bmg_gameover，PlayScn.pas:1476 把画面切成 ceGrayScale
+        # 黑白屏；服务端**不**把角色搬回城。复活靠退出角色重新登录，
+        # UsrEngn.pas:576-600 在登录时看到 HP<=0 才回出生点并给 HP := 14。
+        # 旧实现这里立刻满血 + change_map(home)，于是「刚死就在城里复活、
+        # 死亡音乐还在播」，正是用户反馈 25。
+        if p.dead:
+            return                      # 死亡状态下重复的伤害/毒跳不再触发
         if p.revival_ring:
             # 复活戒指免死一次后损毁：不移除的话下次 recompute 又会变回可用。
             self._remove_equipped_by_shape(p, 114)
@@ -653,14 +774,11 @@ class WorldExtra:
         summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
         if summon is not None and summon.alive:
             self.remove_summon(summon)
-        p.hp, p.mp, p.dir = p.max_hp, p.max_mp, 4
-        self.broadcast_around(p.map, {"type": "entityRemove", "id": p.id}, p.x, p.y)
-        self.change_map(p, p.home_map, p.home_x, p.home_y)
-        if p.session is not None:
-            p.session.send_json(self.map_snapshot(p, "changeMap"))
-        self.broadcast_entity_add(p)
+        p.hp, p.mp, p.dir = 0, 0, 4
+        p.dead = True
+        p.target_id = -1
         self.send_stats(p)
-        self.send_system(p, "你被击败了，已回到出生点。")
+        self.send_system(p, "你被击败了。按 Esc →「返回角色选择」重新登录即可在出生点复活。")
 
     def broadcast_rush(self, a, steps: int) -> None:
         self.broadcast_around(a.map, {"type": "move", "id": a.id, "x": a.x, "y": a.y,

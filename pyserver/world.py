@@ -302,6 +302,9 @@ class Player(Actor):
     power_hit_point: int = 0
     attack_mode: int = 1
     skill_cooldown: dict[int, int] = field(default_factory=dict)
+    # 原版 m_boDeath：死亡后客户端停在黑白屏，不自动回城；重登时按
+    # UsrEngn.pas:576-600 回出生点并给 HP=14。
+    dead: bool = False
 
     def bag_item(self, make_index: int) -> dict | None:
         return next((it for it in self.bag
@@ -329,6 +332,20 @@ class Player(Actor):
                 total += t.weight
         return total
 
+    def light_level(self) -> int:
+        """原版 ObjBase.pas:3387-3392 ``RecalcAbilitys`` 末尾的 m_nLight。
+
+        ``U_RIGHTHAND``（StdMode 30 = 蜡烛/火把/火炬，ClFunc.pas:630）装着
+        且耐久 > 0 → m_nLight := 3，否则 0，并用 RM_CHANGELIGHT 通知周围。
+        客户端 THumActor.Light（Actor.pas）取 max(m_nChrLight, m_nMagLight)，
+        其中 m_nChrLight 来自 SM_LOGON 的 Hibyte(cdir)，默认 1 级基础微光。
+        这里把两者合并成一个等级下发给前端的 m_LightMap。
+        """
+        it = self.equipment[U_RIGHTHAND] if len(self.equipment) > U_RIGHTHAND else None
+        if it is not None and int(it.get("durability", 0)) > 0:
+            return 3
+        return 1
+
     def brief_json(self) -> dict:
         # 显式基类调用，不用零参数 super()：本类是 @dataclass(slots=True)，
         # 3.10~3.12 重建类时不会修正 __class__ cell，零参数 super() 会报
@@ -336,7 +353,8 @@ class Player(Actor):
         o = Actor.brief_json(self)
         o.update(sex=self.sex, hair=self.hair, job=self.job,
                  dress=self.dress_looks(self.world_ref),
-                 weapon=self.weapon_shape(self.world_ref))
+                 weapon=self.weapon_shape(self.world_ref),
+                 light=self.light_level(), dead=self.dead)
         return o
 
     def _template(self, world: "GameWorld | None", item: dict | None) -> ItemTemplate | None:
@@ -588,6 +606,7 @@ class Player(Actor):
             "mp": self.mp, "maxMp": self.max_mp, "gold": self.gold,
             "race": self.race, "appr": self.appr,
             "dress": self.dress_looks(world), "weapon": self.weapon_shape(world),
+            "light": self.light_level(), "dead": self.dead,
             "ac": self._rng("ac"), "mac": self._rng("mac"),
             "dc": self._rng("dc"), "mc": self._rng("mc"), "sc": self._rng("sc"),
             "maxExp": self.max_exp, "weight": self.bag_weight(world),
@@ -635,6 +654,9 @@ class Monster(Actor):
     last_move_at: int = 0
     last_attack_at: int = 0
     paralyzed_until: int = 0
+    # 原版 TStickMonster.m_boFixedHideMode（ObjMon2.pas:164）：食人花潜地隐藏，
+    # 目标靠近 abs<4 出土，目标离开 abs>4 潜回。隐藏时不进视野快照。
+    hidden: bool = False
 
     def roll_attack(self) -> int:
         """对齐 ``Monster.rollAttack``：DC ~ max(DC,MaxDC) 上加宠物等级加成。"""
@@ -783,6 +805,8 @@ class GameWorld(WorldExtra):
                             template=t, spawn_x=pos[0], spawn_y=pos[1],
                             respawn_interval_ms=entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
                 m.exp = t.exp
+                if t.race == 85:
+                    m.hidden = True   # TStickMonster.Create: m_boFixedHideMode := True
                 self.add_actor(m, game_map)
                 spawned += 1
         if spawned:
@@ -914,6 +938,7 @@ class GameWorld(WorldExtra):
     def nearby(self, game_map: GameMap, x: int, y: int,
                radius: int = SIGHT_RANGE) -> list[Actor]:
         return [a for a in game_map.actors.values() if a.alive
+                and not getattr(a, "hidden", False)
                 and max(abs(a.x - x), abs(a.y - y)) <= radius]
 
     @staticmethod
@@ -932,6 +957,7 @@ class GameWorld(WorldExtra):
         """
         return [a for a in game_map.actors.values()
                 if (a.alive or self._corpse_visible(a))
+                and not getattr(a, "hidden", False)
                 and max(abs(a.x - x), abs(a.y - y)) <= radius]
 
     def is_underground(self, map_name: str) -> bool:
@@ -1013,6 +1039,10 @@ class GameWorld(WorldExtra):
         地面物品与攻城（``tick_extra``） → 延迟飞矢 → 死亡重生。
         """
         for a in list(self.actors.values()):
+            # 原版死亡角色停在原地等重登，不再回血/被毒跳/被 buff tick；
+            # 否则 inc_health 池会把 HP 从 0 抬起来，黑白屏却还挂着。
+            if getattr(a, "dead", False):
+                continue
             if isinstance(a, Player):
                 self._regen(a, now)
                 self._expire_buffs(a, now)
@@ -1270,6 +1300,9 @@ class GameWorld(WorldExtra):
         is_guard = t.race in GUARD_RACES
         walk_ms = max(200, t.walkSpeed or 800)
         attack_ms = max(300, t.attackSpeed or 1000)
+        if t.race == 85:
+            self._stick_ai(m, now, attack_ms)
+            return
         target = self._resolve_target(m, now)
         m.target_id = target.id if target is not None else -1
 
@@ -1319,6 +1352,43 @@ class GameWorld(WorldExtra):
                 m.dir = int(random.random() * 8)
                 if self.try_move(m, m.dir):
                     self.broadcast_move(m)
+
+    def _stick_ai(self, m: Monster, now: int, attack_ms: int) -> None:
+        """原版 TStickMonster（ObjMon2.pas:154-297，race 85 食人花）：
+
+        - ``m_boStickMode := True``：**永不移动**（Run 里没有任何 WalkTo）；
+        - ``m_boFixedHideMode := True``：默认潜地隐藏，``CheckComeOut`` 有
+          活目标 ``abs<4``（nComeOutValue）才 ComeOut（RM_DIGUP），
+          目标死亡/无/``abs>4``（nAttackRange）就 ComeDown（RM_DIGDOWN）；
+        - 出土后只 ``GetAttackDir`` 打相邻格，够不着也**不会**走过去。
+
+        隐藏态不进视野快照（_sight_actors/nearby 过滤 hidden），出土广播
+        entityAdd、潜回广播 entityRemove，客户端即出现/消失。
+        """
+        target = self._resolve_target(m, now)
+        m.target_id = target.id if target is not None else -1
+        if m.hidden:
+            if target is not None and m.distance_to(target) < 4:
+                m.hidden = False
+                self.broadcast_entity_add(m)
+            return
+        if target is None or m.distance_to(target) > 4:
+            m.hidden = True
+            self.broadcast_around(m.map, {"type": "entityRemove", "id": m.id},
+                                  m.x, m.y)
+            return
+        if m.distance_to(target) == 1 and now >= m.next_attack_at:
+            m.next_attack_at = now + attack_ms
+            m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
+            dmg = self._ranged_damage(m, target)
+            if dmg <= 0:
+                self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
+                                              "targetId": target.id, "damage": 0,
+                                              "noDamage": True,
+                                              "x": target.x, "y": target.y},
+                                      m.x, m.y)
+            else:
+                self._apply_hit_to_player(m, target, dmg)
 
     def _summon_ai(self, m: Monster, now: int) -> None:
         """宠物跟随 / 协助攻击 / 神兽变身 / 升级（``GameWorld.summonAi``）。"""
@@ -1478,6 +1548,22 @@ class GameWorld(WorldExtra):
             dmg -= mp_cost
         target.hp = max(0, target.hp - max(0, dmg))
         self._send_hits(m, target, dmg)
+        # 原版 TSpitSpider.SpitAttack（ObjMon.pas:706-712）：m_boUsePoison 的
+        # 吐毒蜘蛛命中后 Random(m_btAntiPoison + 20) = 0 即 POISON_DECHEALTH
+        # 30 秒。构造里 m_boUsePoison := True 的：TSpitSpider（race 82 毒蜘蛛/
+        # 剧毒蜘蛛/沙虫等）与 TBigPoisionSpider（race 119 花吻蜘蛛）；
+        # THighRiskSpider（118 天狼蜘蛛）显式 := False，不毒。
+        t = m.template
+        if t is not None and t.race in (82, 119) and target.alive:
+            anti = int(target.combat.get("antiPoison", 0))
+            if random.randint(0, anti + 19) == 0:
+                sec = 30
+                target.poison_ticks = max(
+                    target.poison_ticks,
+                    max(1, java_round(sec * 1000 / POISON_INTERVAL_MS)))
+                target.poison_damage = 1
+                target.last_poison_at = now_ms()
+                self.send_stats(target)
         if target.hp <= 0:
             self.kill_player(target)
 

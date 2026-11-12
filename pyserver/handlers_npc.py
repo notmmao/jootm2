@@ -91,7 +91,17 @@ class NpcHandlers:
         if t is None:
             w.send_system(p, "物品不存在。")
             return
-        total = self._buy_price(npc, t) * count
+        # 原版 ``TMerchant.ClientBuyItem``（ObjNpc.pas:1939-1969）只在
+        # m_GoodsList（= [goods] 补货出来的清单）里找商品，并用
+        # GetUserPrice(GetUserItemPrice(...)) 定价。旧实现允许买**任意**
+        # StdItems 模板，且 _buy_price 找不到就退回 t.price，导致「本店
+        # 能买到的武器比原版多、还全是原价」。这里收紧到货单。
+        goods = w.goods(npc)
+        g = next((row for row in goods if row["index"] == index), None)
+        if g is None:
+            w.send_system(p, "本店不卖这个物品。")
+            return
+        total = g["price"] * count
         if p.gold < total:
             w.send_system(p, "金币不足。")
             return
@@ -102,12 +112,6 @@ class NpcHandlers:
         w.give_item(p, t.name, count)
         w.send_system(p, f"购买了 {t.name} x{count}，花费 {total} 金币。")
         self.send_bag_update(p)
-
-    def _buy_price(self, npc, t) -> int:
-        for g in self.world.goods(npc):
-            if g["index"] == t.index:
-                return g["price"]
-        return max(1, t.price)
 
     @staticmethod
     def _sell_price(t) -> int:

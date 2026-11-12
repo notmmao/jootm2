@@ -70,6 +70,10 @@ export async function loadMap(mapId) {
                 hasAni: (ani & 0x7f) > 0,
                 aniFrame: ani & 0x7f,
                 blend: (ani & 0x80) !== 0,
+                // 原版 TMapUnitInfo.btLight（Envir.pas:33「0..1..4 光源强度」）。
+                // PlayScn.pas:1335-1338 对视口内 btLight>0 的格调用 AddLight，
+                // 这是地图自带火把/灯柱的静态光源，之前解析出来却直接丢弃了。
+                light: light & 0xff,
             };
         }
     }
