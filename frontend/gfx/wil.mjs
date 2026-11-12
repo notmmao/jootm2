@@ -6,7 +6,14 @@ import { PALETTE_RGBA, widthBytes, skipBytes } from './palette.mjs';
 import { scheduler } from './scheduler.mjs';
 import { assetCache } from './assetCache.mjs';
 
-const CHUNK_SIZE = 512 * 1024;   // 单次请求最大字节数
+// 单个请求的字节范围不再固定 512KB，而是「这张图自己的字节」+ 向后合并相邻图。
+// 原因（2026-11-12 实测）：一屏地面约 231 张图，真实字节只有 1MB 上下，
+// 但按 512KB 分片对齐会拉下 20MB 量级（实测慢网下每张图摊到 75KB，约 12 倍过量）。
+// 200KB/s 的公网上，那意味着「进图 20 秒，地面还是一片兜底暗色」——用户反馈的
+// 黑条/灰条就是它。改成精确区间并把间隔 ≤ GAP 的图并成一段后，
+// 一屏地面只需 1MB 左右、几个请求。
+const MERGE_GAP = 8 * 1024;     // 相邻两张图之间空隙小于这个值就合并进同一个请求
+const RANGE_SLACK = 512;        // 每段末尾多要一点字节：个别 WIL 图数据比「下一张偏移」长出几字节
 
 // 创建纹理画布。
 // 主线程一律用 HTMLCanvasElement：OffscreenCanvas 的 2D 上下文在部分 Chromium 环境
@@ -103,10 +110,20 @@ export class WIL {
             this.freeOldTextures();
         }
 
-        // 经全局调度器拉取片段（并发 + 去重）。分片字节本身由 assetCache 持久化，
-        // 后续相邻图再次请求时命中内存/IndexedDB，几乎零成本。
-        const end = this._chunkEnd(off);
-        const { start, buffer, total } = await scheduler.schedule(this.wilUrl, off, end);
+        // 只拉这张图自己的字节（[off, nextOff)）。旧实现按 512KB 分片对齐，
+        // 为了解一张 6KB 的地砖会下载 512KB——慢网下一屏地面要 20MB，正是
+        // 「进入游戏后地面长时间是暗色条带」的直接原因。
+        const end = this._nextOff(off) + RANGE_SLACK;
+        let packed;
+        try {
+            packed = await scheduler.schedule(this.wilUrl, off, end);
+        } catch (e) {
+            // 请求被掐断（进游戏时 abortPending）/ 网络失败：返回 null 由调用方兜底。
+            // 不要把异常抛给一堆 `getTexture().then()` 调用点——那里多半没有 catch，
+            // 会变成 "Uncaught (in promise)" 噪音，且让该格永远停在加载中。
+            return null;
+        }
+        const { start, buffer, total } = packed;
         if (total > this.fileSize) this.fileSize = total;
 
         // **只解当前需要的那一张**（单张 0.1~1ms）。旧实现在每个分片到达时同步解包
@@ -122,19 +139,92 @@ export class WIL {
         return this.textures.get(index) || null;
     }
 
-    // 计算 chunk 结束偏移：对齐到「第一个 >= start + CHUNK_SIZE 的图头」，
-    // 保证 chunk 边界永远落在图片头，不截断任何一张图。
-    _chunkEnd(start) {
-        const target = start + CHUNK_SIZE;
+    /** 严格意义上的「下一张非空图起点」：本图的字节范围 = [off, _nextOff(off))。 */
+    _nextOff(off) {
         const arr = this.sortedOffsets;
         let lo = 0, hi = arr.length;
         while (lo < hi) {
             const mid = (lo + hi) >> 1;
-            if (arr[mid] < target) lo = mid + 1;
+            if (arr[mid] <= off) lo = mid + 1;
             else hi = mid;
         }
-        if (lo < arr.length) return arr[lo];   // 第一个 >= target 的图头
-        return this.fileSize > 0 ? this.fileSize : target;   // 末尾：对齐到文件末尾
+        if (lo < arr.length) return arr[lo];
+        return this.fileSize > 0 ? this.fileSize : off + 8 + 48 * 32;
+    }
+
+    /** 批量预取：按字节相邻关系合并成尽量少的请求，到一段解一段。 */
+    async prefetch(indices, onTex = null, priority = false) {
+        if (!indices || !indices.length) return 0;
+        await this.loadIndex();
+        const want = [];
+        const seen = new Set();
+        for (const i of indices) {
+            if (i == null || i < 0 || i >= this.imageCount) continue;
+            if (seen.has(i)) continue;
+            seen.add(i);
+            // 已经解过的图也要回调：调用方（MapActor._texCache）可能刚建了空占位，
+            // 若这里静默跳过，那一格就会永远停在「加载中」——用户看到的就是
+            // 「走一段路后整片地面停在借来的像素上不再更新」。
+            if (this.textures.has(i)) {
+                if (onTex) onTex(i, this.textures.get(i));
+                continue;
+            }
+            const off = this.offsetList[i];
+            if (!off) continue;
+            want.push(i);
+        }
+        if (!want.length) return 0;
+        want.sort((a, b) => this.offsetList[a] - this.offsetList[b]);
+
+        // 合并相邻图：gap ≤ MERGE_GAP 视为同一段（地图瓦片在 WIL 里通常连续存放）
+        const runs = [];
+        for (const i of want) {
+            const start = this.offsetList[i];
+            const end = this._nextOff(start) + RANGE_SLACK;
+            const last = runs[runs.length - 1];
+            if (last && start - last.end <= MERGE_GAP) {
+                last.items.push(i);
+                if (end > last.end) last.end = end;
+            } else {
+                runs.push({ items: [i], start, end: Math.max(end, start + 1) });
+            }
+        }
+
+        let loaded = 0;
+        // 并发交给 scheduler 控制；每段内部逐张解包，解 8 张让一次主线程
+        await Promise.all(runs.map(async (run) => {
+            try {
+                const { start, buffer, total } = await scheduler.schedule(this.wilUrl, run.start, run.end, priority);
+                // 服务端会把超出文件末尾的区间钳到 EOF：这里按钳后的终点校验覆盖，
+                // 否则末尾那一段会被整段丢弃，那几张图永远停在「加载中」。
+                const effEnd = total > 0 ? Math.min(run.end, total) : run.end;
+                if (start + buffer.byteLength < effEnd) return;
+                const view = new DataView(buffer);
+                let sliceAt = performance.now();
+                for (let k = 0; k < run.items.length; k++) {
+                    const i = run.items[k];
+                    if (!this.textures.has(i)) {
+                        const tex = this._unpackOne(view, this.offsetList[i] - start, i);
+                        if (tex) {
+                            this.textures.set(i, tex);
+                            this.lastUse.set(i, Date.now());
+                            loaded++;
+                            if (onTex) onTex(i, tex);
+                        }
+                    }
+                    // 按「时间片」让出主线程，而不是每 8 张：
+                    // 解一张 800×600 的对象图要 3~5ms（480K 像素逐个查调色板），
+                    // 连续解 8 张就是 30ms 的掉帧——走路时「一顿一顿」的来源。
+                    if (performance.now() - sliceAt > 6) {
+                        await new Promise(r => setTimeout(r, 0));
+                        sliceAt = performance.now();
+                    }
+                }
+            } catch (e) {
+                /* 单段失败不影响其余段；缺的图后续 getTexture 会按需重试 */
+            }
+        }));
+        return loaded;
     }
 
     // 解包单张图（图头在 buffer 的 localOff 处）
@@ -153,8 +243,9 @@ export class WIL {
         const fileOff = this.offsetList[index];
         // 末张图无 nextOff，必须用文件真实剩余字节（this.fileSize）判定位深；
         // 若退回 "fileOff + 8 + width*height" 会永远判 8 位，末张若是 16 位 RGB565 将只读半截而花屏。
-        const nextOff = this.offsetList[index + 1] ||
-            (this.fileSize > 0 ? this.fileSize : fileOff + 8 + width * height);
+        // 下一张非空图的起点：不能用 offsetList[index+1]（可能是 0=空图），
+        // 否则会退化到「文件末尾」，把 8 位图误判成 16 位 RGB565（花屏/错色）。
+        const nextOff = this._nextOff(fileOff);
         const bitCount = (nextOff - fileOff >= 8 + width * height * 2) ? 16 : 8;
 
         // 数据不足则跳过

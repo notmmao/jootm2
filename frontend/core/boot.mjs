@@ -49,7 +49,13 @@ const BACKGROUND_TEXTURES = [
 function $(id) { return document.getElementById(id); }
 
 /** 后台预取的完成信号（调试 / 自动化验证用）：window.__warmDone */
-export const warmState = { done: Promise.resolve(), started: false };
+export const warmState = { done: Promise.resolve(), started: false, cancelled: false };
+
+/** 取消后台预热（进游戏时调用，把带宽让给首屏地面/对象纹理）。 */
+export function cancelWarm() {
+    warmState.cancelled = true;
+    return warmState.cancelled;
+}
 
 // 地图纹理预载进度（调试接口 window.__mapPreload，选角界面也用它显示等待原因）
 onPreloadProgress((done, total, label) => {
@@ -192,16 +198,18 @@ export function warmInBackground(delayMs = 400) {
             try {
                 // ① 开门 / 选角界面纹理（登录成功后 3 秒动画立刻要用，先抢完）
                 for (const [lib, ids] of BACKGROUND_TEXTURES) {
+                    if (warmState.cancelled) return;
                     const image = getLib(lib);
                     if (!image) continue;
                     await pool(ids, 6, async (id) => { await image.getTexture(id); });
                 }
+                if (warmState.cancelled) return;
                 // ② 首屏地图纹理：进游戏最大的一块下载（~16 个 512KB 分片）。
                 //    必须紧跟在开门帧之后，不能排在全量 WIX 之后——公网上那 58 个
                 //    请求足以把窗口期吃光，导致进游戏时纹理一张都没预热。
                 //    .map 字节在 Loading 阶段已并行开下，这里等它落缓存再解析。
                 const start = getBootInfo().start;
-                if (start) {
+                if (start && !warmState.cancelled) {
                     await mapBytesPromise;
                     await preloadMapTextures(start.map, start.x, start.y,
                         { miniMapIndex: start.miniMapIndex });
@@ -209,6 +217,7 @@ export function warmInBackground(delayMs = 400) {
                     await warmMapBytes('0');   // 老服务端：至少把 0.map 字节暖进缓存
                 }
                 // ③ 补齐全量 WIX 索引（合计 <1MB），换了地图也不必再等 RTT
+                if (warmState.cancelled) return;
                 await pool(imageKeys(), 2, async (key) => {
                     const lib = getLib(key);
                     if (lib) await lib.loadIndex();

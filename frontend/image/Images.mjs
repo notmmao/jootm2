@@ -21,3 +21,18 @@ export async function getTexture(key, index) {
     if (!lib) return null;
     return lib.getTexture(index);
 }
+
+/** 诊断：已打开的图库状态（索引是否加载、已解纹理数、文件大小） */
+export function libStats() {
+    const out = [];
+    for (const [key, lib] of cache) {
+        out.push({
+            key,
+            indexLoaded: !!lib.indexLoaded,
+            images: lib.textures.size,
+            imageCount: lib.imageCount,
+            fileSize: lib.fileSize,
+        });
+    }
+    return out;
+}

@@ -15,6 +15,8 @@ import { sound } from './audio/SoundManager.mjs';
 import { fitStage } from './core/viewport.mjs';
 import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState,
          warmMapBytes, getBootInfo } from './core/boot.mjs';
+import { perf } from './core/perf.mjs';
+import { installDiag } from './core/diag.mjs';
 
 // 整个 800×600 界面等比放大到当前窗口（4:3 居中，不改变内部逻辑坐标）。
 // 想固定倍率：localStorage.setItem('jootm2.uiScale','1.5') 后刷新；
@@ -101,11 +103,23 @@ async function init() {
         window.__conn = nc;
     };
 
+    // 诊断（Ctrl+F9 导出 / Ctrl+F10 局部刷新 / Ctrl+F11 深度刷新 / Ctrl+F8 性能 HUD）
+    installDiag({ getScene: () => sceneManager.current });
+
     const loop = new Loop(() => {
-        sceneManager.update(performance.now());
+        perf.beginFrame();
+        const a = performance.now();
+        sceneManager.update(a);
+        const b = performance.now();
         sceneManager.render(backCtx);
+        const c = performance.now();
         // 一次 blit = 一帧，浏览器永远只看到完整画面
         ctx.drawImage(backCanvas, 0, 0);
+        const d = performance.now();
+        perf.add('update', b - a);
+        perf.add('render', c - b);
+        perf.add('blit', d - c);
+        perf.endFrame();
     });
     loop.start();
 
@@ -121,6 +135,7 @@ async function init() {
     window.__getLib = getLib;
     window.__sound = sound;   // 调试：__sound.play(103) / status() / toggle()
     window.__assetCache = assetCache;   // 调试：__assetCache.stats() / await __assetCache.clear()
+    window.__perf = perf;               // 调试：__perf.frames / __perf.stats(['total','floor'])
 }
 
 init().catch(e => {

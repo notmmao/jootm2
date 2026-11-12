@@ -154,4 +154,15 @@ export function preloadMapTextures(mapId, cx = 0, cy = 0, opts = {}) {
     return task.promise;
 }
 
+/**
+ * 取消当前后台预载任务。进游戏时必须调用：
+ * 后台预载（地图纹理 / HUD / 全量 WIX 索引）与进图首屏抢的是同一批 6 条连接，
+ * 慢网下实测会把地面纹理压到「进图 20 秒还没解出一张」。
+ */
+export function cancelPreload() {
+    const cur = preloadState.active;
+    if (cur) cur.cancel = true;
+    return !!cur;
+}
+
 export { onPreloadProgress };

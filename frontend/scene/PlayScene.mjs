@@ -7,6 +7,10 @@ import { MapActor, FLOOR_FALLBACK } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
 import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
+import { perf } from '../core/perf.mjs';
+import { cancelWarm } from '../core/boot.mjs';
+import { cancelPreload } from '../core/mapPreload.mjs';
+import { scheduler } from '../gfx/scheduler.mjs';
 import { toLocal } from '../core/viewport.mjs';
 import { sound, itemClickSound, SFX } from '../audio/SoundManager.mjs';
 
@@ -226,6 +230,12 @@ export class PlayScene extends Scene {
         this._buildHud();
 
         this._mapLoadingText = '正在加载地图…';
+        // 进游戏先掐掉后台预热/预载：它们和首屏地面抢同一条带宽，慢网下会把
+        // 「地面纹理」压到十几秒都下不来（实测 60KB/s 时 21 秒解出 0 张）。
+        try { cancelWarm(); cancelPreload(); } catch { /* 老版本兼容 */ }
+        // 已在飞的请求也要掐掉：后台预载的「取消」只保证不再领新任务，
+        // 登录阶段那 10 张 800×600 开门帧仍在占着全部 6 条连接。
+        try { scheduler.abortPending('enter-game'); } catch { /* 忽略 */ }
         try {
             await this.mapActor.enter(map.name, player.x || 0, player.y || 0,
                 (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; });
@@ -3030,6 +3040,7 @@ export class PlayScene extends Scene {
         // 按行绘制时，效果就是尸体永远压在活人/活怪下面（用户反馈的「尸体在人物之上」）。
         const entities = [];
         const corpses = [];
+        const tBuild = performance.now();
         for (const e of this.entities.values()) {
             // 动物尸体：倒地动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
             if (e._corpse && e._dieUntil && now >= e._dieUntil) {
@@ -3083,14 +3094,21 @@ export class PlayScene extends Scene {
             (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
         }
         entities.unshift(...corpses);
+        perf.add('build', performance.now() - tBuild);
         // 掉落物交给 MapActor 按行调度，才能被同格/下一行的角色、树木、建筑正确遮挡
+        let tPhase = performance.now();
         this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY,
             (c, g, sx, sy) => this._drawGroundItem(c, g, sx, sy),
-            [...this.groundItems.values()]);
+            this.groundItems);
+        perf.add('map', performance.now() - tPhase);
+        tPhase = performance.now();
         this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
+        perf.add('fx', performance.now() - tPhase);
+        tPhase = performance.now();
         this._renderHud();
         this._renderMiniMap();
         this._renderBigMap();   // 大地图打开时逐帧刷新自己/怪物位置
+        perf.add('hud', performance.now() - tPhase);
     }
 
     // 实体精灵缓存（entityAdd 替换对象后重建）

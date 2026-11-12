@@ -831,6 +831,8 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - `7b6e4a5`（进游戏地图加载优化：首屏纹理预载 + `.map` 字节提前 + 206 分片应用层 gzip）推送 ACR（`7b6e4a5` + `latest`，digest `sha256:0d0b2d9d73…`，image `4e3af0dc8080`），按 §21.6 标准路径部署阿里云。
 - IP 直连验证：`/api/status` 41ms；`.map` Range 分片 **206 + ETag**；`smoke_ws.py --host 139.224.24.88` 全通。
 - **流程约定（用户要求记住）**：今后「部署」默认指阿里云；标准流程 = 本机 `docker compose build` → 推 ACR（git 短 hash + `latest` 双标签）→ 阿里云 `docker pull` → `docker tag` 为 `jootm2:python` → `compose up -d` → IP 直连验证。gp-bench-3 只在用户点名时更新。
+- 同日追加 `35665ec`（尸体绘制层级 + 挖肉蹲下动作）与 `4e15c9e`（新角色初始装备 + 服装店 1 级布衣）：ACR digest `sha256:5027aac745…`（image `3722552b0527`），同流程部署；IP `/api/status` 29ms、WS 冒烟全通。
+- **gp-bench-3 也切换到 ACR 镜像**（2026-11-12，image 同为 `3722552b0527`，与阿里云完全一致），LAN WS 冒烟全通。⚠️ 坑：gp-bench-3 的 compose v1（1.29.2）解析 **BuildKit 构建的镜像会抛 `KeyError: 'ContainerConfig'`**（开发机 Docker 24 默认 BuildKit，镜像 config 无该字段；此前 gp-bench-3 本地构建走旧 builder 所以没暴露）。修复：无需 root，下载 compose v2 独立二进制到 `~/.local/bin/docker-compose`（v2.27.0）；`~/.profile` 已有 `.local/bin` 前置规则，**交互登录**后裸 `docker-compose` 即 v2，**非交互 ssh** 仍解析 `/usr/bin` 的 v1，脚本里请用显式路径 `~/.local/bin/docker-compose`。ota 用户无免密 sudo。
 
 ---
 
@@ -1243,3 +1245,131 @@ if not flag then m_ActorList.Add(actor);
 - 服务端仍用「挖两次出肉」近似 `m_nBodyLeathery`，没有按 Leathery/MeatQuality 精确递减。
 - 挖完 `RM_SKELETON` 后尸体直接 `entityRemove`，没有单独画骷髅帧。
 - 蹲下动作播完回站立，不会「蹲着不动等下一次挖」；原版也是每次点击重新触发。
+
+---
+
+## §31 「还是太卡 / 黑条还在」：现场导出工具 + 材质加载根因修复（2026-11-12）
+
+用户反馈两条：①朋友仍觉得卡；②地图黑条（暗色带）反复出现，多次修复未解决。
+第②条要求「加个快捷键，按下就保存当时内部状态 + 截图」，并尝试局部刷新观察效果；
+另外要研究同类浏览器传奇（cn.stateofmir.com）的前端缓存/渲染/刷新做法。
+
+**结论先说：黑条的根因是「材质下载量」，不是绘制。** 一屏地面只有 ~230 张图、
+真实字节约 1MB，但旧实现按 512KB 固定分片取，为一张 6KB 的地砖要下 512KB；
+200KB/s 公网下进图 20 秒仍解不出 1 张地面图，于是整屏是 `FLOOR_FALLBACK` 的平坦暗色
+（用户眼里的「黑条/黑块」）。修完同一场景 200KB/s 冷启动 13.4s 放行且地面 100% 真实，
+60KB/s 也能到 88%（其余用真实地砖样本铺，不再是纯色块）。
+
+### 31.1 新增现场导出与自救（`frontend/core/diag.mjs` + `perf.mjs`）
+
+| 快捷键 | 作用 |
+|---|---|
+| **Ctrl+F9** | 导出 `jootm2-diag-<时间>.json`：帧耗时分布（p50/p95/max，按 update/render/floor/obj/ent/build/map/fx/hud/blit 分段）+ 地面层逐格状态 + **黑块游程** + 纹理失败/在飞清单 + 缓存与带宽统计 + 两条 PNG（当前画面、地面层离屏画布） |
+| **Ctrl+F10** | 局部刷新：丢弃地面层离屏缓存、清掉失败纹理占位后重拉，只重建当前视口 |
+| **Ctrl+F11** | 深度刷新：在局部刷新基础上清掉全部未完成占位（含卡住不返回的） |
+| **Ctrl+F8** | 性能 HUD（fps / 各阶段 p50 / 未画格数 / 纹理 pending·failed） |
+
+为什么必须「逐格 + 游程」：只截图分不清是「没画」还是「画黑了」。导出时直接读地面层
+画布像素，按 48×32 逐格求平均亮度，把连续黑格合并成 `{gy, from, to, len}`，
+并附该格的 `bng/mid/obj` 索引、所属 2×2 大图索引、三张纹理的就绪状态。
+`page.images.floor` 是整张离屏画布，能看出暗区到底在地面层还是叠加层。
+
+`perf` 是常驻的环形缓冲（300 帧），热路径只有几次 `performance.now()`，无对象分配。
+
+### 31.2 材质加载：512KB 分片 → 精确区间 + 相邻合并
+
+旧 `wil.mjs` 的 `_chunkEnd()` 对齐到「≥ start+512KB 的第一个图头」，一张 6KB 地砖要
+下 512KB。改为：
+
+- 每张图的字节范围 = `[offset[i], _nextOff(offset[i]))`（`_nextOff` = 二分找下一张**非空**图）；
+- `WIL.prefetch(indices)` 按偏移排序后把 **gap ≤ 8KB** 的图并成一段，段内逐张解包；
+- 段末尾多要 `RANGE_SLACK = 512` 字节（个别 WIL 的图数据比「下一张偏移」长出几字节，
+  严格截断会解不出来；旧 512KB 分片掩盖了这个问题）。
+
+顺带修掉一个潜伏 bug：`_unpackOne` 判位深原来用 `offsetList[index+1] || fileSize`，
+下一张是空图（offset=0）就会退化成「文件末尾」，把 8 位图误判成 16 位 RGB565。改用 `_nextOff`。
+
+实测（进游戏首屏，200KB/s 冷缓存）：
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| 进图放行 | 21.0s | 13.4s |
+| 放行时地面真实格 | 0 / 1178 | 1178 / 1178 |
+| 放行时地面字节 | ~20MB（超量 12x） | 264KB（Tiles 214KB + SmTiles 49KB） |
+
+### 31.3 加载编排：地面独占带宽 + 优先级 + 掐掉在飞请求
+
+1. 进图时 `cancelWarm()` + `cancelPreload()`：后台预热不再领新任务。
+2. `scheduler.abortPending()`：连**已在飞**的请求一起 abort。原因是登录阶段那 10 张
+   800×600 开门帧（≈4.8MB）占满了全部 6 条连接，光「不再领新任务」没用。
+3. `scheduler.schedule(url, start, end, priority)`：地面纹理插队到队首。
+4. `MAX_CONCURRENT` 20 → **8**：大于 6 只是把请求塞进浏览器自己的队列，调度器失去插队能力。
+5. 地面 bucket 先发并等齐（15s 上限），对象 bucket 在地面放行后才发（6s 尽力）。
+6. `WIL.getTexture` 失败不再抛异常而是返回 `null`（一堆 `.then()` 调用点没有 catch，
+   会变成 "Uncaught (in promise)" 且让该格永远停在加载中）。
+7. `prefetch()` 遇到「WIL 里已解好的图」也要回调 `onTex`——否则调用方刚建的空占位
+   永远填不上，表现就是「走一段路后整片地面停在借来的像素上」。
+
+### 31.4 黑条的两个绘制侧隐患（顺带修掉）
+
+1. **兜底色被当成真实地砖**：旧代码对「bng/mid 索引都是 -1」的格直接
+   `fillRect(FLOOR_FALLBACK)` 并标 `cells=1`（永不重画）；邻格借像素时又允许从
+   `cells != 0` 的格借——于是**一格黑方块会被邻格复制成整条黑带**，还会沿行走路径蔓延。
+   现在 `cells` 分四态（0 未画 / 1 真实 / 2 借像素 / 3 确定无内容），**只允许从 1 借**，
+   3 态不参与每帧扫描（`f.open` 只统计 0/2，快速返回才有效）。
+2. **大画布自拷贝**：`f.ctx.drawImage(f.canvas, ...)` 会先快照整张 1760×957 画布，
+   单次 ≈4ms。滚动时几十格各来一次 = 100~200ms 顿挫；`Ctrl+F10` 刷新 530 格 = **2190ms**。
+   现在借像素只从 48×32 样本池贴（≈2µs），并新增 `_seedSamples()`：从窗口内已就绪的
+   地砖合成最多 24 个样本，保证「整屏未就绪」时铺的也是真实地砖花色。
+
+### 31.5 地面窗口几何收窄（顺带）
+
+原来窗口 `±10` 格冗余 → 38×31=1178 格、画布 1760×957，而可视区只有 17×14。
+多出来的 15 列每格都会被绘制、也都会单独发一个纹理请求（实测进图时 95 个请求排队）。
+现在 `floorWindowRect()` 与预取共用同一几何：26×23=598 格、画布 1248×736，
+`_prefetchVisible` 的地面集合、`_prefetchAround` 的移动预取都严格覆盖窗口。
+
+几何校验（含 ±47px/±31px 平滑卷动与 4 格对齐余量）：可视左界 `gx ≥ cx-8`、
+右界 `gx ≤ cx+9`、上界 `gy ≥ cy-6`、下界 `gy ≤ cy+8`；窗口 `wx0 ∈ [cx-15, cx-12]`、
+宽 26 → 覆盖 `[cx-15, cx+10]`；`wy0 ∈ [cy-13, cy-10]`、高 23 → 覆盖 `[cy-13, cy+9]`。
+
+### 31.6 其他每帧开销
+
+- `_syncFloor` 改成 9 参数 `drawImage` 只贴可见区块（软件渲染下整张 1248×736 贴进
+  800×445 是全尺寸逐像素）。
+- 名字宽度 `measureText` 结果缓存（每实体每帧一次同步测量）。
+- 掉落物直接传 `Map`，不再每帧 `[...values()]`；`byRow`/`dropsByRow` 每帧 `clear()` 复用。
+- 解包按**时间片**让出主线程（>6ms 就 `setTimeout(0)`），不再「每 8 张」：
+  一张 800×600 对象图要 3~5ms，连解 8 张就是 30ms 掉帧，是走路「一顿一顿」的来源。
+
+### 31.7 定量验证
+
+| 场景 | 结果 |
+|---|---|
+| 本地 60fps，有 GPU | frame p50 **1.3ms** / p95 3.0ms，0 帧 > 20ms；floor 0ms、obj 0.3ms、ent 0.1ms、map 0.5ms、blit 0.8ms |
+| **软件渲染**（`--disable-gpu --disable-accelerated-2d-canvas`） | frame p50 **1.4ms** / p95 4.2ms，120 帧 **0 帧 > 20ms**，dt p50 16.6ms（说明瓶颈不在 2D 光栅化） |
+| 200KB/s + 冷缓存 | 进图 13.4s，放行时地面 1178/1178 真实，走 12 步后 0 borrow |
+| 80KB/s + 冷缓存 | 进图 13.8s，地面 598/598 真实（对象 94 张仍在补），无黑块 |
+| 60KB/s + 冷缓存 | 地面 1041/1178（88%），其余用真实地砖样本铺，无纯色块（改造前是 0/1178 全屏暗色） |
+| `Ctrl+F9` 导出 | 3.2MB JSON，含 `perf.raw` 90 帧 + `map.dimCells` + 两条 PNG，`pageerror` 0 |
+| `Ctrl+F10` 局部刷新 | 全屏重建 598 格 **13.7ms**（改造前 2190ms） |
+| 回归 | `test_pyserver` 73/0、`test_tick_systems` 72/0、`test_all_messages --live 8081` 28/0 |
+
+复跑探针：`D:/Python39/python.exe data/stripe_probe.py [--kbps=200]`（`data/` 未入库）。
+
+### 31.8 同类实现调研
+
+`docs/BROWSER_MIR_CLIENT_NOTES.md`：cn.stateofmir.com 用 **PixiJS v8 + WebGL2**，
+素材**服务端预转换**（`maps/<id>.bin.gz` 用 `DecompressionStream` 解），
+纹理页是 **8 位索引（R8/RED）+ 调色板 uniform**（显存 1/4、换色只换 uniform），
+chunk 用内容哈希 + `immutable`，入口文件 `no-cache`+ETag，`version.json` 轮询提示刷新，
+`gameAhead()/prepareGame()` 在登录阶段就按地图预取，并有「加载步骤看门狗 + `/play/err` 上报」。
+
+我们采纳了「按需精确区间」「优先级/切场景前清管道」「现场导出」三条；
+不迁 WebGL（2D 语义要精确对齐 Delphi 的 blend/ceBright，且软件渲染下每帧只有 1.4ms）。
+
+### 31.9 遗留
+
+- 公网要生效需重新 build 镜像 + 推 ACR（`§22` 流程）。
+- 15s 地面等待上限仍在：慢到 60KB/s 以下时放行后靠样本池铺，不是真实地砖。
+- `Ctrl+F9` 的 PNG 用 `toDataURL('image/png')` 全质量，JSON 约 3MB；如需更小可改 webp。
