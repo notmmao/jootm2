@@ -12,7 +12,7 @@ import { cancelWarm } from '../core/boot.mjs';
 import { cancelPreload } from '../core/mapPreload.mjs';
 import { scheduler } from '../gfx/scheduler.mjs';
 import { toLocal } from '../core/viewport.mjs';
-import { sound, itemClickSound, SFX } from '../audio/SoundManager.mjs';
+import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
@@ -222,6 +222,8 @@ export class PlayScene extends Scene {
         this.entities.set(player.id, player);
         this._registerSound(player);
         for (const e of nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
+        // 脚步音按脚下地砖分类（原版 Actor.pas:2169-2257）：SoundManager 每次移动回调取一次。
+        sound.terrainAt = (x, y) => this._terrainAt(x, y);
         this.groundItems.clear();
         for (const g of groundItems || []) this.groundItems.set(g.id, g);
 
@@ -427,7 +429,7 @@ export class PlayScene extends Scene {
             cell.style.cssText = `position:absolute;left:${quickXs[i]}px;top:${HUD_Y + 59}px;width:32px;height:29px;`
                 + 'cursor:pointer;pointer-events:auto;overflow:hidden;';
             cell.dataset.quick = String(i);
-            cell.dataset.sfx = String(SFX.clickDrug);   // 原版 DBelt1Click 的药品点击音
+            cell.dataset.sfx = '0';   // 空格点击原版无声，_refreshQuickSlots 会按实际物品设置
             cell.title = `快捷栏 ${i + 1}`;
             cell.addEventListener('click', () => this._onQuickSlotClick(i));
             // 双击使用（原版 DBelt1DblClick → EatItem）
@@ -557,9 +559,12 @@ export class PlayScene extends Scene {
                 icon.style.display = 'none';
                 icon.removeAttribute('src');
                 cell.title = `快捷栏 ${i + 1}（空）`;
+                cell.dataset.sfx = '0';       // 原版空格点击不播声
                 continue;
             }
             cell.title = `${it.name}（快捷栏 ${i + 1}）`;
+            // 原版 DBelt1Click → ItemClickSound(StdMode)：0/31→108、武器→111…（不是固定药品音）
+            cell.dataset.sfx = String(itemClickSound(it.stdMode));
             // 药水格图标用 Items.wil（原版 WBagItem），不是 stateitem（那是装备/状态窗口用的）
             this._libUrl('items', it.looks).then((url) => {
                 if (!url || !icon.isConnected) return;
@@ -622,7 +627,13 @@ export class PlayScene extends Scene {
             return;   // 空格静默（原版也不提示）
         }
         this.conn.send('useItem', { makeIndex: mi });
-        sound.play(SFX.eatDrug);   // 原版 DBelt1DblClick → EatItem 的喝药音
+        // 原始 useItem：快捷栏里查不到物品时不播（原版按真实 StdMode 决定，
+        // 解捆(31)/书(4)/卷轴(3) 都是静默的，不能退回喝药音）。
+        const slotItem = (p.items || []).find((it) => it.makeIndex === mi);
+        if (slotItem) {
+            const sfx = itemUseSound(slotItem.stdMode);
+            if (sfx) sound.play(sfx);
+        }
     }
 
     /** 唤出聊天输入框（回车 / 斜杠键，对齐原版 ClMain 的 Enter/@/!/ / 处理）。 */
@@ -1031,9 +1042,31 @@ export class PlayScene extends Scene {
         return null;
     }
 
-    /** 把实体登记到音频模块，用于按 Appr×10+200 公式播放怪物叫声（攻击/挨打/死亡）。 */
+    /**
+     * 脚下地砖的三层图库索引（供脚步音分类，原版 Actor.pas:2169-2257）。
+     * 原版把坐标 `div 2 * 2` 对齐到 2×2 大地砖，这里照抄（取偶数格）。
+     * 返回 null 表示地图还没进好，调用方退回默认地面音。
+     */
+    _terrainAt(x, y) {
+        const tiles = this.mapActor && this.mapActor.map && this.mapActor.map.tiles;
+        if (!tiles) return null;
+        const tx = Math.floor(x / 2) * 2, ty = Math.floor(y / 2) * 2;
+        const col = tiles[tx] || tiles[x];
+        if (!col) return null;
+        const t = col[ty];
+        if (!t) return null;
+        return { bng: t.bng, mid: t.mid, fr: t.obj };
+    }
+
+    /**
+     * 把实体登记到音频模块：怪物叫声按 Appr×10+200，人形受击/攻击/惨叫音
+     * 按原版 m_btWeapon / m_btDress / m_btSex 选（weapon/dress 都是 shape*2+sex）。
+     */
     _registerSound(e) {
-        if (e && e.id != null) sound.registerEntity(e.id, e.type, e.appr);
+        if (!e || e.id == null) return;
+        sound.registerEntity(e.id, e.type, e.appr, {
+            weapon: e.weapon, dress: e.dress, sex: e.sex,
+        });
     }
 
     onMessage(type, msg) {
@@ -2540,7 +2573,10 @@ export class PlayScene extends Scene {
                     this.conn.send('takeOnItem', { makeIndex: it.makeIndex, slot: pos });
                 } else {
                     this.conn.send('useItem', { makeIndex: it.makeIndex });
-                    sound.play(SFX.eatDrug);
+                    // 原版 ItemUseSound：只有 StdMode 0/1/2 出声（108/107），
+                    // 解捆(31)/技能书(4)/卷轴(3) 原版是静默的 → 返回 0 就不调 play。
+                    const sfx = itemUseSound(it.stdMode);
+                    if (sfx) sound.play(sfx);
                 }
             });
             cell.addEventListener('click', () => this._onBagItemClick(it, cell));
@@ -2825,6 +2861,8 @@ export class PlayScene extends Scene {
                 + `<span style="position:absolute;left:137px;color:#fff;">${g.price}金币</span>`
                 // 持久列：原版 pcg.Grade 恒为 -1（商店货物没有耐久），所以固定画 '-'
                 + `<span style="position:absolute;left:222px;color:#fff;">-</span>`;
+            // 原版点商品行播 s_glass_button_click(105)（FState.pas:5177）
+            row.dataset.sfx = String(SFX.buttonGlass);
             row.addEventListener('click', () => { this.shopSel = idx; this._renderBuyList(); });
             this.shopListEl.appendChild(row);
         }
@@ -2983,6 +3021,8 @@ export class PlayScene extends Scene {
                 a.textContent = label;
                 a.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;'
                     + 'text-shadow:1px 1px 0 #000;pointer-events:auto;';
+                // 原版 NPC 对话选项点击播 s_glass_button_click(105)（FState.pas:5326）
+                a.dataset.sfx = String(SFX.buttonGlass);
                 a.addEventListener('click', () => this.conn.send('npcSelect', { npcId, value }));
                 container.appendChild(a);
             } else {
@@ -3593,6 +3633,7 @@ export class PlayScene extends Scene {
     }
 
     onExit() {
+        if (sound.terrainAt) sound.terrainAt = null;   // 场景切走：别让音效模块继续读这张地图
         document.removeEventListener('keydown', this._keyDown);
         if (this._keyUp) document.removeEventListener('keyup', this._keyUp);
         if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);

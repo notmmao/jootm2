@@ -1790,3 +1790,91 @@ if m_boUseEffect then
 
 - `_dieUntil` 仍写死 1400ms（MA14 实际 10×120 = 1200ms），多停 200ms 但末帧≈尸体帧，看不出来。
 - 骷髅分支对 Appr 27 会取到 `2860`（火焰）——原版同样如此；稻草人 Race 83 不可挖肉，正常玩不会触发。
+
+---
+
+## §35 音效全量对齐：解捆像喝药声（2026-11-12）
+
+用户反馈第 9 条：随机传送包解捆的**声音像喝药**，并要求顺带检查其他音效。
+
+### 35.1 根因：不分 StdMode 一律播喝药音
+
+原版 `SoundUtil.pas:313`：
+
+```pascal
+procedure ItemUseSound(StdMode: Byte);
+begin
+  case StdMode of
+    0: PlaySound(s_click_drug);              // 108 点药声
+    1, 2: PlaySound(s_eat_drug);             // 107 喝药声
+  else
+    ;                                        // ← 其余全部静默
+  end;
+end;
+```
+
+我们此前在双击背包 / 快捷栏使用时**无条件** `sound.play(SFX.eatDrug)`，
+于是解捆包（StdMode 31）、技能书（4）、卷轴（3）全成了喝药声。
+新增 `itemUseSound(stdMode)` 照抄 case，返回 `0` 表示原版这里没声音，调用方 `if (sfx) play(sfx)`。
+
+顺带修好两处同源问题：
+- 快捷栏格子 `data-sfx` 原来写死 108（药品点击音），空格也一样 → 空格显式 `'0'`，有物品按 `itemClickSound(stdMode)`；
+- 全局点击处理里 `Number(dataset.sfx) || SFX.button` 会把 `'0'` 当 falsy 退回默认按钮音 → 改成 `id === 0` 直接 return。
+
+### 35.2 其它音效逐项对照（本轮补齐）
+
+| 场景 | 原版依据 | 修前 | 修后 |
+|---|---|---|---|
+| 怪物走/待机叫 | `Appr*10+200+1` | 无 | 每步 1/8 概率播，资源缺失自动静默 |
+| 怪物攻击 | `+2` | 无 | 播 |
+| 怪物挨打 | `+4` | 无 | 播 |
+| 怪物死亡 | `+5` | 无 | 播（如稻草人 Appr27 → 475） |
+| 人物攻击武器音 | `Actor.pas:2273` `case (m_btWeapon div 2)` | 只有短/剑/长三档 | 补齐木棒/刀/斧/锤/拳（50-57） |
+| 人物受击「武器音」 | `:2356` 注意是**两次** `div 2` | 无 | `weaponStruckSound`（60-65），照抄原版双重除法的写法 |
+| 人形受击「身体/护甲音」 | `:2296-2309` 按攻击者武器 + 自己 `m_btDress div 2 == 3`（重甲） | 无 | `struckBodySound` → 70-73 / 80-83；攻击者非玩家时保持 72 |
+| 战士特攻人声 | `:2416-2459` 攻杀 `s_yedo_man/woman`(130/131)、刺杀 132、半月 133、烈火 137 | 只有特攻音，无武器音、无 yedo | 先武器音再人声 |
+| 脚步音 | `:2169-2257` 按 `btArea/wMidImg/wFrImg` 分类 + `:2679` 左右交替、跑动 +2 | 只有地板 1-4 | `footstepBase()` 实现后两层（地面/草地/石/木/房间），左右交替 + 跑动 +2 |
+| 升级音 | `ClMain.pas:6734` DrawEffectHum(8) → `s_meltstone`(101) | 无 | `stats` 里 `prevLevel` 上升时播 |
+| 玩家施法音 | 10000 + magicId*10（magicId 1 → 10010） | 拍脑袋的近似映射（137/8301…） | 按 `10000 + magicId*10` 直出 |
+| 自己挨打 | `s_manstruck/womanstruck`(138/139) | 有 | 保留，另按 HP 下降兜底 |
+| 自己死亡 | `s_mandie/womandie`(144/145) | 有 | 保留 |
+| 主场景 BGM | `PlayScn.pas:414` `s_main_theme = 102` | 进游戏后无 BGM | `enterGame` → `setBgm('play')` |
+| 商店行 / NPC 选项点击 | `FState.pas:5177 / 5326` `s_glass_button_click`(105) | 无 | `data-sfx=105` |
+| 物品落地 | **原版没有任何调用点** | 播了一个音 | 删除整个 `itemDrop` 分支 |
+
+### 35.3 有意偏离
+
+- **脚步音第一层没还原**：原版 `btArea*10000 + wBkImg - 1` 需要每格的 `btArea`，
+  本项目的 1.80 map tile 第 5 字节被我们拿去当「对象图库号」了，取不到 `btArea`。
+  只实现 `wMidImg` / `wFrImg` 两层覆盖 + `bng` 两个特判，覆盖绝大多数常见地砖（草地/石路/木桥/室内）。
+- **魔法音只按 `10000+magicId*10`**：原版还有 `m_nMagicFireSound` / `m_nMagicExplosionSound`
+  两个按技能配置的字段（服务端下发），本项目 WS 的 `spellCast` 只带 `magicId`，暂不展开。
+
+### 35.4 验证
+
+事件流断言（注入 WS 消息，记录 `play()` 实际编号）：
+
+| 场景 | 期望 | 实际 |
+|---|---|---|
+| 普通攻击命中 | 武器音 + 怪挨打 664 | `[52, 664]` |
+| 攻杀剑术 | 武器音 + yedo 130 + 怪挨打 | `[52, 130, 664]` |
+| 怪打自己 | 怪攻击 662 + 身体音 72 + 自己挨打 138 | `[662, 72, 138]` |
+| 女玩家打重甲男 | 拳 57 + 重甲拳 83 + 男挨打 138 | `[57, 83, 138]` |
+| MISS | 只有武器音，无受击声 | `[]` |
+| 自己死亡 / 女玩家死亡 | 144 / 145 | `[144]` / `[145]` |
+| 稻草人死亡 | Appr27 → 475 | `[475]` |
+| 施法 magicId 1 / 11 | 10010 / 10110 | `[10010]` / `[10110]` |
+| 升级 | 101 | `[101]` |
+| 怪物 idle | 含 661 | `idle_seen` 含 661 |
+
+解捆 E2E（真实双击）：StdMode=31 的传送包 → **无任何音效**；同一操作路径下药品 StdMode=0 → 108。
+
+永久回归：`node scripts/test_sfx_map.mjs`（纯 Node 直接 import 音效模块，断言
+`itemUseSound([0,1,2,3,31])`、`itemClickSound` 分支、各 SFX 编号）。
+
+另跑：`test_pyserver` / `test_tick_systems` / `test_all_messages --live 8080` 全通过；`node --check` 无语法错。
+
+### 35.5 遗留
+
+- 怪物叫声只在**移动事件**里按 1/8 概率触发，静止的怪不会「待机叫」；原版 `RunActSound` 的待机帧也会发声。
+- `footstepBase` 的石头/洞穴区间是从 `bng` 反推的，若发现某张图脚步不对，直接补区间即可。

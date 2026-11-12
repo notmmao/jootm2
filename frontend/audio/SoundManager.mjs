@@ -20,9 +20,19 @@ const LS_BGM_VOLUME = 'mir2.sound.bgmVolume';
 
 /** 原版 SoundUtil.pas 的 s_* 常量（只列本模块用到的）。 */
 export const SFX = Object.freeze({
+    // 脚步：地板 1-4 / 石 5-8 / 草 9-12 / 粗糙 13-16 / 木 17-20 / 洞穴 21-24 / 房间 25-28 / 水 29-32
     walkL: 1, walkR: 2, runL: 3, runR: 4,
-    hitShort: 50, hitSword: 52, hitLong: 56,
-    struckSword: 62, struckBodySword: 70,
+    walkStoneL: 5, walkLawnL: 9, walkRoughL: 13, walkWoodL: 17,
+    walkCaveL: 21, walkRoomL: 25, walkWaterL: 29,
+    // 攻击武器音（Actor.pas:2273，按 m_btWeapon div 2）
+    hitShort: 50, hitWooden: 51, hitSword: 52, hitDo: 53,
+    hitAxe: 54, hitClub: 55, hitLong: 56, hitFist: 57,
+    // 受击「武器音」（Actor.pas:2362）
+    struckShort: 60, struckWooden: 61, struckSword: 62, struckDo: 63,
+    struckAxe: 64, struckClub: 65,
+    // 受击「身体/护甲音」（Actor.pas:2296-2309）
+    struckBodySword: 70, struckBodyAxe: 71, struckBodyLongstick: 72, struckBodyFist: 73,
+    struckArmorSword: 80, struckArmorAxe: 81, struckArmorLongstick: 82, struckArmorFist: 83,
     strikeStone: 91, dropStonePiece: 92,
     rockDoor: 100, meltStone: 101,
     button: 103, buttonRock: 104, buttonGlass: 105,
@@ -31,7 +41,7 @@ export const SFX = Object.freeze({
     clickWeapon: 111, clickArmor: 112, clickRing: 113,
     clickArmRing: 114, clickNecklace: 115, clickHelmet: 116,
     clickGrobes: 117, itemClick: 118,
-    yedoMan: 130, longHit: 132, wideHit: 133,
+    yedoMan: 130, yedoWoman: 131, longHit: 132, wideHit: 133,
     rushL: 134, rushR: 135, fireHitReady: 136, fireHit: 137,
     manStruck: 138, womanStruck: 139, manDie: 144, womanDie: 145,
 });
@@ -58,24 +68,106 @@ const MON_SOUND_OFFSET = Object.freeze({
 const BGM_PLAY_ID = 102;
 const BGM_PLAY_GAP_MS = 2100;   // 46s 周期 - 43.9s 曲长 ≈ 2.1s
 
-/** 战士特攻编号（PlayScene.SWORD_HIT_FX 的 key）→ 原版音效。 */
-const SWORD_SFX = Object.freeze({
-    7: SFX.hitLong,        // 攻杀剑术
-    12: SFX.longHit,       // 刺杀剑术
-    25: SFX.wideHit,       // 半月弯刀
-    26: SFX.fireHit,       // 烈火剑法
+/**
+ * 战士特攻：服务端 `swordHit` 带的是**魔法 id**（7 攻杀 / 12 刺杀 / 25 半月 / 26 烈火），
+ * 对应原版动作 SM_POWERHIT / SM_LONGHIT / SM_WIDEHIT / SM_FIREHIT。
+ * 原版 `TActor.RunActSound`（Actor.pas:2416-2459）在第 2 帧先播**武器音**
+ * （按 m_btWeapon 分类，见 weaponHitSound），再叠一个特攻人声：
+ *   攻杀 → s_yedo_man/s_yedo_woman(130/131，按性别)
+ *   刺杀 → s_longhit(132)   半月 → s_widehit(133)   烈火 → s_firehit(137)
+ */
+const SWORD_VOICE = Object.freeze({
+    7: 'yedo', 12: SFX.longHit, 25: SFX.wideHit, 26: SFX.fireHit,
 });
 
+/** 武器 shape → 攻击武器音（Actor.pas:2273 `case (m_btWeapon div 2)`）。 */
+export function weaponHitSound(weapon) {
+    const s = Math.floor(Number(weapon || 0) / 2);
+    switch (s) {
+        case 6: case 20: return SFX.hitShort;
+        case 1: return SFX.hitWooden;
+        case 2: case 13: case 9: case 5: case 14: case 22: return SFX.hitSword;
+        case 4: case 17: case 10: case 15: case 16: case 23: return SFX.hitDo;
+        case 3: case 7: case 11: return SFX.hitAxe;
+        case 24: return SFX.hitClub;
+        case 8: case 12: case 18: case 21: return SFX.hitLong;
+        default: return SFX.hitFist;
+    }
+}
+
 /**
- * 技能 → 近似音效。原版玩家施法音来自 Actor 的 m_nMagicStartSound 等字段，
- * 而本项目 WS 的 spellCast 只带 magicId，所以这里给一份可调整的近似映射：
- * 火系用烈火音、雷/冰用 Delphi 雷击特效音、辅助用短音。表里没有的用 itemClick。
+ * 武器 shape → 受击「武器音」（Actor.pas:2356-2373 `m_nStruckWeaponSound`）。
+ * 注意原版这里是 `attackweapon := hiter.m_btWeapon div 2` 之后又 `case (attackweapon div 2)`，
+ * 等于**除了两次 2**（原版就这么写的，注释里 8/12/18/21 还给成了 `s_struck_wooden; //long`），
+ * 这里照抄，别「修好」它。
  */
-const MAGIC_SFX = Object.freeze({
-    1: 137, 5: 137, 9: 137, 22: 137, 23: 137,          // 火球/大火球/地狱火/火墙/爆裂
-    11: 8301, 28: 8301, 32: 8302, 21: 8226,            // 雷电/疾光电影/冰咆哮/地狱雷光
-    4: 101, 15: 101, 16: 101,                          // 治愈/幽灵盾/神圣战甲
-});
+export function weaponStruckSound(weapon) {
+    const s = Math.floor(Math.floor(Number(weapon || 0) / 2) / 2);
+    switch (s) {
+        case 6: case 20: return SFX.struckShort;
+        case 1: return SFX.struckWooden;
+        case 2: case 13: case 9: case 5: case 14: case 22: return SFX.struckSword;
+        case 4: case 17: case 10: case 15: case 16: case 23: return SFX.struckDo;
+        case 3: case 7: case 11: return SFX.struckAxe;
+        case 24: return SFX.struckClub;
+        case 8: case 12: case 18: case 21: return SFX.struckWooden;
+        default: return 0;
+    }
+}
+
+/**
+ * 受击「身体音」：被打者是人时，按**攻击者武器**（单次 div 2）+ **自己衣服**
+ * （`m_btDress div 2 = 3` 是重盔甲）选 `s_struck_body_*`(70-73) 或 `s_struck_armor_*`(80-83)。
+ * 攻击者不是玩家时原版不重算，保持初始值 `s_struck_body_longstick`(72)。
+ */
+export function struckBodySound(weapon, dress, attackerIsPlayer) {
+    if (!attackerIsPlayer) return SFX.struckBodyLongstick;
+    const aw = Math.floor(Number(weapon || 0) / 2);
+    const heavy = Math.floor(Number(dress || 0) / 2) === 3;
+    switch (aw) {
+        case 6: case 1: case 2: case 4: case 5: case 9: case 10:
+        case 13: case 14: case 15: case 16: case 17:
+            return heavy ? SFX.struckArmorSword : SFX.struckBodySword;
+        case 3: case 7: case 11:
+            return heavy ? SFX.struckArmorAxe : SFX.struckBodyAxe;
+        case 8: case 12: case 18:
+            return heavy ? SFX.struckArmorLongstick : SFX.struckBodyLongstick;
+        default:
+            return heavy ? SFX.struckArmorFist : SFX.struckBodyFist;
+    }
+}
+
+/**
+ * 脚下地砖 → 左脚步音基号（Actor.pas:2170-2257 的三道覆盖）。
+ * 本项目的 1.80 map tile 第 5 个字节被用作「对象图库号」而不是 `btArea`，
+ * 所以拿不到原版第一层（`btArea*10000 + wBkImg - 1`）；这里实现不依赖它的后两层：
+ *   wMidImg-1：0..115 地面、120..124 草地
+ *   wFrImg-1：石 / 木 / 房间（最后覆盖，优先级最高）
+ * 以及 bng 的两个特判（825..1349 隔段石头、1375..1799 隔段洞穴）。
+ */
+export function footstepBase(bng, mid, fr) {
+    let s = SFX.walkL;                                  // 默认地面
+    const b = Number(bng);
+    if (b >= 825 && b <= 1349) {
+        if (Math.floor((b - 825) / 25) % 2 === 0) s = SFX.walkStoneL;
+    }
+    if (b >= 1375 && b <= 1799) {
+        if (Math.floor((b - 1375) / 25) % 2 === 0) s = SFX.walkCaveL;
+    }
+    const m = Number(mid);
+    if (m >= 0 && m <= 115) s = SFX.walkL;
+    else if (m >= 120 && m <= 124) s = SFX.walkLawnL;
+    const f = Number(fr);
+    if ((f >= 221 && f <= 289) || (f >= 583 && f <= 658) || (f >= 1183 && f <= 1206)
+        || (f >= 7163 && f <= 7295) || (f >= 7404 && f <= 7414)) {
+        s = SFX.walkStoneL;
+    } else if ((f >= 3125 && f <= 3267) || (f >= 3757 && f <= 3948) || (f >= 6030 && f <= 6999)) {
+        s = SFX.walkWoodL;
+    } else if (f >= 3316 && f <= 3589) {
+        s = SFX.walkRoomL;
+    }
+    return s;
+}
 
 /** 背包物品单击音（照 SoundUtil.pas::ItemClickSound 的 case）。 */
 export function itemClickSound(stdMode) {
@@ -88,6 +180,22 @@ export function itemClickSound(stdMode) {
         case 19: case 20: case 21: return SFX.clickNecklace;
         case 15: return SFX.clickHelmet;
         default: return SFX.itemClick;
+    }
+}
+
+/**
+ * 使用物品音（照 SoundUtil.pas:313 `ItemUseSound`）：
+ *   stdMode 0 → s_click_drug(108)
+ *   stdMode 1/2 → s_eat_drug(107)
+ *   其它（卷轴 3 / 技能书 4 / 捆 31 …）→ **静默**
+ * 旧实现不分 StdMode 一律播 107，所以解捆、读书、用卷轴全成了喝药声。
+ * 返回 0 表示「原版这里没声音」，调用方 play(0) 会被直接忽略。
+ */
+export function itemUseSound(stdMode) {
+    switch (Number(stdMode)) {
+        case 0: return SFX.clickDrug;
+        case 1: case 2: return SFX.eatDrug;
+        default: return 0;
     }
 }
 
@@ -143,10 +251,16 @@ class SoundManager {
         this.maxVoices = 24;
         this.lastAt = new Map();    // 编号 -> 上次播放时间（节流）
 
-        // 实体注册表：id -> 类型/appr，用于按原版公式播放怪物叫声（Appr×10+200+偏移）。
-        // 由 PlayScene 在实体出现/更新时填充；索引缺失的怪物自动静默（不报错）。
+        // 实体注册表：id -> 类型/appr/外观，用于按原版公式播放怪物叫声（Appr×10+200+偏移）
+        // 与人形受击音（按攻击者武器 + 自己衣服）。由 PlayScene 在实体出现/更新时填充。
         this._entAppr = new Map();
         this._entType = new Map();
+        this._entWeapon = new Map();
+        this._entDress = new Map();
+        this._entSex = new Map();
+        // 脚下地砖查询：PlayScene 注册，返回 {bng, mid, fr}（已减 1 的图库帧号）。
+        // 为 null 时脚步退回默认地面音。
+        this.terrainAt = null;
 
         this.bgmAudio = null;
         this.bgmKey = null;
@@ -156,6 +270,7 @@ class SoundManager {
         this.stepFlip = false;
         this.prevGold = null;
         this.prevHp = null;
+        this.prevLevel = null;
     }
 
     /**
@@ -174,6 +289,7 @@ class SoundManager {
         this.selfId = null;
         this.prevGold = null;
         this.prevHp = null;
+        this.prevLevel = null;
         return this;
     }
 
@@ -437,7 +553,10 @@ class SoundManager {
         if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
         const tagged = target.closest('[data-sfx]');
         if (tagged) {
-            this.play(Number(tagged.dataset.sfx) || SFX.button, { gap: 60 });
+            // data-sfx="0" = 显式静默（原版空快捷栏/空格子点击不发声）
+            const id = Number(tagged.dataset.sfx);
+            if (id === 0) return;
+            this.play(id || SFX.button, { gap: 60 });
             return;
         }
         // 所有 WIL 图按钮热区都是 inline cursor:pointer（登录/选角/HUD/NPC/商店）
@@ -450,10 +569,14 @@ class SoundManager {
         }
     }
 
-    _step(run) {
-        const id = run
-            ? (this.stepFlip ? SFX.runR : SFX.runL)
-            : (this.stepFlip ? SFX.walkR : SFX.walkL);
+    /**
+     * 脚步：原版在走路动作第 1 帧播 `m_nFootStepSound`（左）、第 4 帧播 `+1`（右），
+     * 跑动整体 +2（Actor.pas:2679-2682 / 2258-2259）。
+     * base 由脚下地砖决定（footstepBase），默认地板 1。
+     */
+    _step(run, base) {
+        const b = base || SFX.walkL;
+        const id = (run ? b + 2 : b) + (this.stepFlip ? 1 : 0);
         this.stepFlip = !this.stepFlip;
         this.play(id, { gap: 250, key: 'step', volume: this.volume * 0.7 });
     }
@@ -466,26 +589,32 @@ class SoundManager {
         this.prevGold = gold;
     }
 
-    _magic(magicId) {
-        let id = MAGIC_SFX[magicId] || SFX.itemClick;
-        if (!this.fallback && !this.sounds[String(id)]) id = SFX.itemClick;
-        this.play(id, { gap: 100 });
-    }
+    // ---- 实体注册（供怪物叫声 / 人形受击音定位）-----------------------
 
-    // ---- 实体注册（供怪物叫声按 Appr 公式定位）-----------------------
-
-    /** PlayScene 在实体出现 / 更新时调用：记录 id 的类型与外观 Appr。 */
-    registerEntity(id, type, appr) {
+    /**
+     * PlayScene 在实体出现 / 更新时调用。
+     * looks（可选）= { weapon, dress, sex }：原版 m_btWeapon / m_btDress / m_btSex，
+     * 用于按武器材质选攻击音、按衣服选护甲音、按性别选惨叫与死亡音。
+     */
+    registerEntity(id, type, appr, looks) {
         if (id == null) return;
         if (type != null) this._entType.set(id, type);
         if (appr != null) this._entAppr.set(id, appr);
+        if (looks) {
+            if (looks.weapon != null) this._entWeapon.set(id, looks.weapon);
+            if (looks.dress != null) this._entDress.set(id, looks.dress);
+            if (looks.sex != null) this._entSex.set(id, looks.sex);
+        }
     }
 
-    /** 实体移除时清注册，避免内存泄漏与陈旧 Appr。 */
+    /** 实体移除时清注册，避免内存泄漏与陈旧外观。 */
     unregisterEntity(id) {
         if (id == null) return;
         this._entAppr.delete(id);
         this._entType.delete(id);
+        this._entWeapon.delete(id);
+        this._entDress.delete(id);
+        this._entSex.delete(id);
     }
 
     /** 返回该 id 怪物的 Appr（非怪物返回 null，避免给玩家/NPC 误放怪叫）。 */
@@ -495,6 +624,22 @@ class SoundManager {
             return (a == null) ? null : a;
         }
         return null;
+    }
+
+    /** 是否为玩家（原版 m_btRace = 0）；只有玩家才有武器/衣服/性别音。 */
+    _isPlayer(id) {
+        return this._entType.get(id) === 'player' || id === this.selfId;
+    }
+
+    /** 技能起手音：Actor.pas:2319 `m_nMagicStartSound = 10000 + MagicSerial*10`。 */
+    _magic(magicId) {
+        const id = 10000 + Number(magicId || 0) * 10;
+        if (this.fallback || !this.sounds[String(id)]) {
+            // 资源没收这个魔法音时退回短促点击音，别整段静默。
+            this.play(SFX.itemClick, { gap: 120, key: 'magic' });
+            return;
+        }
+        this.play(id, { gap: 120, key: 'magic' });
     }
 
     /**
@@ -522,6 +667,9 @@ class SoundManager {
                 break;
             case 'enterGame':
                 if (msg.player && msg.player.id != null) this.selfId = msg.player.id;
+                // 换角色/重进游戏：等级基准重取，否则第一次升级不会响。
+                this.prevLevel = null;
+                this.prevHp = null;
                 // 原版 PlayScn.pas::TPlayScene.SoundOnTimer → PlaySound(s_main_theme=102)，
                 // 不是 bmg_field（Field2 长曲在原版无调用点）。
                 this.setBgm('play');
@@ -531,37 +679,84 @@ class SoundManager {
                 this.play(SFX.spaceMoveIn, { gap: 400 });
                 break;
             case 'move':
-                if (this.selfId !== null && msg.id === this.selfId) this._step(!!msg.run);
+                if (this.selfId !== null && msg.id === this.selfId) {
+                    let base = SFX.walkL;
+                    if (this.terrainAt) {
+                        try {
+                            const t = this.terrainAt(msg.x, msg.y);
+                            if (t) base = footstepBase(t.bng, t.mid, t.fr);
+                        } catch { /* 地图未就绪：退回默认地面音 */ }
+                    }
+                    this._step(!!msg.run, base);
+                } else if (msg.id != null) {
+                    // 怪物走动时偶发「哼声」：原版 RunActSound 里走路/转身第 1 帧
+                    // `if Random(8) = 1 then PlaySound(m_nNormalSound)`（Actor.pas:2465-2469）
+                    const a = this._apprOf(msg.id);
+                    if (a != null && Math.random() < 0.125) {
+                        this._monSound(a, 'idle', { gap: 900, volume: this.volume * 0.35 });
+                    }
+                }
                 break;
             case 'attack': {
                 const tgt = msg.targetId, atk = msg.attackerId;
                 const tgtSelf = this.selfId !== null && tgt === this.selfId;
                 const atkSelf = this.selfId !== null && atk === this.selfId;
-                if (tgtSelf) {
-                    this.play(msg.damage > 0 ? SFX.manStruck : SFX.struckSword, { gap: 140 });
+                const atkIsPlayer = atk != null && this._isPlayer(atk);
+                const atkWeapon = atk != null ? (this._entWeapon.get(atk) || 0) : 0;
+
+                // 攻击方：原版 SM_HIT/SM_POWERHIT… 第 2 帧播武器音（按 m_btWeapon 分类）+ 特攻人声。
+                // noAttackAnim 是「纯受击」广播（对方只播 SM_STRUCK），miss 时原版也不走攻击动作。
+                if (!msg.noAttackAnim && !msg.miss && atk != null) {
+                    if (atkIsPlayer) {
+                        this.play(weaponHitSound(atkWeapon), { gap: 90, key: `hit${atk}` });
+                        const v = SWORD_VOICE[msg.swordHit];
+                        if (v === 'yedo') {
+                            // 攻杀：s_yedo_man / s_yedo_woman（Actor.pas:2426-2427，按性别）
+                            this.play(this._entSex.get(atk) === 1 ? SFX.yedoWoman : SFX.yedoMan,
+                                { gap: 220, key: `swv${atk}` });
+                        } else if (v) {
+                            this.play(v, { gap: 220, key: `swv${atk}` });
+                        }
+                    } else {
+                        // 怪物攻击喊声 appr*10+202
+                        const a = this._apprOf(atk);
+                        if (a != null) this._monSound(a, 'attack', { gap: 180, volume: this.volume * 0.5 });
+                    }
                 }
-                if (atkSelf) {
-                    this.play(SWORD_SFX[msg.swordHit] || SFX.hitSword, { gap: 100 });
-                }
-                // 怪物叫声（原版 Appr×10+200+偏移）：攻击方是怪物且非纯受击事件 → 攻击喊声(+2)；
-                // 受击方是怪物 → 挨打叫声(+4)。索引缺失自动静默。
-                if (!atkSelf && atk != null && !msg.noAttackAnim) {
-                    const a = this._apprOf(atk);
-                    if (a != null) this._monSound(a, 'attack', { gap: 180, volume: this.volume * 0.5 });
-                }
-                if (!tgtSelf && tgt != null) {
-                    const t = this._apprOf(tgt);
-                    if (t != null) this._monSound(t, 'hit', { gap: 160, volume: this.volume * 0.55 });
+                if (msg.miss) break;
+
+                // 受击方：原版 TActor.RunSound 的 SM_STRUCK 分支连着播三声
+                // （受击武器音 + 身体/护甲音 + 惨叫），见 Actor.pas:2382-2387。
+                if (tgt != null) {
+                    if (this._isPlayer(tgt)) {
+                        const ws = weaponStruckSound(atkWeapon);
+                        if (ws) this.play(ws, { gap: 120, key: `strw${tgt}` });
+                        this.play(struckBodySound(atkWeapon, this._entDress.get(tgt) || 0, atkIsPlayer),
+                            { gap: 120, key: `strb${tgt}` });
+                        this.play(this._entSex.get(tgt) === 1 ? SFX.womanStruck : SFX.manStruck,
+                            { gap: 260, key: `scream${tgt}`,
+                              volume: tgtSelf ? this.volume : this.volume * 0.65 });
+                    } else {
+                        // 怪物挨打：appr*10+204
+                        const t = this._apprOf(tgt);
+                        if (t != null) this._monSound(t, 'hit', { gap: 160, volume: this.volume * 0.55 });
+                    }
                 }
                 break;
             }
             case 'spellCast':
-                if (this.selfId === null || msg.casterId === this.selfId) this._magic(msg.magicId);
-                else this.play(SFX.itemClick, { gap: 200, volume: this.volume * 0.45 });
+                // 原版 SM_SPELL 起手音 = 10000 + MagicSerial*10（Actor.pas:2319），
+                // 所有客户端都播；不再按魔法类型自造近似音。
+                this._magic(msg.magicId);
                 break;
             case 'death':
                 if (this.selfId !== null && msg.id === this.selfId) {
-                    this.play(SFX.manDie, { gap: 600 });
+                    // 自己死亡：按性别播死亡音，再切死亡 BGM（Actor.pas:2388-2395）
+                    this.play(this._entSex.get(msg.id) === 1 ? SFX.womanDie : SFX.manDie, { gap: 600 });
+                    this.setBgm('gameover');
+                } else if (this._isPlayer(msg.id)) {
+                    this.play(this._entSex.get(msg.id) === 1 ? SFX.womanDie : SFX.manDie,
+                        { gap: 300, volume: this.volume * 0.7 });
                 } else {
                     const a = this._apprOf(msg.id);
                     if (a != null) this._monSound(a, 'die', { gap: 300, volume: this.volume * 0.7 });
@@ -570,24 +765,26 @@ class SoundManager {
             case 'stats':
                 if (msg.id == null || msg.id === this.selfId) {
                     this._gold(msg.gold);
-                    if (typeof msg.hp === 'number') {
-                        if (this.prevHp !== null && msg.hp < this.prevHp - 1) {
-                            this.play(SFX.manStruck, { gap: 450, volume: this.volume * 0.7 });
+                    // 升级特效音：原版 DrawEffectHum(8) → s_meltstone(101)（ClMain.pas:6734）
+                    if (typeof msg.level === 'number') {
+                        if (this.prevLevel !== null && msg.level > this.prevLevel) {
+                            this.play(SFX.meltStone, { gap: 800, key: 'levelup' });
                         }
-                        this.prevHp = msg.hp;
+                        this.prevLevel = msg.level;
                     }
+                    // 不再按 hp 下降补受击音：原版的受击音只在 SM_STRUCK（attack 消息）里播，
+                    // 这里再播一次会变成「一刀两声」。中毒/自然掉血原版本就无声。
+                    if (typeof msg.hp === 'number') this.prevHp = msg.hp;
                 }
                 break;
             case 'bagUpdate':
                 this._gold(msg.gold);
                 break;
-            case 'itemDrop': {
-                const name = String(msg.name || (msg.item && msg.item.name) || '');
-                const isGold = Number(msg.gold || 0) > 0 || name.includes('金币');
-                this.play(isGold ? SFX.money : SFX.dropStonePiece,
-                    { gap: 200, volume: this.volume * 0.7 });
+            case 'itemDrop':
+                // 原版「物品落地 / 丢弃」没有任何 PlaySound 调用点（s_drop_stonepiece 在
+                // Actor.pas:3521 是被注释掉的）。旧实现播 92（砸石头声）属自造，去掉。
+                // 金币入袋的音由 _gold() 按 SM_GOLDCHANGED 规则播 106。
                 break;
-            }
             case 'spaceMove':
                 this.play(SFX.spaceMoveIn, { gap: 300 });
                 break;
