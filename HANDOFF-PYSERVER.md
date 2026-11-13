@@ -580,6 +580,67 @@ D:/Python310/python.exe scripts/convert_gbk_to_utf8.py --check     # CI：有 GB
 
 ---
 
+## 43. 第三方 DB 对照（用户第 18 轮）：applem2 库 vs 本项目三张表
+
+用户提供另一套私服 DB（`D:\work\code\notmmao_code\notmmao_python\pypxlib\db\mir2-applem2`，
+含 `Monster.DB`/`StdItems.DB`/`Magic.DB`）要求导出 CSV 对比。完整报告：
+**`docs/DB_COMPARE_APPLEM2.md`**（含逐字段差异表、可补数值、复现命令）。
+
+### 43.1 名词先对齐 ✅
+
+- 原版服务端读的是 `Mud2\DB\Monster.DB`（Paradox，配 `.MB`），入口
+  `M2Server\LocalDB.pas:1288 TFrmDB.LoadMonsterDB` → `select * from Monster`。
+- **本项目不读 `.DB`**：`gamedata/mud2/DB/` 只有 Monster.csv / StdItems.csv /
+  Magic.csv，是 `scripts/paradox_to_csv.py` 从 Paradox 表导出的 CSV（commit `2988350`）。
+  即「Monster.DB」在本仓库的等价物 = `gamedata/mud2/DB/Monster.csv`。
+
+### 43.2 工具 ✅
+
+| 文件 | 说明 |
+|---|---|
+| `scripts/mir2_db_export.py` | 纳入用户提供的 `pypxlib` 版导出器（表头取 DB 自身字段名，可导任意第三方 DB）。依赖 `pip install pypxlib` |
+| `scripts/compare_mir2_db.py` | 新增：两套 CSV → Markdown 报告（规模/字段差/同名取值差/名称集合差），`FIELD_ALIAS` 处理 schema 命名差异 |
+
+### 43.3 结论（不做整库替换）✅
+
+| | 本项目 | applem2 |
+|---|---|---|
+| Monster | 273 行（267 唯一） | 386 行 |
+| StdItems | 541 行（532 唯一） | 567 行 |
+| Magic | 39 行 | 52 行 |
+| 血统 | 1.76/1.80 + 私服占位（`GM*` 11、`New*` 39）+ GM 变体技能 | 1.85（魔龙/雪域/雷炎/火龙、圣战·法神·天尊·雷霆·光芒、逐日剑法/流星火雨） |
+
+- **同源**：191 个同名怪里 **123 个 HP 完全一致**（含沃玛教主 2200），但 **172 个 Exp 不同、
+  其中 79 个恰为 3.000 倍**（我们更高）→ 我们的库被逐条调过经验，不是统一倍率。
+- **物品库几乎零交集**（共有仅 89/532）：applem2 是开高等级服口径（入门只有乌木剑，
+  无木剑/铁剑/青铜剑/短剑/匕首/轻型盔甲、无「金创药(小量)」、无蜡烛/肉），不能互补。
+- **applem2 的 `Magic.DB` 不完整**：缺 MagID 1/5/9/23（火球术/大火球/地狱火/爆裂火焰），
+  MagID 25 从「半月弯刀」改成「圆月刀法」。
+- **`NeedLevel` 位打包坑**：applem2 是 `2293760 = 35<<16`（低 16 位另有标志），
+  本项目是纯等级，直接照抄会把需求等级读成 2293760。
+- 覆盖度反证：applem2 缺 73 个 MonGen 名字（我们缺 10 个）→ **整库替换会大面积断刷怪**。
+
+### 43.4 唯一可直接收益 ✅（待用户确认后再动数据）
+
+MonGen 的 10 个「有刷怪行、无模板」名字（`world.py:806` 遇 `template is None` 直接
+`continue`，一只都不刷），applem2 能补 **4 个**：
+
+| 名字 | 刷怪量 | applem2 数值（Race/RaceImg/Appr/Lvl/Undead/CoolEye/Exp/HP/AC/MAC/DC/DCMax/Speed/Hit/WalkSpeed/AttackSpeed） |
+|---|---|---|
+| `骷髅精灵` | 10 | 89/14/150/40/1/100/**600**/500/5/4/7/24/15/12/1200/2000 |
+| `骷髅精灵1` | 24 | 89/14/150/50/1/100/**600**/800/0/100/0/60/17/20/600/2000 |
+| `骷髅战将` | 185 | 89/14/23/20/1/0/**100**/110/2/1/7/13/15/9/1200/2300 |
+| `骷髅战将0` | 106 | 同上（与 `骷髅战将` 完全相同） |
+
+校验依据：我们已有的 `骷髅精灵10` 与 applem2 的 `骷髅精灵` **除 Exp/Hit 外逐字段相同**
+（Exp 1800 = 600×3、Hit 14 vs 12）→ 血统一致。补入时 Exp 按 ×3 对齐
+（骷髅精灵 → 1800 与已有条目完全吻合，骷髅战将 → 300）。
+
+其余 6 个两边都没有：`骷髅精灵9`(20)、`森林雪人1`(1)、`祖玛弓箭手100`(10)、
+`血魔兽0`(180)、`褐蚂蚱`(100)、`巨毒蜘蛛`(4)。这 10 个名字的刷怪量合计 640。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
