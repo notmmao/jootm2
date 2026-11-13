@@ -14,7 +14,7 @@ from .util import (
     direction_delta, direction_toward, java_div, java_round, now_ms,
     random_mine_dura,
 )
-from .world import Monster, Player
+from .world import Monster, Player, melee_hit, positive_hit
 
 COMBAT_TYPES = frozenset({"attack", "dirAttack", "castMagic"})
 POISON_INTERVAL_MS = 2_500
@@ -121,12 +121,14 @@ def green_poison_bonus(target, dmg: int) -> int:
     return dmg
 
 
-def hit_check(p, m, hit_bonus: int) -> bool:
-    hit = 15 + p.combat.get("hit", 0) + hit_bonus
-    dodge = 8 + (m.template.speed if m.template else 0)
-    if dodge <= 0:
-        return True
-    return random.random() * (hit + dodge) < hit
+def hit_check(p, m) -> bool:
+    """近战命中判定（原版 ``TBaseObject._Attack``，ObjBase.pas:22240-22247）。
+
+    命中完全由**服务端**掷骰：命中点 / 敏捷点在 ``world.hit_point`` /
+    ``world.speed_point`` 里按原版公式算（玩家 5 + 准确 div 职业 tick + 剑术技能
+    加成；怪物直接取 Monster.DB 的 Hit / Speed）。客户端只播动作和飘伤害数字。
+    """
+    return melee_hit(p, m)
 
 
 class CombatHandlers:
@@ -269,19 +271,13 @@ class CombatHandlers:
         p.dir = direction_from(p.x, p.y, m.x, m.y)
         p.target_id = m.id
         w.broadcast_move(p)
-        hit_bonus = 0
-        if has_skill(p, 3):
-            hit_bonus += 3 * skill_level(p, 3)
-        if has_skill(p, 4):
-            hit_bonus += java_div(8 * skill_level(p, 4), 3)
-        if has_skill(p, 7):
-            hit_bonus += skill_level(p, 7)
-        if not hit_check(p, m, hit_bonus):
-            w.send_system(p, "攻击未命中。")
-            # 保真：未命中也广播 attack(miss)，让目标端在原版位置飘 MISS 飘字
-            # （原版 SM_STRUCK 携带 miss 标志，目标不扣血、不播受击动作，但能看到落空）
+        if not hit_check(p, m):
+            # 原版未命中：SM_HIT 照发（有挥击动作），但 nPower := 0 不触发
+            # StruckDamage → 目标端不播受击、不飘数字（此处额外广播一条
+            # miss 供客户端飘 MISS，纯视觉提示，不参与数值）。
             w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
-                             "targetId": m.id, "miss": True, "x": m.x, "y": m.y},
+                             "targetId": m.id, "miss": True, "dir": p.dir,
+                             "x": m.x, "y": m.y},
                               m.x, m.y, SIGHT_RANGE)
             return
         dam = roll_dc_with_luck(p)
@@ -351,6 +347,13 @@ class CombatHandlers:
         p.dir = direction_from(p.x, p.y, target.x, target.y)
         p.target_id = target.id
         w.broadcast_move(p)
+        if not hit_check(p, target):
+            # 原版 _Attack 对玩家目标同样掷命中（目标命中点 > 0 才可能被闪避）
+            w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
+                             "targetId": target.id, "miss": True, "dir": p.dir,
+                             "x": target.x, "y": target.y},
+                              target.x, target.y, SIGHT_RANGE)
+            return
         raw = roll_dc_with_luck(p)
         sword_hit, bonus = self._sword_flag(p, raw, True)
         dmg = max(1, raw - target.combat.get("acMax", 0))
@@ -378,29 +381,22 @@ class CombatHandlers:
             return
         p.dir = d
         w.broadcast_move(p)
-        hit_bonus = 0
-        if has_skill(p, 3):
-            hit_bonus += 3 * skill_level(p, 3)
-        if has_skill(p, 4):
-            hit_bonus += java_div(8 * skill_level(p, 4), 3)
-        if has_skill(p, 7):
-            hit_bonus += skill_level(p, 7)
         dam = roll_dc_with_luck(p)
         fx, fy = p.x + dx, p.y + dy
         front = self._find_target_at(p.map, fx, fy)
         now = now_ms()
         if isinstance(front, Monster) and front.alive:
-            if hit_check(p, front, hit_bonus):
+            if hit_check(p, front):
                 dmg = max(1, dam - (front.template.ac if front.template else 0))
                 front.hp = max(0, front.hp - dmg)
                 self._broadcast_physical_hit(p, front, dmg)
                 self._kill_if_dead(p, front, now)
-        if not hit_check(p, m, hit_bonus):
-            w.send_system(p, "攻击未命中。")
-            # 保真：未命中也广播 attack(miss)，让目标端在原版位置飘 MISS 飘字
-            # （原版 SM_STRUCK 携带 miss 标志，目标不扣血、不播受击动作，但能看到落空）
+        if not hit_check(p, m):
+            # 原版未命中：SM_HIT 照发（有挥击动作），但 nPower := 0 不触发
+            # StruckDamage → 目标端不播受击、不飘数字。
             w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
-                             "targetId": m.id, "miss": True, "x": m.x, "y": m.y},
+                             "targetId": m.id, "miss": True, "dir": p.dir,
+                             "x": m.x, "y": m.y},
                               m.x, m.y, SIGHT_RANGE)
             return
         second = sword_second_dam(p, dam, 12, 5)
@@ -426,7 +422,7 @@ class CombatHandlers:
         w.broadcast_move(p)
         dam = roll_dc_with_luck(p)
         front = self._find_target_at(p.map, p.x + dx, p.y + dy)
-        if isinstance(front, Player) and front.alive:
+        if isinstance(front, Player) and front.alive and hit_check(p, front):
             dmg = max(1, dam - front.combat.get("acMax", 0))
             front.hp = max(0, front.hp - dmg)
             w.broadcast_around(front.map, {"type": "attack", "attackerId": p.id,
@@ -436,6 +432,12 @@ class CombatHandlers:
             w.send_stats(front)
             if front.hp <= 0:
                 w.kill_player(front)
+        if not hit_check(p, target):
+            w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
+                             "targetId": target.id, "miss": True, "dir": p.dir,
+                             "x": target.x, "y": target.y},
+                              target.x, target.y, SIGHT_RANGE)
+            return
         second = sword_second_dam(p, dam, 12, 5)
         target.hp = max(0, target.hp - second)
         w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
@@ -460,7 +462,13 @@ class CombatHandlers:
                 self._apply_sword_hit(p, nb, second)
 
     def _apply_sword_hit(self, p, target, second: int) -> None:
+        """刺杀/半月扫到的副目标（原版 SwordLongAttack / SwordWideAttack →
+        DirectAttack，ObjBase.pas:21986-22010）：**每个目标单独掷命中**
+        （``Random(目标敏捷) < 命中`` 正向写法），未命中不出伤害。
+        """
         w = self.world
+        if not positive_hit(p, target):
+            return
         if isinstance(target, Monster):
             second = green_poison_bonus(target, second)
             target.hp = max(0, target.hp - second)

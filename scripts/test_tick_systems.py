@@ -707,7 +707,7 @@ def test_spider_stick_gold(w, p):
         names = [it.get("name") for it in loot]
         check("挖食人花必得食人树叶（MonItems 1/1）", "食人树叶" in names, str(names))
         check("挖食人花产出仅树叶/果实（不散落地上）",
-              all(n in ("食人树叶", "食人花果实") for n in names), str(names))
+              all(n in ("食人树叶", "食人树果实") for n in names), str(names))
     finally:
         w.actors.pop(flower2.id, None)
 
@@ -865,6 +865,64 @@ def test_exp_semantics(w, p) -> None:
     check("weight = 背包重量", st.get("weight") == p.bag_weight(w))
     check("exp_for_level(101) 不越界", exp_for_level(101) > 0)
 
+def test_hit_formula(w, p) -> None:
+    """命中判定对齐原版（ObjBase.pas:22240-22247 / UsrEngn.pas:2605-2606）。
+
+    旧实现是自造公式：``命中 15+准确`` vs ``闪避 8+怪物敏捷`` 再归一化 ——
+    鸡的闪避被放大成 8+10=18，裸装角色打鸡只有约 45% 命中（40 级也一样，
+    因为等级在原版本来就不加命中）。原版按点数直接比：
+    ``命中点 < Random(目标敏捷)`` 即 MISS，命中率 = (命中点+1)/敏捷（上限 100%）。
+    """
+    from pyserver.templates import MonsterTemplate
+    from pyserver.world import (
+        delphi_random, hit_point, melee_hit, positive_hit, speed_point,
+    )
+
+    print("\n[13] 命中判定（m_btHitPoint / m_btSpeedPoint）")
+
+    def mk_player(acc=0, spd=0, skills=None, job=0):
+        q = Player(id=w.new_id(), name="命中测试")
+        q.job = job
+        q.combat = {"hit": acc, "speed": spd, "acMax": 0}
+        q.skills = skills or {}
+        return q
+
+    def mk_mon(hit, speed, name="测试怪"):
+        return Monster(id=w.new_id(), name=name, hp=10, max_hp=10, level=1,
+                       template=MonsterTemplate(name=name, hit=hit, speed=speed))
+
+    nude = mk_player()
+    check("裸体命中点 = DEFHIT(5)", hit_point(nude) == 5, str(hit_point(nude)))
+    check("裸体敏捷点 = DEFSPEED(15)", speed_point(nude) == 15, str(speed_point(nude)))
+    check("装备准确 1:1 加命中（ItmUnit AddAbility.wHitPoint）",
+          hit_point(mk_player(acc=20)) == 25, str(hit_point(mk_player(acc=20))))
+    check("基本剑术 3 级 +9 命中",
+          hit_point(mk_player(skills={3: {"level": 3}})) == 14)
+    check("道士敏捷 +3（ObjBase.pas:18567）", speed_point(mk_player(job=2)) == 18)
+
+    chick = mk_mon(3, 10, "鸡")
+    skel = mk_mon(14, 15, "骷髅")
+    check("怪物命中/敏捷取 Monster.DB（鸡 3/10）",
+          (hit_point(chick), speed_point(chick)) == (3, 10))
+
+    n = 4000
+    check("命中点 9 vs 鸡敏捷 10：必中（hit < Random(speed) 不成立）",
+          all(melee_hit(mk_player(acc=4), chick) for _ in range(200)))
+    got = sum(1 for _ in range(n) if melee_hit(nude, skel)) / n
+    check("裸体（命中 5）vs 骷髅（敏捷 15）≈ 40%", 0.34 <= got <= 0.46, f"{got:.1%}")
+    check("准确 20（命中 25）vs 骷髅：必中",
+          all(melee_hit(mk_player(acc=20), skel) for _ in range(200)))
+    got2 = sum(1 for _ in range(n) if melee_hit(chick, nude)) / n
+    check("鸡（命中 3）打裸体玩家（敏捷 15）≈ 27%", 0.21 <= got2 <= 0.33, f"{got2:.1%}")
+
+    zero = mk_mon(0, 30, "命中为0的怪")
+    check("目标命中点 0 → 永远打中（原版 AttackTarget.m_btHitPoint > 0 门槛）",
+          all(melee_hit(nude, zero) for _ in range(200)))
+    got3 = sum(1 for _ in range(n) if positive_hit(mk_player(acc=4), chick)) / n
+    check("远程正向写法：命中 9 vs 敏捷 10 ≈ 90%", 0.86 <= got3 <= 0.94, f"{got3:.1%}")
+    check("Delphi Random(0) = 0（敏捷 0 不抛异常）", delphi_random(0) == 0)
+
+
 def test_drop_scatter_and_stack(w, p) -> None:
     """第 13 轮 26：原版 GetDropPosition 确定性铺格 + AddToMap 格上限。"""
     from pyserver.util import U_RIGHTHAND, now_ms
@@ -1012,6 +1070,7 @@ def main() -> int:
     test_spider_stick_gold(w, p)
     test_corpse_lifecycle(w, p)
     test_exp_semantics(w, p)
+    test_hit_formula(w, p)
     test_full_tick(w, p)
     print("\n" + "=" * 64)
     print(f"结果: {PASS} PASS / {FAIL} FAIL")

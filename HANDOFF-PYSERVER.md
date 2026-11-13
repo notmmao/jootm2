@@ -981,6 +981,61 @@ storageTake 取选中项。截图核对标题/列/按钮无错位。回归脚本
 
 ---
 
+## 52. 命中判定对齐原版（40 级打鸡还 MISS）
+
+**现象**：GM 调级到 40 的角色打鸡仍频繁 MISS，怀疑命中有 bug。
+
+**原版依据（ObjBase.pas:22240-22247 `TBaseObject._Attack`）**
+
+```pascal
+if AttackTarget.m_btHitPoint > 0 then            // 目标命中点 > 0 才可能被闪避
+  if m_btHitPoint < Random(AttackTarget.m_btSpeedPoint) then
+    nPower := 0;                                 // MISS
+```
+
+即命中率 = `(min(命中点+1, 敏捷)) / 敏捷`（命中点 ≥ 敏捷-1 必中）。
+点数来源：
+
+| 角色 | 命中点 m_btHitPoint | 敏捷点 m_btSpeedPoint |
+|---|---|---|
+| 玩家 | `DEFHIT(5) + 装备准确(1:1) + 剑术技能加成` | `DEFSPEED(15) + 装备敏捷(1:1)`，道士 +3 |
+| 怪物 | `Monster.DB.Hit`（UsrEngn.pas:2606） | `Monster.DB.Speed`（UsrEngn.pas:2605） |
+
+- 装备准确/敏捷走 `m_AddAbil`（ItmUnit.pas `ApplyItemParameters` 里 **原始 1:1 累加**），
+  只有「升级可分配加点」`m_BonusAbil` 才按 `BonusTick.Hit/Speed`（战士 20/35、
+  法师 25/35、道士 30/30）折算——本项目没有加点系统，故玩家点数 = 基础 + 装备 + 技能。
+- 技能加成（`RecalcHitSpeed`，ObjBase.pas:18590-18632）：基本剑术 `9/3*lv`、
+  精神力战法 `8/3*lv`、攻杀剑术 `3/3*lv`，直接加到命中点。
+- **等级不加命中**——这就是「40 级仍 MISS」的原因：鸡敏捷 10、裸装角色命中点 5，
+  命中率 60%，原版也是如此；有准确装备或基本剑术 3 级（+9 → 命中 14）即 100%。
+
+**修复**
+
+1. 旧实现是自造公式 `命中 15+准确` vs `闪避 8+怪物敏捷` 再归一化，把鸡的闪避
+   放大成 18、把玩家的准确按 1:1 计入命中基数 → 裸装角色打鸡仅约 45% 命中。
+   现改为 `world.hit_point / speed_point / melee_hit / positive_hit`
+   （后者对应原版 `DirectAttack` 与怪物远程的 `Random(敏捷) < 命中` 正向写法），
+   删除 `handlers_combat.hit_check` 里的自造数值。
+2. 补齐缺失的判定点：怪物近战 / 食人花 / 远程飞矢 / 宝宝攻击 / 大刀守卫打怪、
+   玩家 PvP（此前玩家打玩家完全不掷命中）、刺杀与半月副目标（逐个目标单独判定）。
+3. 未命中不再给玩家发「攻击未命中。」系统提示（原版没有该提示），只广播
+   `attack(miss)` 供客户端飘 MISS；广播同样带 `dir`（对齐 SM_HIT 的 wParam）。
+4. 目标命中点为 0（NPC 类 / Monster.DB Hit=0 的怪）时永远命中，保留原版门槛。
+
+**客户端 / 服务端职责**：命中与伤害**全部在服务端**（`handlers_combat.py +
+world.py`）；客户端只发 `attack { targetId }` 意图、播挥击动画、按服务端下发的
+`damage` 飘数字，不参与任何掷骰。
+
+### 52.1 验证
+
+`test_tick_systems` 157/0（新增 §[13] 命中判定 13 条：点数组成、必中边界、
+40%/27% 命中率区间、命中点 0 门槛、正向写法 90%、`Random(0)` 安全）；
+`test_all_messages` 78/0；`test_pyserver` 95/0；`test_map_view` 34/0。
+顺带修了两个测试夹具：食人花果实应为「食人树果实」（1/5 掉落偶尔触发旧断言失败）、
+守卫假模板补 `hit/speed` 字段。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

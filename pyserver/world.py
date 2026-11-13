@@ -48,6 +48,27 @@ DESPAWN_CHECK_MS = 30_000
 HP_GROWTH, MP_GROWTH = 3, 2
 BASE_HP, BASE_MP = (26, 16, 18), (12, 20, 16)
 BASE_DC, BASE_MC, BASE_SC = (2, 0, 1), (0, 2, 0), (0, 0, 2)
+
+# ---- 命中 / 敏捷（原版 m_btHitPoint / m_btSpeedPoint）-----------------------
+# 基础值：M2Share.pas:128-129 DEFHIT=5 / DEFSPEED=15。
+# 玩家由两部分相加（ObjBase.pas:3394-3395 + 18563-18570 RecalcAbilitys/RecalcHitSpeed）：
+#   ① 装备/套装：`m_AddAbil.wHitPoint` / `wSpeedPoint` —— ItmUnit.pas
+#      ApplyItemParameters 里把物品的准确(AC2)/敏捷(MAC2) **1:1 原始累加**
+#      （武器 AC2、项链/手镯/戒指 StdMode 20/22/24/41 的 AC2/MAC2）；
+#   ② 可分配加点 m_BonusAbil（ClientAdjustBonus 升一级给的点数）按
+#      `BonusTick.Hit / .Speed` 折算：
+#      战士 20/35、法师 25/35、道士 30/30，道士再 +3 敏捷。
+#   ③ 剑术技能：基本剑术 Round(9/3*lv)、精神力战法 Round(8/3*lv)、
+#      攻杀剑术 Round(3/3*lv) 直接加到 m_btHitPoint。
+# 怪物走 MonInitialize（UsrEngn.pas:2605-2606）：直接取 Monster.DB 的 Hit / Speed。
+# 本项目没有「升级加点」系统（m_BonusAbil 恒 0），所以玩家点数 = 基础 + 装备 + 技能。
+DEF_HIT, DEF_SPEED = 5, 15
+# 加点折算 tick（保留说明：若后续实作加点系统要用）
+BONUS_TICK_HIT = (20, 25, 30)
+BONUS_TICK_SPEED = (35, 35, 30)
+# 技能附加命中：3 基本剑术 9/3、4 精神力战法 8/3、7 攻杀剑术 3/3
+SKILL_HIT_BONUS = ((3, 9, 3), (4, 8, 3), (7, 3, 3))
+
 U_DRESS, U_WEAPON, U_RIGHTHAND, U_CHARM = 0, 1, 2, 12
 EQUIP_SLOTS = 13
 
@@ -754,6 +775,75 @@ class Monster(Actor):
         # 否则玩家走远再回来尸体「变回」未挖状态——挖过肉的尸体重复可挖。
         o["skeleton"] = bool(self.skeleton)
         return o
+
+
+# ---- 命中 / 敏捷点数（原版 m_btHitPoint / m_btSpeedPoint）------------------
+
+def delphi_random(n: int) -> int:
+    """Delphi ``Random(n)``：0..n-1 均匀分布；``n <= 0`` 时返回 0（不抛异常）。
+
+    原版命中判定全靠 ``Random(m_btSpeedPoint)``，怪/玩家敏捷为 0 的情况
+    （例如 Monster.DB Speed 列填 0 的怪）必须按 0 处理，不能抛 ValueError。
+    """
+    return random.randrange(n) if n > 0 else 0
+
+
+def hit_point(actor) -> int:
+    """原版 ``m_btHitPoint``（准确 / 命中点）。
+
+    玩家：``DEFHIT + 装备准确 + 剑术技能加成``（ObjBase.pas:3395 / 18563 /
+    18590-18632，装备准确 1:1 原始累加，只剩可分配加点才按技能 tick 折算）。
+    怪物：``Monster.DB.Hit``（UsrEngn.pas:2606）。
+    """
+    if isinstance(actor, Player):
+        hit = DEF_HIT + int(actor.combat.get("hit", 0))
+        for magic_id, num, den in SKILL_HIT_BONUS:
+            lv = int(actor.skills.get(magic_id, {}).get("level", 0))
+            if lv > 0:
+                hit += java_round(num * lv / den)
+        return hit
+    if isinstance(actor, Monster):
+        return int(getattr(actor.template, "hit", 0) or 0) if actor.template else 0
+    return 0
+
+
+def speed_point(actor) -> int:
+    """原版 ``m_btSpeedPoint``（敏捷 / 闪避点）。
+
+    玩家：``DEFSPEED + 装备敏捷``，道士额外 +3（ObjBase.pas:3394 / 18565-18570）；
+    怪物：``Monster.DB.Speed``（UsrEngn.pas:2605）。
+    """
+    if isinstance(actor, Player):
+        sp = DEF_SPEED + int(actor.combat.get("speed", 0))
+        return sp + 3 if actor.job == 2 else sp
+    if isinstance(actor, Monster):
+        return int(getattr(actor.template, "speed", 0) or 0) if actor.template else 0
+    return 0
+
+
+def melee_hit(attacker, target) -> bool:
+    """近战命中判定：``TBaseObject._Attack``（ObjBase.pas:22240-22247）。
+
+    ```pascal
+    if AttackTarget.m_btHitPoint > 0 then       // 目标命中点 > 0 才可能被闪避
+      if m_btHitPoint < Random(AttackTarget.m_btSpeedPoint) then nPower := 0;
+    ```
+    命中率 = ``(min(hit+1, speed)) / speed``，即命中点 ≥ 敏捷-1 时必中。
+    """
+    if hit_point(target) <= 0:
+        return True
+    return not (hit_point(attacker) < delphi_random(speed_point(target)))
+
+
+def positive_hit(attacker, target) -> bool:
+    """原版**正向**写法 ``Random(目标敏捷) < 命中点`` 才命中。
+
+    用在两处（与近战 ``melee_hit`` 的 ``命中 < Random(敏捷)`` 差 1 点容差，
+    原版两处写法本来就不一致，这里分别保留）：
+    - ``DirectAttack``（ObjBase.pas:21978）：刺杀/半月扫到的**副目标**；
+    - 怪物远程 ``TSpitSpider.SpitAttack`` / ``TArrowMonster``（ObjMon.pas:699/829/890）。
+    """
+    return delphi_random(speed_point(target)) < hit_point(attacker)
 
 
 # ---------------------------------------------------------------- 世界
@@ -1622,6 +1712,15 @@ class GameWorld(WorldExtra):
                         and now >= m.next_attack_at):
                     m.next_attack_at = now + attack_ms
                     m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
+                    if not melee_hit(m, target):
+                        # 原版守卫也走 _Attack：未命中只有 RM_HIT（挥刀），无伤害
+                        self.broadcast_around(
+                            m.map, {"type": "attack", "attackerId": m.id,
+                                    "targetId": target.id, "damage": 0,
+                                    "noDamage": True, "dir": m.dir,
+                                    "x": target.x, "y": target.y},
+                            m.x, m.y, SIGHT_RANGE)
+                        return
                     dmg = max(1, m.roll_attack()
                               - (target.template.ac if target.template else 0))
                     target.hp = max(0, target.hp - dmg)
@@ -1656,7 +1755,17 @@ class GameWorld(WorldExtra):
                     m.next_attack_at = now + attack_ms
                     m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
                     dmg = self._ranged_damage(m, target)
-                    if dmg <= 0:
+                    if not melee_hit(m, target):
+                        # 原版 TBaseObject.Attack → _Attack（ObjBase.pas:22240）：
+                        # 命中点 < Random(目标敏捷) 时 nPower := 0，SM_HIT 照发
+                        # 但不出伤害消息——客户端只看到挥击动作，不播受击。
+                        self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
+                                                      "targetId": target.id, "damage": 0,
+                                                      "noDamage": True,
+                                                      "dir": m.dir,
+                                                      "x": target.x, "y": target.y},
+                                              m.x, m.y)
+                    elif dmg <= 0:
                         # 原版：RM_HIT 照发（有挥击动作），但 StruckDamage 因
                         # nDamage<=0 直接返回 —— 目标不播受击动作、不掉血、不飘字。
                         self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
@@ -1758,7 +1867,16 @@ class GameWorld(WorldExtra):
             m.next_attack_at = now + attack_ms
             m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
             dmg = self._ranged_damage(m, target)
-            if dmg <= 0:
+            if not melee_hit(m, target):
+                # 原版 TStickMonster 攻击同样走 TBaseObject._Attack：未命中只发
+                # RM_HIT（张嘴动作），不结算伤害。
+                self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
+                                              "targetId": target.id, "damage": 0,
+                                              "noDamage": True,
+                                              "dir": m.dir,
+                                              "x": target.x, "y": target.y},
+                                      m.x, m.y)
+            elif dmg <= 0:
                 self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
                                               "targetId": target.id, "damage": 0,
                                               "noDamage": True,
@@ -1804,6 +1922,15 @@ class GameWorld(WorldExtra):
                 if now >= m.next_attack_at:
                     m.next_attack_at = now + hit_interval
                     m.dir = direction_toward(m.x, m.y, enemy.x, enemy.y, m.dir)
+                    if not melee_hit(m, enemy):
+                        # 宝宝攻击也走 _Attack 的命中判定
+                        self.broadcast_around(enemy.map,
+                                              {"type": "attack", "attackerId": m.id,
+                                               "targetId": enemy.id, "damage": 0,
+                                               "noDamage": True, "dir": m.dir,
+                                               "x": enemy.x, "y": enemy.y},
+                                              enemy.x, enemy.y)
+                        return
                     dmg = max(1, m.roll_attack()
                               - (enemy.template.ac if enemy.template else 0))
                     enemy.hp = max(0, enemy.hp - dmg)
@@ -1937,6 +2064,10 @@ class GameWorld(WorldExtra):
         self.broadcast_around(m.map, {"type": "flyAxe", "attackerId": m.id,
                                       "targetId": target.id, "dir": m.dir,
                                       "x": target.x, "y": target.y}, m.x, m.y)
+        if not positive_hit(m, target):
+            # 原版 SpitAttack / ArrowMonster（ObjMon.pas:699/829/890）：RM_HIT
+            # 先发（箭矢照飞），命中判定不过就不 StruckDamage —— 落地无伤害。
+            return
         delay = 600 + max(abs(m.x - target.x), abs(m.y - target.y)) * 50
         self.combat_state.setdefault("pending_ranged", []).append(
             {"at": now + delay, "monster": m.id, "target": target.id, "damage": dmg})

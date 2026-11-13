@@ -717,7 +717,8 @@ def run_success_paths() -> int:
                         hp=500, max_hp=500, level=40, race=11,
                         template=SimpleNamespace(name="卫士", race=11, appr=12,
                                                  walkSpeed=800, attackSpeed=1000,
-                                                 level=40, dc=20, maxDc=40),
+                                                 level=40, dc=20, maxDc=40,
+                                                 hit=30, speed=15),
                         spawn_x=spot + 6, spawn_y=p.y)
         mob = Monster(id=w.new_id(), name="骷髅", x=guard.x + 1, y=guard.y,
                       hp=30, max_hp=30, level=10, race=86,
