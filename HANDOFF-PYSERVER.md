@@ -788,6 +788,18 @@ FightExp div 2、HP 拉满、`ReAlive` 广播 RM_ALIVE(10153→SM_ALIVE=27)。
 
 ---
 
+## §47 外部仓库档案与 ddtl-legend 核验（2026-11-13）
+
+本轮无代码改动，登记外部仓库事实，详情与全部证据见 **`docs/DDTL_LEGEND_ANALYSIS.md`**。要点：
+
+- remote 全景：`fork`=`git@github.com:notmmao/jootm2.git`（已推 `feat/python-server`）；`ddtl`=`https://github.com/suyuan168/ddtl-legend`（**无推送权限，只 fetch**，分支 `main` + `archive/rpg-before-3v3-20261111`）。
+- ddtl 分叉点 `217e125`，其后 22 提交全部是"打到天亮"原创化（GPT 美术 PNG 图集替代 WIL、地图 445→7、物品/怪物/技能砍量改名、触屏 HUD）；Java 服务端仅动 3 文件 17 行。
+- 按「bug 修复 / 原版还原」标准**可借鉴项 = 0**：两处疑似修复（maxExp、商店售价）pyserver 均已有更正确的 Delphi 语义版本（`world.py:1035`、`npc_script.py:423,446-447`）；log 里"对齐原版"系列提交全在分叉点之前，非其工作。
+- 客观结论沉淀：256 色限制仅在解码层（`gfx/palette.mjs`/`wil.mjs`）；WIL/WIX 解析全在客户端；Mir2 强绑定同心圆=协议⊃帧号契约⊃地图格式⊃WIL 编码；其 `make-map.mjs` 按原版规范手写 `.map` 并原样通过未改的 Java 解析，反向印证我方 `map_tile_stride()` 实现。
+- 音效时间线：基线无音效（`_toggleSound` 是空壳）→ 我方 `fcd36e4` 补齐（仅在本分支）→ ddtl 无音效且 `AUDIO_SPEC.md` 属计划未实施。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
