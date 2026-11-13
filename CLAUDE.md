@@ -83,7 +83,7 @@ node --check frontend/<file>.mjs
 
 - WS TextFrame + UTF-8 JSON，`{"type": "..."}` 字符串消息类型（**不是**原版 Delphi 的数字协议号；不兼容原版客户端）。
 - 服务端只发必要字段，HP 走 `stats` 单播（与原版 `HealthSpellChanged()` 一致，原版 `SM_STRUCK` 里的 HP 更新是被注释掉的）。
-- `gamedata/Mir200/Envir/*.txt`、NPC 脚本、MonItems 是 **GBK**（用 UTF-8 grep 中文会假阴性）；`gamedata/mud2/DB/*.csv` 是 UTF-8。
+- `gamedata/Mir200/Envir/*.txt`、NPC 脚本、MonItems、`gamedata/mud2/DB/*.csv` 已全部转为 **UTF-8**（2026-11 转换，592 个文件实测零 GBK 残留；服务端 `gamedata.py decode_text` 严格 UTF-8 优先、失败回退 GBK，两种编码都能读）。注意对照资料仍是 GBK：原版 Delphi 源码、外部私服包（如 ChineseDB）。
 - SQLite 的 items/skills 等表 data 列是 Gson JSON 字符串；Java 建的账号可直接在 Python 侧登录（`SHA-256(salt+password)` 小写 hex）。
 - `.map`：52 字节头 + tile，列优先 `i = x*height + y`，`0x8000` 阻挡；12/14 字节两种 tile 变体 + 66 张活动图带尾块，统一用 `map_tile_stride()`（前后端一致）。
 - `MiniMap.txt` 索引是 **1-based**（取图要 `index - 1`）。

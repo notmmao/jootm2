@@ -27,6 +27,7 @@ description: 对比第三方传奇 Mir2 私服数据库（SQL dump / SQLite .db 
 | 直接是 SQLite `.db` 文件 | 用 `python -c "import sqlite3; …"` 查 `sqlite_master` + `pragma table_info` 即可读，可仿照 `mir2_db_sql_export.py` 导出（先例：`176-mir2-red/REDM2.db`，可作 1.76 参照库） |
 | C# Crystal 引擎的 `Server.MirDB`（.NET BinaryWriter 顺序格式） | `scripts/crystal_mirdb_export.py <Server.MirDB> -o data/db_compare/<tag>`（按 suprcode/crystal v105 commit `485e59afab` 镜像 Load；**EOF 精确消费 = 正确性唯一验证**。导出 StdItems/Monster/Magic/**Npcs/Maps** 五张 CSV。先例：`mir2ServerRelease`，版本头 105；报告见 `docs/DB_COMPARE_CRYSTALDB.md` §1 的反推记录） |
 | 已是 CSV | 直接放入 `data/db_compare/<tag>/`，确认 UTF-8 编码 |
+| 静态 HTML 资料站 | 先盘点页面家族/编码（见 `data/db_compare/html_site_survey.py`），再正则提取 `<tr>/<td>` 与 tooltip 标签对（见 `data/db_compare/html_site_extract.py`，先例 ruchu8 站）。**显示口径必查**：站点常把 持久=DuraMax÷1000、商店价=出售价×2、技能书阅读等级混进 NeedLevel——对照前先换算/抽验 3~5 个已知物品。若站点自称标准版本（如"176"），用 REDM2 三方对照验证它是不是干净原版镜像（本站=REDM2 100% 即可当基线用）。 |
 
 注意：同名 `.db` 不一定含全部表（GEEM2.db 只有 StdItems），以内容最全的文件为准。
 
@@ -54,7 +55,8 @@ PYTHONIOENCODING=utf-8 D:/Python310/python.exe -I scripts/compare_mir2_db.py \
 - **StdItems 拆分字段对照**：本项目是语义化列（`AcMin/AcMax/…`），对方多半是泛用槽（`Ac/Ac2/Dc/Dc2`），逐对 (Min,Max) vs (Lo,Hi) 比；schema **不能逐列对拷**。
 - **种族/AI 语义字段**：race 重映射（对方可能拿 81 当占位）、CoolEye 可能被布尔化——逐值列出差异明细。
 - **对方扩展列非零占用率**：很多引擎扩展列是空壳，全 0 就可以在报告里标注「可忽略」。
-- **NPC 对比（如有）**：本地 = `Npcs.txt` + `MerChant.txt`（用 `pyserver.world_extra.load_npc_spawns` 读，别手写解析）；对方常见是 SQL 表或 `Server.MirDB` 的 NPCInfoList。**匹配键 = 地图 + 坐标（±2 格）**，不要按名字（英文 vs 中文）或按脚本文件名（两套命名体系）。先例：Crystal 309 vs 本地 303，103 对匹配、多数 d=0。
+- **NPC 对比（如有）**：本地 = `Npcs.txt` + `MerChant.txt`（用 `pyserver.world_extra.load_npc_spawns` 读，别手写解析；注意 **MerChant 列序=脚本 图 x y 名、Npcs 列序=名 kind 图 x y face appr**）；对方常见是 SQL 表或 `Server.MirDB` 的 NPCInfoList。**匹配键 = 地图 + 坐标（±2 格）**，不要按名字（英文 vs 中文）或按脚本文件名（两套命名体系）。先例：Crystal 309 vs 本地 303，103 对匹配、多数 d=0。对方是中文资料站、无坐标时退而比 **MapList 每图 NPC 计数**（ruchu8 先例 82% 一致）。
+- **静态站 NPC 商品树/刷怪表（ruchu8 先例，报告 §7/§8）**：`js/npcshuju.js` 每条 `{n,b,c}`，看渲染 js 定语义（本站 **b=消耗/收购、c=给予/出售**），但 c 混 quest 物品，商品集合对照前先剔噪。刷怪提取自 `Mob_*.html`（`图名（x,y）|数量|刷新时间`，title=`传奇{怪}属性_…`）。**地图中文名→本地映射链**：站点图名 → `MapInfo.txt` 名（445 条，先精确、再手工别名——兽人古墓→半兽古墓/洞穴→天然洞穴这类版本命名差——最后 difflib 且要求前两字相同，防"尸魔洞→牛魔寺一层"假匹配）。商店商品在 Market_Def 的 **`[goods]` 段（大小写混用，正则必须 re.I）**，对话式商店（屠夫）没有该段。MonGen/MapInfo/Npcs/MerChant 实测多为 **UTF-8**（与 CLAUDE.md 所说 GBK 不符），逐文件自动探测。分部对照的结论维度：种类×地图对（ruchu8 vs 本地 61%）与密度/间隔（13%/38% 一致，私服重调）分开报。
 - **武器 StdMode 5/6 互换检查**：本项目口径 5=刀剑 / 6=杖锤（6 挂重击动画，`handlers_combat.py:471`）；ChineseDB 整体反过来了。有争议时用 `176-mir2-red/REDM2.db`（1.76 参照）仲裁。
 - **跨引擎字段不可直比**：Spell/EffectType/Shape/RaceImg 是各引擎自己的枚举/外观空间；Delay 单位不同（ours 原版 ×10 口径 vs Crystal 毫秒）。`compare_mir2_db.py` 的 FIELD_ALIAS 已含 Crystal 血统映射（Exp→Experience、AC→MaxAC、NeedL1→Level1、L1Train→Need1、Power→PowerBase 等），但 Spell/Delay 要从结论里排除。
 - **深挖脚本注意双方字段大小写**：本项目 `StdMode/DCMax/Level`，对方常见 `Stdmode/DCMAX/Lvl`——`compare_mir2_db.py` 有别名，但自己写的一次性脚本要显式映射，别共用同一个 key。
