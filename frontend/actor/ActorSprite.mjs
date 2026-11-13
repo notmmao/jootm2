@@ -9,7 +9,7 @@ import * as A from './actorData.mjs';
 // 施法（spell）映射到 HA.spell 段（start 392, 6 帧×60ms），与普通攻击 hit 段不同（原版 ActSpell）
 // 冲撞（rush）映射到 run 段（原版 ActRushLeft/Right 即 run 段 128 起的 3 帧子段，见 Actor.pas）
 const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', rush: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die', sitdown: 'sitdown' };
-const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die', death: 'death' };
+const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die', death: 'death', digup: 'death' };
 
 export class ActorSprite {
     constructor(entity) {
@@ -95,9 +95,11 @@ export class ActorSprite {
             return [{ lib, index: offset + cf }];
         }
 
-        // attack/spell/struck/sitdown 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
+        // attack/spell/struck/sitdown/digup 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
+        // digup（SM_DIGUP 出土）：原版 AxeMon.pas:352 用 ActDeath 段正向播放
+        // （ActDeath.start + dir*(frame+skip) 起，ftime 同 ActDeath），播完回 stand。
         if (action === 'attack' || action === 'spell' || action === 'struck'
-            || action === 'sitdown') {
+            || action === 'sitdown' || action === 'digup') {
             const seg = segs[segKey] || segs.stand;
             const af = A.actionFrames(0, seg, dir);
             if (af.ftime > 0 && (now - at) > af.count * af.ftime) {

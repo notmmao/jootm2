@@ -690,6 +690,67 @@ MonGen 的 10 个「有刷怪行、无模板」名字（`world.py:806` 遇 `temp
 
 ---
 
+## §45 第 20 轮：怪物出场动画（DIGUP）+ 空图休眠/清怪性能优化
+
+### 45.1 原版核查：出场动画 = `RM_DIGUP`（SM_DIGUP=20）
+
+钻出地面的怪不是逐怪硬编码动画，而是统一消息：
+
+| 类 | race | 机制 | 依据 |
+|---|---|---|---|
+| `TDigOutZombi` | **95**（僵尸2/僵尸20/石墓尸王） | 刷出即 ``m_boFixedHideMode := True`` 埋地；视野内活目标 ``abs<=3`` 才 ComeOut：脚下创建尘土事件（``TEvent`` 5 分钟）+ ``RM_DIGUP``，出土后走普通 AI **不再钻回** | ObjMon.pas:1193-1260 |
+| `TStickMonster`（食人花） | 85 | 潜地/出土同样走 RM_DIGUP/RM_DIGDOWN，可反复钻回 | ObjMon2.pas:203/211 |
+| `TWhiteSkeleton` / `TScultureMonster` / `TElfMonster` | — | 白骨出生 DIGUP、祖玛石像 MeltStone DIGUP、神兽变身 DIGUP/DIGDOWN | ObjMon.pas:1336/1371/1699 |
+
+客户端表现（ClMain.pas:4970 → Actor.pas:2401 / AxeMon.pas:352）：
+- 动画 = **ActDeath 段正向播放**（`ActDeath.start + dir*(frame+skip)` 起，ftime 同 ActDeath），播完回 stand；
+- 脚下单帧尘土 = mon6 库 `ZOMBIDIGUPDUSTBASE=420+dir`，**正常混合非光效**（clEvent.pas:105，m_boBlend=FALSE），事件 5 分钟；
+- 音 = `m_nAppearSound = 200 + Appr*10`（offset 0，Actor.pas:2345/2401）。
+
+### 45.2 实现 ✅
+
+| 端 | 改动 |
+|---|---|
+| `world.py` | race 95 刷出/重生同样 `hidden=True`；`_monster_ai` 出土分支（3×3 活玩家 → digUp 广播 + `next_move_at=+1000`）；食人花 ComeOut 从 entityAdd 改 digUp 广播 |
+| `PlayScene.mjs` | `digUp` 消息（entity 注册 + `_action='digup'` + 尘土 FX）；尘土分支 mon6 `420+dir` 单帧正常混合、留 5 分钟（对齐服务端事件时长） |
+| `ActorSprite.mjs` | `MON_SEG.digup='death'` + 加入一次性动作组（播完回 stand）——ActDeath 正放即原版出土动画 |
+| `SoundManager.mjs` | `MON_SOUND_OFFSET.appear=0`；`digUp` → `_monSound(appr,'appear')` |
+
+### 45.3 性能：空图休眠 + 位索引 + 广播零开销（用户第 2 问）
+
+实测基线（12 张大图满怪 = **9725 只**）：tick 一次 **131ms（间隔 200ms → CPU≈65%）**，
+热点 = `occupied` 全图线性扫描（45%）+ 空图广播（20%）+ 全怪 AI。
+
+| 优化 | 做法 | 收益 |
+|---|---|---|
+| **空图 AI 休眠** | `tick` 建 active_maps（有 session 玩家的图），无人图的怪物跳过 `_monster_ai`/`_apply_poison`（尸体过期/重生计时照走） | 无观察者的游走全省 |
+| **空图定时清怪** | 最后一名在线玩家离开 > `MON_DESPAWN_MS=5min` → 整图清怪（含尸体/待重生），`mon_spawned=False`；玩家进图 `player_entered()` 重新满编刷出。从未有人进过的图不清（保持首访满编） | 常驻怪量趋近「只有玩家在的图」 |
+| **位索引 `by_pos`** | `GameMap` 维护 `(x,y)→[actors]`（add/remove/reposition 三入口），`occupied` O(1) | 消掉最大热点 |
+| **玩家索引 `players`** | `broadcast_around` 只遍历图上玩家 dict，空图直接 return 不 encode | 消掉 20% 热点 |
+
+优化后同基线：**无人在线 8.2ms/tick（CPU 4.1%），1 人在线 6.8ms（3.4%）**——降低约 95%。
+纯粹是内部优化，无玩家可感知的行为变化（除：离开 5 分钟的图怪被清、再进满编重刷；
+登录回到休眠图时怪物是满编新刷而非原地续存）。
+
+### 45.4 验证
+
+| 项目 | 结果 |
+|---|---|
+| test_all_messages（+4：digUp 触发/出土后不重复/1 秒不动、空图休眠；离线+live） | **50/0** |
+| test_pyserver / test_tick_systems / test_map_view / test_sfx_map | 95/0、139/0、34/0、84/0 |
+| 清怪→重刷闭环（脚本模拟 60s 离开） | 538 清空 → 进图重刷 538 ✅ |
+| 8080 重启 + live 冒烟 | PASS |
+
+### 45.5 边界
+
+- 出土动画用 ActDeath 正放与原版客户端完全同构，但**未逐帧校对** WIL 僵尸段是否含专用出土帧（race 23 白骨走 WMon4 特效帧，未做）。
+- race 96（`TZilKinZombi` 复活僵尸：死后减半复活 1~3 次）、祖玛石像 StoneMode→DIGUP、
+  `TLightingZombi` 闪电攻击（race 94）均未移植，属后续轮次。
+- 清怪时地面物品不清（只按自身过期时间走）；攻城/门状态不受影响。
+- `MON_DESPAWN_MS` 写死 5 分钟，未暴露配置。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

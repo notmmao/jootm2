@@ -866,9 +866,10 @@ def test_drop_scatter_and_stack(w, p) -> None:
     from pyserver.world_extra import GroundItem
 
     class FakeMap:
-        """只保留 scatter_pos 需要的两个接口，排除真实地图上的墙/怪物干扰。"""
+        """只保留 scatter_pos / broadcast_around 需要的接口（players 索引）。"""
         def __init__(self):
             self.actors = {}
+            self.players = {}
         def can_walk(self, x, y):
             return 0 <= x < 40 and 0 <= y < 40
 

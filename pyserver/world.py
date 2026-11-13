@@ -39,6 +39,11 @@ SIGHT_RANGE = 12
 HP_SYNC_MS = 400
 BAG_SIZE = 46
 RESPAWN_MS = 15_000
+# 空图休眠：最后一名在线玩家离开超过 MON_DESPAWN_MS 就整图清怪（实测
+# 12 张大图满怪 tick 一次 131ms / CPU≈65%，无人看的图纯属空转）；
+# DESPAWN_CHECK_MS 是清怪巡检周期。AI 休眠（不游走）则是即时的。
+MON_DESPAWN_MS = 5 * 60_000
+DESPAWN_CHECK_MS = 30_000
 HP_GROWTH, MP_GROWTH = 3, 2
 BASE_HP, BASE_MP = (26, 16, 18), (12, 20, 16)
 BASE_DC, BASE_MC, BASE_SC = (2, 0, 1), (0, 2, 0), (0, 0, 2)
@@ -147,14 +152,26 @@ def filter_show_name(name: str) -> str:
 # ---------------------------------------------------------------- 地图
 
 class GameMap:
-    """``MapGrid`` 的运行时包装：阻挡网格 + 当前图上的实体 + 门开闭状态。"""
+    """``MapGrid`` 的运行时包装：阻挡网格 + 当前图上的实体 + 门开闭状态。
 
-    __slots__ = ("grid", "actors", "open_doors")
+    ``by_pos`` / ``players`` 是两张维护索引（``add``/``remove``/``try_move``
+    三个入口负责增删），用来替代把 ``occupied`` 和广播做成 O(n) 全图扫描 ——
+    大图满怪时一次 ``occupied`` 要遍历上千实体，怪物每次移动都会踩。
+    """
+
+    __slots__ = ("grid", "actors", "open_doors", "by_pos", "players",
+                 "last_active_at", "mon_spawned")
 
     def __init__(self, grid: MapGrid):
         self.grid = grid
         self.actors: dict[int, "Actor"] = {}
         self.open_doors: dict[tuple[int, int], int] = {}
+        self.by_pos: dict[tuple[int, int], list["Actor"]] = {}
+        self.players: dict[int, "Player"] = {}
+        # 空图休眠：0 = 从未有玩家进过（保持满编冷置，AI 跳过但不清怪）；
+        # 否则是最后一名在线玩家离开/在图时刻，超过阈值才清怪。
+        self.last_active_at = 0
+        self.mon_spawned = False
 
     @property
     def name(self) -> str:
@@ -187,14 +204,50 @@ class GameMap:
         self.open_doors[(x, y)] = at
 
     def occupied(self, x: int, y: int) -> bool:
-        return any(a.alive and a.x == x and a.y == y for a in self.actors.values())
+        """按位索引查询，语义与旧线性扫描一致（``a.alive`` 才算占位）。"""
+        lst = self.by_pos.get((x, y))
+        if not lst:
+            return False
+        return any(a.alive for a in lst)
 
     def add(self, actor: "Actor") -> None:
         self.actors[actor.id] = actor
         actor.map = self
+        self.by_pos.setdefault((actor.x, actor.y), []).append(actor)
+        if isinstance(actor, Player):
+            self.players[actor.id] = actor
+            self.last_active_at = now_ms()
 
     def remove(self, actor_id: int) -> None:
-        self.actors.pop(actor_id, None)
+        a = self.actors.pop(actor_id, None)
+        if a is None:
+            return
+        lst = self.by_pos.get((a.x, a.y))
+        if lst is not None:
+            try:
+                lst.remove(a)
+            except ValueError:
+                pass
+            if not lst:
+                self.by_pos.pop((a.x, a.y), None)
+        if isinstance(a, Player):
+            self.players.pop(a.id, None)
+            if self.players:
+                self.last_active_at = now_ms()
+
+    def reposition(self, a: "Actor", nx: int, ny: int) -> None:
+        """try_move 成功后同步位索引（坐标突变只发生在 try_move / 传送）。"""
+        old = (a.x, a.y)
+        lst = self.by_pos.get(old)
+        if lst is not None:
+            try:
+                lst.remove(a)
+            except ValueError:
+                pass
+            if not lst:
+                self.by_pos.pop(old, None)
+        a.x, a.y = nx, ny
+        self.by_pos.setdefault((nx, ny), []).append(a)
 
 
 # ---------------------------------------------------------------- 实体
@@ -709,6 +762,7 @@ class GameWorld(WorldExtra):
         # 旁观者血条同步：玩家 hp 变化时向周围广播（见 _sync_player_hp）
         self._hp_sync_cache: dict[int, tuple[int, int]] = {}
         self._hp_sync_at = 0
+        self._last_despawn_check = 0
         self.ground_items: dict[int, dict] = {}
         # 挖矿矿点存量（原版 TStoneMineEvent，Event.pas:84-94）：键 (地图, x, y)
         # 值 [剩余量, 生成/补矿 tick]。存量创建时 Random(200)，挖空 10 分钟后
@@ -822,13 +876,14 @@ class GameWorld(WorldExtra):
                             respawn_interval_ms=entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
                 m.exp = t.exp
                 init_meat_quality(m)
-                if t.race == 85:
-                    m.hidden = True   # TStickMonster.Create: m_boFixedHideMode := True
+                if t.race in (85, 95):
+                    m.hidden = True   # 85 食人花 / 95 TDigOutZombi：m_boFixedHideMode := True
                 self.add_actor(m, game_map)
                 spawned += 1
         if spawned:
             print(f"[world] map={game_map.name} {game_map.width}x{game_map.height}, "
                   f"spawned monsters={spawned}")
+        game_map.mon_spawned = True
         return spawned
 
     # ---- 地图 -----------------------------------------------------------
@@ -857,6 +912,7 @@ class GameWorld(WorldExtra):
             p.map.remove(p.id)
         p.x, p.y = x, y
         target.add(p)
+        self.player_entered(p)
         # 原版 SM_CHANGEMAP 后客户端 CancelAction 停住动作；这里用短锁拦下
         # 换图消息到达前已在网络中的 move，否则会落在新地图继续走，
         # 容易一脚踩中紧邻落点的回程门被弹回（例如 D401 (76,15) ↔ D411 (60,7)）。
@@ -910,7 +966,7 @@ class GameWorld(WorldExtra):
             return False
         if game_map.occupied(nx, ny):
             return False
-        a.x, a.y = nx, ny
+        game_map.reposition(a, nx, ny)
         return True
 
     # ---- 广播 / 快照 ----------------------------------------------------
@@ -923,10 +979,24 @@ class GameWorld(WorldExtra):
 
     def broadcast_around(self, game_map: GameMap | None, msg: dict,
                          x: int, y: int, radius: int = SIGHT_RANGE) -> None:
+        """只遍历图上玩家（``map.players`` 索引），空图零开销直接返回。
+
+        怪物 AI 每次移动/攻击都走这里，大图满怪时旧的「遍历全部实体 +
+        isinstance 过滤」是纯浪费 —— 玩家始终是极少数。
+        """
         if game_map is None:
             return
+        players_map = getattr(game_map, "players", None)
+        if players_map is not None and not players_map:
+            return
         text = encode(msg)
-        for a in game_map.actors.values():
+        if players_map is not None:
+            for a in players_map.values():
+                if a.session is not None \
+                        and max(abs(a.x - x), abs(a.y - y)) <= radius:
+                    a.session.send_text(text)
+            return
+        for a in game_map.actors.values():   # 兼容缺 players 索引的测试 shim
             if isinstance(a, Player) and a.session is not None \
                     and max(abs(a.x - x), abs(a.y - y)) <= radius:
                 a.session.send_text(text)
@@ -1100,7 +1170,17 @@ class GameWorld(WorldExtra):
 
         实体状态（回血 / buff / 怪物与宠物 AI / 毒） → 昼夜 → 门 → 火墙 →
         地面物品与攻城（``tick_extra``） → 延迟飞矢 → 死亡重生。
+
+        空图休眠：怪物 AI / 毒只在「图上有在线玩家」时跑。无人看的图里
+        怪物游走是纯浪费（广播也没有收件人）；重生与尸体过期仍按时间推进。
+        图上的最后一名在线玩家离开超过 :data:`MON_DESPAWN_MS` 后整图清怪，
+        玩家再进图时由 :meth:`player_entered` 重新满编刷出。
         """
+        active_maps = set()
+        for p in self.players():
+            if p.session is not None and p.map is not None:
+                active_maps.add(p.map)
+                p.map.last_active_at = now
         for a in list(self.actors.values()):
             # 原版死亡角色停在原地等重登，不再回血/被毒跳/被 buff tick；
             # 否则 inc_health 池会把 HP 从 0 抬起来，黑白屏却还挂着。
@@ -1109,9 +1189,11 @@ class GameWorld(WorldExtra):
             if isinstance(a, Player):
                 self._regen(a, now)
                 self._expire_buffs(a, now)
+                self._apply_poison(a, now)
             elif isinstance(a, Monster):
-                self._monster_ai(a, now)
-            self._apply_poison(a, now)
+                if a.map in active_maps:
+                    self._monster_ai(a, now)
+                    self._apply_poison(a, now)
         self._tick_day_bright(now)
         self._close_timed_out_doors(now)
         self._tick_fire_walls(now)
@@ -1120,6 +1202,37 @@ class GameWorld(WorldExtra):
         self.tick_extra(now)          # 地面物品过期 + 攻城计时
         self._expire_corpses(now)     # 尸体到点移除（原版 MakeGhost）
         self._respawn_dead(now)
+        if now - self._last_despawn_check >= DESPAWN_CHECK_MS:
+            self._last_despawn_check = now
+            self._despawn_idle_maps(now)
+
+    def _despawn_idle_maps(self, now: int) -> None:
+        """玩家离开超过 ``MON_DESPAWN_MS`` 的图整图清怪（含尸体/待重生）。
+
+        依据：实测 12 张大图满怪（1 万只）一次 tick 131ms、CPU ≈65%，而
+        空图里的怪物游走没有任何观察者。``last_active_at == 0`` 的图（从未
+        有人进过）不清，保持首访满编；清怪后 ``mon_spawned=False``，
+        :meth:`player_entered` 会重新刷。地面物品只按自身过期时间走。
+        """
+        for gm in list(self.maps.values()):
+            if not gm.mon_spawned or gm.last_active_at == 0:
+                continue
+            if now - gm.last_active_at <= MON_DESPAWN_MS:
+                continue
+            removed = 0
+            for a in [a for a in gm.actors.values() if isinstance(a, Monster)]:
+                gm.remove(a.id)
+                self.actors.pop(a.id, None)
+                removed += 1
+            gm.mon_spawned = False
+            print(f"[world] map={gm.name} idle >{MON_DESPAWN_MS // 1000}s, "
+                  f"despawned monsters={removed}")
+
+    def player_entered(self, p: Player) -> None:
+        """玩家进图钩子：休眠过的图重新满编刷怪（等价 get_or_load_map 首刷）。"""
+        gm = p.map
+        if gm is not None and not gm.mon_spawned:
+            self.spawn_monsters(gm)
 
     def _sync_player_hp(self, now: int) -> None:
         """把玩家血量变化同步给周围玩家，否则旁观者看到的血条永远不动。
@@ -1348,8 +1461,8 @@ class GameWorld(WorldExtra):
                         respawn_interval_ms=a.respawn_interval_ms)
             m.exp = t.exp
             init_meat_quality(m)
-            if t.race == 85:
-                m.hidden = True      # TStickMonster.m_boFixedHideMode，重生同样潜地
+            if t.race in (85, 95):
+                m.hidden = True      # TStickMonster/TDigOutZombi：重生同样潜地
             self.add_actor(m, home)
             self.broadcast_entity_add(m)
 
@@ -1372,6 +1485,25 @@ class GameWorld(WorldExtra):
         attack_ms = max(300, t.attackSpeed or 1000)
         if t.race == 85:
             self._stick_ai(m, now, attack_ms)
+            return
+        if t.race == 95 and m.hidden:
+            # TDigOutZombi（ObjMon.pas:1193-1260，race 95 僵尸2/僵尸20/石墓尸王）：
+            # 刷出即 ``m_boFixedHideMode := True`` 埋在地下；视野内有活目标
+            # ``abs<=3`` 才 ComeOut（RM_DIGUP + 脚下尘土事件），出土后走
+            # TMonster 基础 AI，**不会**再钻回去（与食人花 ComeDown 不同）。
+            for p in self.players():
+                if p.map is not m.map or not p.alive or p.hide_until > now:
+                    continue
+                if abs(m.x - p.x) <= 3 and abs(m.y - p.y) <= 3:
+                    m.hidden = False
+                    m.dir = direction_toward(m.x, m.y, p.x, p.y, m.dir)
+                    self.broadcast_around(
+                        m.map,
+                        {"type": "digUp", "entity": m.brief_json(),
+                         "x": m.x, "y": m.y, "dir": m.dir},
+                        m.x, m.y, SIGHT_RANGE)
+                    m.next_move_at = now + 1000   # 原版 m_dwWalkTick := +1000
+                    break
             return
         if m.chicken_deer:
             self._chicken_deer_ai(m, now, walk_ms)
@@ -1482,7 +1614,13 @@ class GameWorld(WorldExtra):
         if m.hidden:
             if target is not None and m.distance_to(target) < 4:
                 m.hidden = False
-                self.broadcast_entity_add(m)
+                # 原版 TStickMonster.ComeOut（ObjMon2.pas:203）也是 RM_DIGUP，
+                # 不是单纯的实体出现 —— 客户端要播 ActDeath 出土动画 + 尘土。
+                self.broadcast_around(
+                    m.map,
+                    {"type": "digUp", "entity": m.brief_json(),
+                     "x": m.x, "y": m.y, "dir": m.dir},
+                    m.x, m.y, SIGHT_RANGE)
             return
         if target is None or m.distance_to(target) > 4:
             m.hidden = True

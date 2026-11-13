@@ -54,7 +54,7 @@ export const SFX = Object.freeze({
  * 已含对应索引（如鸡 appr=46 → 660 段，661/662/664/665 齐全）。
  */
 const MON_SOUND_OFFSET = Object.freeze({
-    discover: 0, idle: 1, attack: 2, attackW: 3, hit: 4, die: 5,
+    appear: 0, discover: 0, idle: 1, attack: 2, attackW: 3, hit: 4, die: 5,
 });
 
 /**
@@ -808,6 +808,14 @@ class SoundManager {
             case 'spaceMoveShow':
                 // 原版 SM_SPACEMOVE_SHOW → s_spacemove_in(110)（Actor.pas:1650）
                 this.play(SFX.spaceMoveIn, { gap: 300 });
+                break;
+            case 'digUp':
+                // SM_DIGUP → m_nAppearSound = 200 + Appr*10（Actor.pas:2345/2401，
+                // offset 0）；资源没有该怪的声音时 _monSound 静默。
+                if (msg.entity && msg.entity.appr != null) {
+                    this._monSound(msg.entity.appr, 'appear',
+                                   { gap: 300, volume: this.volume * 0.7 });
+                }
                 break;
             default:
                 break;

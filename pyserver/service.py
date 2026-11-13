@@ -395,6 +395,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             p.mp = min(p.mp, p.max_mp)
         session.player_name = p.name
         world.add_player(p)
+        world.player_entered(p)   # 登录进图：休眠过的图重新刷怪
 
         session.send_json({"type": "enterGameResult", "ok": True})
         session.send_json(world.map_snapshot(p, "enterGame"))

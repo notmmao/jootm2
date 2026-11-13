@@ -529,6 +529,48 @@ def run_success_paths() -> int:
             check("死亡存档重登：回出生点且 HP=14（原版 UsrEngn）",
                   p3 is not None and p3.hp == 14 and not p3.dead
                   and p3.map.name == p3.home_map, results)
+
+        # 第 20 轮：TDigOutZombi（race 95）出土特效（ObjMon.pas:1193-1260）
+        # （前面 backToSelect 已把 p 移出世界，这里重新注册回来）
+        w.add_player(p)
+        from types import SimpleNamespace
+        from pyserver.util import now_ms
+        zom = Monster(id=w.new_id(), name="僵尸2", x=p.x + 2, y=p.y,
+                      hp=155, max_hp=155, level=30, race=95,
+                      template=SimpleNamespace(name="僵尸2", race=95, appr=50,
+                                               walkSpeed=800, attackSpeed=1000),
+                      spawn_x=p.x + 2, spawn_y=p.y)
+        zom.hidden = True
+        w.add_actor(zom, p.map)
+        try:
+            s1.messages.clear()
+            w._monster_ai(zom, now_ms())
+            # 出土判定：3×3 内的活玩家触发 ComeOut
+            dig = next((m for m in s1.messages if m.get("type") == "digUp"), None)
+            check("钻地僵尸 3 格内玩家触发 digUp 广播",
+                  dig is not None and not zom.hidden and dig.get("entity", {}).get("id") == zom.id,
+                  results)
+            check("出土后 1 秒内不移动（原版 m_dwWalkTick := +1000）",
+                  zom.next_move_at > 0, results)
+            s1.messages.clear()
+            w._monster_ai(zom, now_ms() + 2000)
+            check("出土后走普通 AI（不再重复 digUp）",
+                  not any(m.get("type") == "digUp" for m in s1.messages), results)
+        finally:
+            w.remove_actor(zom.id)
+
+        # 空图休眠：无人在线的图怪物 AI 冻结（第 20 轮性能优化）
+        far_map = next((m for m in w.maps.values()
+                        if all(pl.map is not m for pl in w.players())
+                        and any(isinstance(a, Monster) and a.alive
+                                for a in m.actors.values())), None)
+        if far_map is not None:
+            far_mon = next(a for a in far_map.actors.values()
+                           if isinstance(a, Monster) and a.alive)
+            x0, y0 = far_mon.x, far_mon.y
+            w.tick(now_ms())
+            check("无人地图怪物 AI 冻结（空图休眠）",
+                  (far_mon.x, far_mon.y) == (x0, y0), results)
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):

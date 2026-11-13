@@ -1292,6 +1292,21 @@ export class PlayScene extends Scene {
                 }
                 break;
             }
+            case 'digUp': {
+                // RM_DIGUP → SM_DIGUP（ClMain.pas:4970）：僵尸2/僵尸20/石墓尸王、
+                // 食人花出土。消息带 entity（原版 FindActor 找不到就 NewActor），
+                // 动作 = ActDeath 段正向播放（AxeMon.pas:352），脚下叠单帧尘土
+                // （mon6 ZOMBIDIGUPDUSTBASE=420+dir，clEvent.pas:105，原版 blend=FALSE）。
+                const ent = msg.entity;
+                if (ent && (!this.self || ent.id !== this.self.id)) {
+                    this.entities.set(ent.id, ent);
+                    this._registerSound(ent);
+                    ent._action = 'digup';
+                    ent._actionAt = Date.now();
+                    this._spawnFx({ kind: 'digDust', x: msg.x, y: msg.y, dir: msg.dir || 0 });
+                }
+                break;
+            }
             case 'death': {
                 // 播死亡动画。原版 SM_DEATH 后 actor 不删除，尸体一直留到
                 // dwMakeGhostTime（ObjBase.pas:3769，3 分钟）才由服务端广播
@@ -3600,6 +3615,17 @@ export class PlayScene extends Scene {
                 const rel = Math.floor(elapsed / ft) % def.frames;
                 this._drawFx(ctx, def, 1 + (fx.dir || 0) * 10 + rel, fx.x, fx.y);
                 if (elapsed < def.frames * ft) survivors.push(fx);
+            } else if (fx.kind === 'digDust') {
+                // 僵尸出土尘土：mon6 ZOMBIDIGUPDUSTBASE=420+dir 单帧（clEvent.pas:105），
+                // 原版 m_boBlend=FALSE 正常混合（非光效）；服务端尘土事件 5 分钟超时
+                // （ObjMon.pas:1213 TEvent.Create(..., 5*60*1000)），这里同样留 5 分钟。
+                const tex = this._fxTexture({ lib: 'mon6', base: 420 }, fx.dir || 0);
+                if (tex) {
+                    const sx = this.mapActor.screenX(fx.x);
+                    const sy = this.mapActor.screenY(fx.y);
+                    ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+                }
+                if (elapsed < 300000) survivors.push(fx);
             } else if (fx.kind === 'fly') {
                 const def = FX_FRAMES[fx.fx];
                 const dist = Math.max(1, Math.abs(fx.x - fx.sx) + Math.abs(fx.y - fx.sy));
