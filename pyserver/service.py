@@ -487,13 +487,13 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 return
             x = max(0, min(gm.width - 1, x))
             y = max(0, min(gm.height - 1, y))
-            if p.map is not None:
-                w.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},
-                                   p.x, p.y, SIGHT_RANGE)
-            if w.change_map(p, gm.name, x, y) is not None:
+            # 原版 CmdUserMoveXY/CmdPositionMove/CmdMapMove（ObjBase.pas:13472/15212）
+            # 都是 RM_SPACEMOVE_FIRE + SpaceMove → 带传送特效（260），过门才没有。
+            if w.space_move(p, gm.name, x, y) is not None:
                 if p.session is not None:
                     p.session.send_json(w.map_snapshot(p, "changeMap"))
                 w.broadcast_entity_add(p)
+                w.space_move_show(p)
             return
         if cmd in ("金", "金币", "gold"):
             n = arg_int(0, 0)

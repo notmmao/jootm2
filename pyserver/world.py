@@ -863,6 +863,36 @@ class GameWorld(WorldExtra):
         p.map_change_at = now_ms()
         return target
 
+    # ---- 传送（SpaceMove，与过门不同：过门 EnterAnotherMap 无特效） --------
+
+    def space_move(self, p: Player, dst_map_id: str, x: int, y: int,
+                   variant: int = 0) -> GameMap | None:
+        """原版 ``TBaseObject.SpaceMove``（ObjBase.pas:4359）两段传送特效。
+
+        - 离开前 ``RM_SPACEMOVE_FIRE`` → 客户端 ``SM_SPACEMOVE_HIDE``：
+          ``TScrollHideEffect.Create(250, 10, x, y, self)``（magic 库 250-259，
+          10 帧 × 30ms，固定在旧坐标格）+ 音 ``s_spacemove_out(109)``
+          （Client\\Actor.pas:1635）。
+        - 到达后由调用方先发 changeMap 快照，再调 :meth:`space_move_show`：
+          ``nInt=1 → RM_SPACEMOVE_SHOW2(1600)``, 否则 ``RM_SPACEMOVE_SHOW(260)``，
+          ``TCharEffect.Create(..., 10, self)`` 10 帧 × 30ms 跟随角色 +
+          音 ``s_spacemove_in(110)``（Actor.pas:1645-1658）。
+        variant=1 只给瞬息移动技能与宝宝跟随（ObjMon.pas:494 等），其余
+        （随机/回城卷 EatUseItems Shape1/3、GM 移动、NPC 脚本 MOVE）都是 0。
+
+        消息顺序（对移动者本人）：spaceMoveHide → changeMap 快照 → spaceMoveShow。
+        """
+        self.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},
+                              p.x, p.y, SIGHT_RANGE)
+        self.broadcast_around(p.map, {"type": "spaceMoveHide", "x": p.x, "y": p.y,
+                                      "variant": variant}, p.x, p.y, SIGHT_RANGE)
+        return self.change_map(p, dst_map_id, x, y)
+
+    def space_move_show(self, p: Player, variant: int = 0) -> None:
+        """SpaceMove 第二段：新地图上的现身特效（SM_SPACEMOVE_SHOW/SHOW2）。"""
+        self.broadcast_around(p.map, {"type": "spaceMoveShow", "x": p.x, "y": p.y,
+                                      "variant": variant}, p.x, p.y, SIGHT_RANGE)
+
     def try_move(self, a: Actor, direction: int) -> bool:
         dx, dy = direction_delta(direction)
         nx, ny = a.x + dx, a.y + dy

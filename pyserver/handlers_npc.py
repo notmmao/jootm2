@@ -62,6 +62,8 @@ class NpcHandlers:
         if r.moved and r.moved_map is not None:
             session.send_json(w.map_snapshot(p, "changeMap"))
             w.broadcast_entity_add(p)
+            # SpaceMove 第二段：现身特效（260，原版 RM_SPACEMOVE_SHOW）
+            w.space_move_show(p)
             return
         if r.closed:
             self._send_npc_close(session, npc.id)

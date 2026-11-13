@@ -641,6 +641,55 @@ MonGen 的 10 个「有刷怪行、无模板」名字（`world.py:806` 遇 `temp
 
 ---
 
+## 44. 传送两段特效还原（用户第 19 轮）
+
+用户：原版传送/地图切换后人物身上有视觉特效。核查结论与实现如下。
+
+### 44.1 原版机制 ✅
+
+- **过门（``EnterAnotherMap``，ObjBase.pas:20266）只有 ``RM_CHANGEMAP``，没有特效**；
+  特效属于 **``TBaseObject.SpaceMove``（ObjBase.pas:4359）**：离开前
+  ``RM_SPACEMOVE_FIRE`` → ``SM_SPACEMOVE_HIDE``（客户端 ``TScrollHideEffect.Create(250, 10, x, y)``
+  — magic 库 250-259，10 帧 × 30ms 固定在旧坐标格 + 音 ``s_spacemove_out=109``，
+  Client\Actor.pas:1635-1644）；到达后 ``SpaceMove`` 内部按 ``nInt`` 发
+  ``RM_SPACEMOVE_SHOW``（260）/``SHOW2``（1600）→ ``TCharEffect.Create(..., 10, self)``
+  10 帧 × 30ms 跟随角色 + 音 ``s_spacemove_in=110``（Actor.pas:1645-1658）。
+- **variant=1（1590/1600）只给瞬息移动技能**（``Magic.pas:959`` ``RM_SPACEMOVE_FIRE2`` +
+  ``SpaceMove(..., 1)``）和宝宝跟随（ObjMon.pas:494 等）；随机传送卷/回城卷
+  （``EatUseItems`` Shape 1/3）、GM 移动（CmdUserMoveXY/CmdPositionMove/CmdMapMove）、
+  NPC 脚本 MOVE（ObjNpc.pas:7836-7837）、回城（MoveToHome）全是 0 号（250/260）。
+- 图库为 ``g_WMagicImages = Magic.wil``（本项目 resources/Data/Magic.wil ~1338 帧，
+  250-269 / 1590-1609 都在）；``EffectBase := effnum`` 原样用（magiceff.pas:613）。
+
+### 44.2 实现 ✅
+
+| 端 | 改动 |
+|---|---|
+| `world.py` | 新增 ``space_move(p, map, x, y, variant)``（entityRemove + spaceMoveHide → ``change_map``）与 ``space_move_show(p, variant)``；消息顺序对移动者本人 = hide → changeMap 快照 → show |
+| `service.py` | GM ``@移动`` 从 ``change_map`` 换成 ``space_move`` + show（原版 GM 移动命令带特效） |
+| `npc_script.py` / `handlers_npc.py` | 脚本 MAPMOVE 走 ``space_move``；``_handle_npc_result`` 的 moved 分支在快照后补 ``space_move_show`` |
+| `handlers_combat.py` | 瞬息移动补消失段：``spaceMoveHide`` variant=1（原来只有现身段，且缺 entityRemove 由 hide 消息承担） |
+| `PlayScene.mjs` | FX_FRAMES 新增 ``spaceMoveHide(250)/spaceMoveShow(260)/spaceMoveHide2(1590)``，``spaceMove``(1600) 帧时 60ms→**30ms**（原版 NextFrameTime=30，10 帧 300ms）；处理 ``spaceMoveHide/Show``（variant 选 1/2 号特效），旧 ``spaceMove`` 消息保持为 variant=1 现身别名 |
+| `SoundManager.mjs` | ``spaceMoveHide`` → 109、``spaceMoveShow`` → 110（109/110.mp3 已存在） |
+
+### 44.3 验证
+
+| 项目 | 结果 |
+|---|---|
+| test_all_messages（+5：GM 移动两段与顺序、瞬息移动 variant=1 两段、过门无特效静态检查；离线+live） | **46/0** |
+| test_pyserver / test_tick_systems / test_map_view / test_sfx_map | 95/0、139/0、34/0、84/0 |
+| 8080 重启 + live 冒烟 | PASS |
+
+### 44.4 边界
+
+- 过门依旧**无**特效（与原版一致）。如果实测觉得过门也该有，那是私服口径，需明确要求再加。
+- 原版 Show 特效逐帧跟随角色（``TCharEffect.DrawEff`` 取 ``m_nRx+m_nShiftX``）；
+  本实现落在落点格（到达后角色暂无位移，等价），未做逐帧跟随。
+- ``_random_teleport`` 的落点仍是 ±4 随机近似（原版 ``Magic.pas:495`` 是全图随机），
+  属既有行为，本轮未动。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

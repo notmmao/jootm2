@@ -729,19 +729,22 @@ class CombatHandlers:
         return True
 
     def _random_teleport(self, p) -> None:
+        # 原版瞬息移动（Magic.pas:959 + SpaceMove nInt=1）：两段都是 2 号特效
+        # —— 消失 SM_SPACEMOVE_HIDE2（TScrollHideEffect 1590-1599）+ 现身 SHOW2（1600-1609）。
         w = self.world
         for _ in range(100):
             nx = p.x + int(random.random() * 9) - 4
             ny = p.y + int(random.random() * 9) - 4
             if p.map.can_walk(nx, ny) and not p.map.occupied(nx, ny):
-                w.broadcast_around(p.map, {"type": "entityRemove", "id": p.id}, p.x, p.y)
+                w.broadcast_around(p.map, {"type": "spaceMoveHide", "x": p.x, "y": p.y,
+                                           "variant": 1}, p.x, p.y)
                 p.map.remove(p.id)
                 p.x, p.y = nx, ny
                 p.map.add(p)
                 p.session.send_json(w.map_snapshot(p, "changeMap"))
                 w.broadcast_entity_add(p)
-                w.broadcast_around(p.map, {"type": "spaceMove", "x": p.x, "y": p.y},
-                                   p.x, p.y)
+                w.broadcast_around(p.map, {"type": "spaceMoveShow", "x": p.x, "y": p.y,
+                                           "variant": 1}, p.x, p.y)
                 return
         w.send_system(p, "传送失败。")
 

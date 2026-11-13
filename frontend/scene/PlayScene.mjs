@@ -127,7 +127,14 @@ const FX_FRAMES = {
     thunder:      { lib: 'magic2', base: 10,   frames: 6,  ft: 50 },   // 雷电（原版 mtThunder：EffectBase=10，帧10-13为贯穿屏幕闪电，帧14尾焰）
     thunderElec:  { lib: 'magic',  base: 1680, frames: 10, ft: 80 },   // 地狱雷光（原版 EffectBase[21]=1680，10 帧白色闪电扩散）
     fireRing:     { lib: 'magic',  base: 900,  frames: 6,  ft: 80 },   // 抗拒火环（原版 EffectBase[5]=900，6 帧金色光环）
-    spaceMove:    { lib: 'magic',  base: 1600, frames: 10, ft: 60 },   // 瞬息移动传送现身（原版 SPACEMOVE_SHOW2=1600）
+    // 传送两段特效（原版 Client\Actor.pas:1635-1658，ImgLib=g_WMagicImages=Magic.wil，
+    // 10 帧 × NextFrameTime 30ms = 300ms；variant=1 是瞬息移动技能专用 2 号特效）：
+    // Hide = TScrollHideEffect 固定在旧坐标格（250-259 / 1590-1599）+ 音 109；
+    // Show = TCharEffect 跟随角色（260-269 / 1600-1609）+ 音 110。
+    spaceMoveHide:  { lib: 'magic', base: 250,  frames: 10, ft: 30 },  // SM_SPACEMOVE_HIDE（传送消失）
+    spaceMoveShow:  { lib: 'magic', base: 260,  frames: 10, ft: 30 },  // SM_SPACEMOVE_SHOW（传送现身，卷轴/回城/GM/NPC）
+    spaceMoveHide2: { lib: 'magic', base: 1590, frames: 10, ft: 30 },  // SM_SPACEMOVE_HIDE2（瞬息移动消失）
+    spaceMove:      { lib: 'magic',  base: 1600, frames: 10, ft: 30 },  // SM_SPACEMOVE_SHOW2（瞬息移动现身）
     // 飞行弹道（EffectBase + FLYBASE 10）
     fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
     bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
@@ -1398,9 +1405,17 @@ export class PlayScene extends Scene {
                 this._spawnFx({ kind: 'ground', fx: 'firewall', x: msg.x, y: msg.y, dur });
                 break;
             }
-            case 'spaceMove': {
-                // 传送现身特效（瞬息移动）：在目标位置播放传送漩涡（原版 SPACEMOVE_SHOW2）
-                this._spawnFx({ kind: 'hit', fx: 'spaceMove', x: msg.x, y: msg.y });
+            case 'spaceMove':
+            case 'spaceMoveHide':
+            case 'spaceMoveShow': {
+                // 传送两段特效（原版 SM_SPACEMOVE_HIDE/SHOW，variant=1 为瞬息移动 2 号特效）：
+                // Hide 固定在旧坐标格（TMapEffect 锚定地图格），Show 原版跟随角色——
+                // 到达后角色暂无位移，落在落点格等价；'spaceMove' 是旧的 variant=1 现身别名。
+                const show = msg.type !== 'spaceMoveHide';
+                const v1 = msg.variant === 1 || msg.type === 'spaceMove';
+                const fx = show ? (v1 ? 'spaceMove' : 'spaceMoveShow')
+                                : (v1 ? 'spaceMoveHide2' : 'spaceMoveHide');
+                this._spawnFx({ kind: 'hit', fx, x: msg.x, y: msg.y });
                 break;
             }
             case 'chat':

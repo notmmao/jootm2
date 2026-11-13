@@ -457,6 +457,49 @@ def run_success_paths() -> int:
             del w.map_flags[p.map.name]
             p.map = real_map   # 还原真实地图
 
+        # 第 19 轮：传送两段特效（原版 SpaceMove：HIDE 250 / SHOW 260，
+        # 瞬息移动技能专用 2 号 1590/1600；过门 EnterAnotherMap 无特效）
+        # 1) GM @移动（原版 CmdUserMoveXY 等）→ variant=0 两段
+        s1.messages.clear()
+        gm_map = w.get_or_load_map(w.default_map.name)
+        tx, ty = p.x, p.y
+        for dx, dy in ((1, 0), (0, 1), (1, 1), (-1, 0), (0, -1)):
+            if gm_map.can_walk(p.x + dx, p.y + dy) and not gm_map.occupied(p.x + dx, p.y + dy):
+                tx, ty = p.x + dx, p.y + dy
+                break
+        service._gm_command(p, f"移动 {tx} {ty}")
+        seq = [m.get("type") for m in s1.messages]
+        check("GM @移动下发 spaceMoveHide（SM_SPACEMOVE_HIDE）",
+              "spaceMoveHide" in seq, results)
+        check("GM @移动下发 spaceMoveShow（SM_SPACEMOVE_SHOW）",
+              "spaceMoveShow" in seq, results)
+        check("GM @移动消息顺序 hide→changeMap→show（对移动者本人）",
+              seq.index("spaceMoveHide") < seq.index("changeMap") < seq.index("spaceMoveShow")
+              if all(t in seq for t in ("spaceMoveHide", "changeMap", "spaceMoveShow"))
+              else False, results)
+        hide_msg = next((m for m in s1.messages if m.get("type") == "spaceMoveHide"), {})
+        check("hide 带 variant=0（非瞬息移动走 1 号特效 250/260）",
+              hide_msg.get("variant") == 0, results)
+
+        # 2) 瞬息移动（magicId 21）→ variant=1 两段（HIDE2 1590 / SHOW2 1600）
+        p.skills[21] = {"level": 0}
+        p.mp = 9999
+        p.skill_cooldown.clear()
+        s1.messages.clear()
+        h["castMagic"](s1, {"type": "castMagic", "magicId": 21,
+                            "targetX": p.x, "targetY": p.y, "targetId": -1})
+        tele = [m for m in s1.messages if m.get("type") in ("spaceMoveHide", "spaceMoveShow")]
+        check("瞬息移动下发两段特效（原版 Magic.pas:959 FIRE2 + SpaceMove nInt=1）",
+              len(tele) == 2, results)
+        check("瞬息移动特效 variant=1（1590/1600，非卷轴 250/260）",
+              all(m.get("variant") == 1 for m in tele), results)
+
+        # 3) 过门不带特效（原版 EnterAnotherMap ObjBase.pas:20266 只有 RM_CHANGEMAP）
+        import inspect
+        move_src = inspect.getsource(type(service)._move)
+        check("过门路径不带传送特效（原版 EnterAnotherMap 无特效）",
+              "spaceMove" not in move_src, results)
+
         # 返回人物选择：保留登录态与连接，不能像 logout 那样断开
         s1.messages.clear()
         h["backToSelect"](s1, {"type": "backToSelect"})

@@ -408,7 +408,9 @@ class NpcScriptEngine:
             x, y = self.world.random_walk_pos(target)
         else:
             x, y = c.int_at("tag"), c.int_at("extra")
-        moved = self.world.change_map(p, map_id, x, y)
+        # 原版脚本 MAPMOVE（ObjNpc.pas:7836-7837）= RM_SPACEMOVE_FIRE + SpaceMove：
+        # 传送员/脚本传送带两段特效（消失 250 + 现身 260），与过门不同。
+        moved = self.world.space_move(p, map_id, x, y)
         if moved is not None:
             r.moved = True
             r.moved_map = moved

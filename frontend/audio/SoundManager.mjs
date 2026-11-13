@@ -801,6 +801,14 @@ class SoundManager {
             case 'spaceMove':
                 this.play(SFX.spaceMoveIn, { gap: 300 });
                 break;
+            case 'spaceMoveHide':
+                // 原版 SM_SPACEMOVE_HIDE → s_spacemove_out(109)（Client\Actor.pas:1638）
+                this.play(SFX.spaceMoveOut, { gap: 300 });
+                break;
+            case 'spaceMoveShow':
+                // 原版 SM_SPACEMOVE_SHOW → s_spacemove_in(110)（Actor.pas:1650）
+                this.play(SFX.spaceMoveIn, { gap: 300 });
+                break;
             default:
                 break;
         }
