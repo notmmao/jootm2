@@ -810,7 +810,8 @@ class SoundManager {
                 this.play(SFX.spaceMoveIn, { gap: 300 });
                 break;
             case 'digUp':
-                // SM_DIGUP → m_nAppearSound = 200 + Appr*10（Actor.pas:2345/2401，
+            case 'alive':
+                // SM_DIGUP/SM_ALIVE → m_nAppearSound = 200 + Appr*10（Actor.pas:2345/2401，
                 // offset 0）；资源没有该怪的声音时 _monSound 静默。
                 if (msg.entity && msg.entity.appr != null) {
                     this._monSound(msg.entity.appr, 'appear',

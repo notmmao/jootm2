@@ -722,6 +722,11 @@ class Monster(Actor):
     # 原版 TChickenDeer（ObjMon.pas:531，race 52 鹿/羊 1/30 变种）：
     # 视野 5、见人就跑，永不攻击（UsrEngn.pas:1844）。
     chicken_deer: bool = False
+    # 原版 TZilKinZombi（ObjMon.pas:1263-1313，race 96 复活僵尸）：
+    # nZilKillCount —— 出生 1/3 概率为 Random(3)+1（1~3），每次死亡无条件
+    # Dec；>0 时死亡会安排复活（dw558/dw560：死后 (Random(20)+4)*1000 ms）。
+    zil_revives: int = 0
+    zil_revive_at: int = 0
 
     def roll_attack(self) -> int:
         """对齐 ``Monster.rollAttack``：DC ~ max(DC,MaxDC) 上加宠物等级加成。"""
@@ -876,8 +881,7 @@ class GameWorld(WorldExtra):
                             respawn_interval_ms=entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
                 m.exp = t.exp
                 init_meat_quality(m)
-                if t.race in (85, 95):
-                    m.hidden = True   # 85 食人花 / 95 TDigOutZombi：m_boFixedHideMode := True
+                self._init_race_traits(m, t)
                 self.add_actor(m, game_map)
                 spawned += 1
         if spawned:
@@ -1200,6 +1204,7 @@ class GameWorld(WorldExtra):
         self._tick_pending_ranged_hits(now)
         self._sync_player_hp(now)
         self.tick_extra(now)          # 地面物品过期 + 攻城计时
+        self._tick_zilkin_revive(now)  # race 96 复活僵尸（TZilKinZombi.Run）
         self._expire_corpses(now)     # 尸体到点移除（原版 MakeGhost）
         self._respawn_dead(now)
         if now - self._last_despawn_check >= DESPAWN_CHECK_MS:
@@ -1461,12 +1466,72 @@ class GameWorld(WorldExtra):
                         respawn_interval_ms=a.respawn_interval_ms)
             m.exp = t.exp
             init_meat_quality(m)
-            if t.race in (85, 95):
-                m.hidden = True      # TStickMonster/TDigOutZombi：重生同样潜地
+            self._init_race_traits(m, t)
             self.add_actor(m, home)
             self.broadcast_entity_add(m)
 
     # -- 怪物 / 宠物 AI ----------------------------------------------------
+
+    @staticmethod
+    def _init_race_traits(m: Monster, t) -> None:
+        """按 race 初始化出生特例（spawn / respawn 两处共用）。
+
+        - 85 食人花 / 95 TDigOutZombi：``m_boFixedHideMode := True`` 潜地；
+        - 96 TZilKinZombi（ObjMon.pas:1265-1276）：``nZilKillCount := 0``，
+          ``if Random(3) = 0 then nZilKillCount := Random(3) + 1``（1/3 概率
+          可复活 1~3 次）。
+        """
+        if t.race in (85, 95):
+            m.hidden = True
+        if t.race == 96:
+            m.zil_revives = random.randint(1, 3) if random.random() < 1 / 3 else 0
+
+    def _tick_zilkin_revive(self, now: int) -> None:
+        """race 96 复活僵尸（TZilKinZombi.Run，ObjMon.pas:1296-1313）。
+
+        原版复活条件（逐条对齐）：
+        ``m_boDeath and (not m_boGhost) and (nZilKillCount >= 0)
+        and (m_wStatusTimeArr[POISON_STONE] = 0)
+        and (m_VisibleActors.Count > 0) and (到时 dw560)``；
+        满足后 ``MaxHP := MaxHP shr 1``、``m_dwFightExp := m_dwFightExp div 2``、
+        HP 拉满、``ReAlive``（广播 RM_ALIVE）、``m_dwWalkTick := +1000``。
+
+        本项目对应：pending_respawn=True 表示尸体还没被重生补刷（原版
+        not m_boGhost + 未走 MonGen 重刷）；石化状态未实作，恒通过；
+        m_VisibleActors 近似为 SIGHT_RANGE 内有活玩家。
+        """
+        for m in list(self.actors.values()):
+            if not isinstance(m, Monster) or m.alive:
+                continue
+            if not m.zil_revive_at or now < m.zil_revive_at:
+                continue
+            if not m.pending_respawn:
+                continue    # 已被 _respawn_dead 补了新怪（原版 m_boGhost / 已重刷）
+            t = m.template
+            if t is None or int(t.race) != 96:
+                m.zil_revive_at = 0
+                continue
+            if m.corpse_until <= 0 or now >= m.corpse_until:
+                continue    # 尸体已过期（m_boGhost），不再复活
+            if not any(p.map is m.map and p.alive and p.hide_until <= now
+                       and abs(p.x - m.x) <= SIGHT_RANGE
+                       and abs(p.y - m.y) <= SIGHT_RANGE
+                       for p in self.players()):
+                continue    # m_VisibleActors.Count = 0：附近没有观察者，下轮再试
+            m.zil_revive_at = 0
+            m.max_hp = max(1, m.max_hp // 2)      # MaxHP shr 1
+            if m.exp:
+                m.exp = m.exp // 2                # m_dwFightExp div 2
+            m.hp = m.max_hp
+            m.alive = True
+            m.pending_respawn = False             # 原地复活，不再补新怪
+            m.respawn_at = 0
+            m.next_move_at = now + 1000           # m_dwWalkTick := GetTickCount + 1000
+            self.broadcast_around(
+                m.map,
+                {"type": "alive", "entity": m.brief_json(),
+                 "x": m.x, "y": m.y, "dir": m.dir},
+                m.x, m.y, SIGHT_RANGE)
 
     def _monster_ai(self, m: Monster, now: int) -> None:
         if m.pending_respawn or not m.alive or m.template is None:

@@ -728,6 +728,18 @@ class WorldExtra:
         m.respawn_at = now + (m.respawn_interval_ms or 15_000)
         m.hp = 0
         m.target_id = -1
+        t = m.template
+        # 原版 TZilKinZombi.Die（ObjMon.pas:1285-1294，race 96）：nZilKillCount
+        # > 0 时记复活时间 dw558/dw560 = (Random(20)+4)*1000（死后 4~23 秒），
+        # 然后无条件 Dec(nZilKillCount)（减到 -1 表示彻底死亡）。复活是**同一
+        # 对象原地复活**（ReAlive），不走 MonGen 重刷 —— 所以把重生点顺延到
+        # 复活窗口之后；复活成功时取消重生（见 _tick_zilkin_revive），若附近
+        # 一直没人导致复活不发生，则重生补怪照常，数量守恒。
+        if t is not None and int(t.race) == 96:
+            if m.zil_revives > 0:
+                m.zil_revive_at = now + (random.randint(0, 19) + 4) * 1000
+                m.respawn_at = max(m.respawn_at, m.zil_revive_at + 1000)
+            m.zil_revives -= 1
         # 原版 ObjBase.pas:20983：动物死亡**不**走 ScatterBagItems，肉要玩家
         # Alt+左键挖。尸体一律保留 ``CORPSE_MS``（原版 dwMakeGhostTime 3 分钟），
         # 到点由 ``_expire_corpses`` 广播移除——**所有**怪都留尸体，不只是动物。

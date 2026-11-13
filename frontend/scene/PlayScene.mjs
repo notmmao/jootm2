@@ -1307,6 +1307,25 @@ export class PlayScene extends Scene {
                 }
                 break;
             }
+            case 'alive': {
+                // RM_ALIVE → SM_ALIVE（Grobal2.pas RM_ALIVE=10153 / SM_ALIVE=27，
+                // ClMain.pas:4786）：race 96 复活僵尸原地复活。原版客户端
+                // m_boDeath/m_boSkeleton := FALSE（Actor.pas:1462-1465），动作 =
+                // ActDeath 段按方向正向播放（AxeMon.pas:424）+ 出场音
+                // （Actor.pas:2401 SM_ALIVE → PlaySound(m_nAppearSound)）。
+                const ent = msg.entity;
+                if (ent && (!this.self || ent.id !== this.self.id)) {
+                    this.entities.set(ent.id, ent);
+                    this._registerSound(ent);
+                    ent.alive = true;
+                    ent._corpse = false;
+                    ent._dieUntil = 0;
+                    ent.skeleton = false;
+                    ent._action = 'alive';
+                    ent._actionAt = Date.now();
+                }
+                break;
+            }
             case 'death': {
                 // 播死亡动画。原版 SM_DEATH 后 actor 不删除，尸体一直留到
                 // dwMakeGhostTime（ObjBase.pas:3769，3 分钟）才由服务端广播

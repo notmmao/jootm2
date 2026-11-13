@@ -751,6 +751,43 @@ MonGen 的 10 个「有刷怪行、无模板」名字（`world.py:806` 遇 `temp
 
 ---
 
+## §46 第 21 轮：race 字段参考文档 + race 96 复活僵尸实作
+
+### 46.1 race 参考文档（用户任务 1）
+
+新增 `docs/RACE_REFERENCE.md`：原版 `UsrEngn.pas:1831 AddBaseObject` 的 `case nMonRace`
+分发表（常量 M2Share.pas:143-171）逐条对照本项目实作状态（✅/🟡/❌/➖），含
+race 字段三处同名含义（服务端类分发 / 客户端动作表 / 客户端 actor 类）、机制层
+横切表（挖肉/骷髅/守卫/远程/毒/变种/埋地/复活）、`Monster.csv` 273 只的实际分布。
+
+### 46.2 race 96 复活僵尸（TZilKinZombi，用户任务 2）
+
+原版（ObjMon.pas:1263-1313）：出生 1/3 概率 `nZilKillCount := Random(3)+1`（1~3 次）；
+死亡时 count>0 则安排 `(Random(20)+4)*1000`（4~23 秒）后复活，count 无条件递减；
+复活条件 = 未 ghost + count≥0 + 未石化 + 附近有观察者 + 到时；复活 = MaxHP shr 1、
+FightExp div 2、HP 拉满、`ReAlive` 广播 RM_ALIVE(10153→SM_ALIVE=27)。
+
+| 端 | 改动 |
+|---|---|
+| `pyserver/world.py` | `Monster.zil_revives/zil_revive_at`；`_init_race_traits`（spawn/respawn 共用，85/95 hidden + 96 复活次数）；`_tick_zilkin_revive` 挂 tick 主循环 |
+| `pyserver/world_extra.py` | `kill_monster`：race 96 死亡安排 revive_at 并递减；respawn_at 顺延到复活窗口后（复活成功取消重生=原版同对象复活；复活不发生则照常补怪，数量守恒） |
+| `frontend/scene/PlayScene.mjs` | `case 'alive'`：复位 `_corpse/_dieUntil/skeleton/alive` + 'alive' 一次性动作 |
+| `frontend/actor/ActorSprite.mjs` | `MON_SEG.alive='death'`（ActDeath 段正向重播，AxeMon.pas:424 同构） |
+| `frontend/audio/SoundManager.mjs` | `alive` → 出场音 `200+Appr*10`（与 digUp 同 offset 0） |
+
+近似点：POISON_STONE 石化未实作（原版复活条件之一，恒通过）；`m_VisibleActors.Count>0`
+近似为 SIGHT_RANGE 内有活玩家。
+
+### 46.3 验证
+
+| 项 | 结果 |
+|---|---|
+| `test_all_messages.py` | 63 PASS / 0 FAIL（新增 12 条：revive_at 窗口/重生顺延/减半/次数耗尽/观察者条件/无观察者不复活） |
+| `test_pyserver / test_tick_systems / test_map_view` | 95/139/34 全 PASS |
+| 前端三文件 `node --check` | OK |
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

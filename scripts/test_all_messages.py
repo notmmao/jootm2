@@ -559,6 +559,95 @@ def run_success_paths() -> int:
         finally:
             w.remove_actor(zom.id)
 
+        # 第 21 轮：TZilKinZombi（race 96）复活僵尸（ObjMon.pas:1263-1313）
+        zil = Monster(id=w.new_id(), name="僵尸3", x=p.x + 2, y=p.y,
+                      hp=400, max_hp=400, level=30, race=96,
+                      template=SimpleNamespace(name="僵尸3", race=96, appr=51,
+                                               walkSpeed=800, attackSpeed=1000),
+                      spawn_x=p.x + 2, spawn_y=p.y)
+        zil.exp = 200
+        zil.zil_revives = 2          # 直接指定剩余复活次数（跳过 1/3 随机）
+        w.add_actor(zil, p.map)
+        try:
+            s1.messages.clear()
+            now = now_ms()
+            w.kill_monster(zil, now)
+            # Die：count>0 → 记复活时间（4~23 秒后）并 Dec
+            check("复活僵尸死亡安排 revive_at（4~23 秒窗口）且 zil_revives 2→1",
+                  zil.zil_revive_at > now and zil.zil_revives == 1
+                  and not zil.alive and zil.pending_respawn, results)
+            check("复活窗口未到不广播 alive",
+                  not any(m.get("type") == "alive" for m in s1.messages), results)
+            check("重生点被顺延到复活窗口之后（避免原地复活与补刷重复）",
+                  zil.respawn_at >= zil.zil_revive_at, results)
+            s1.messages.clear()
+            w._tick_zilkin_revive(now + 1_000)
+            check("复活窗口未到（1 秒 < 最短 4 秒）不复活",
+                  not zil.alive
+                  and not any(m.get("type") == "alive" for m in s1.messages),
+                  results)
+            w._tick_zilkin_revive(now + 30_000)
+            alive = next((m for m in s1.messages if m.get("type") == "alive"), None)
+            check("窗口到达且附近有玩家 → 原地复活广播 alive",
+                  alive is not None and zil.alive
+                  and alive.get("entity", {}).get("id") == zil.id, results)
+            check("复活时 MaxHP/经验减半（MaxHP shr 1 / FightExp div 2）",
+                  zil.max_hp == 200 and zil.exp == 100 and zil.hp == 200, results)
+            check("复活后不再安排重生补刷（pending/respawn 清零）",
+                  not zil.pending_respawn and zil.respawn_at == 0
+                  and zil.zil_revive_at == 0, results)
+            # 第二次死亡：revives=1 → 还能再复活一次
+            s1.messages.clear()
+            now2 = now_ms()
+            w.kill_monster(zil, now2)
+            check("第二次死亡 zil_revives 1→0，仍安排复活",
+                  zil.zil_revive_at > now2 and zil.zil_revives == 0, results)
+            s1.messages.clear()
+            w._tick_zilkin_revive(now2 + 30_000)
+            check("第二次复活成功", zil.alive and zil.max_hp == 100, results)
+            # 第三次死亡：Die 里 count=0 不设时间（无条件 Dec → -1），彻底死亡
+            s1.messages.clear()
+            now3 = now_ms()
+            w.kill_monster(zil, now3)
+            check("复活次数耗尽：死亡后 revive_at=0（不安排复活）、zil_revives=-1",
+                  zil.zil_revive_at == 0 and zil.zil_revives == -1
+                  and not zil.alive, results)
+            s1.messages.clear()
+            w._tick_zilkin_revive(now3 + 60_000)
+            check("耗尽后永不复活", not zil.alive
+                  and not any(m.get("type") == "alive" for m in s1.messages), results)
+            # 观察者条件：m_VisibleActors.Count > 0。这里临时清空 world.players()
+            # （测试环境里可能有其他重登玩家在场，用距离判定不可靠）。
+            zil2 = Monster(id=w.new_id(), name="僵尸30", x=zil.x + 1, y=zil.y,
+                           hp=100, max_hp=100, level=30, race=96,
+                           template=zil.template,
+                           spawn_x=zil.x + 1, spawn_y=zil.y)
+            zil2.zil_revives = 1
+            w.add_actor(zil2, zil.map)
+            real_players = w.players
+            try:
+                w.players = lambda: []
+                w.kill_monster(zil2, now_ms())
+                s1.messages.clear()
+                w._tick_zilkin_revive(now_ms() + 30_000)
+                check("附近无活玩家不复活（m_VisibleActors.Count = 0）",
+                      not zil2.alive
+                      and not any(m.get("type") == "alive" for m in s1.messages),
+                      results)
+                # 有观察者则复活正常发生
+                w.players = real_players
+                s1.messages.clear()
+                w._tick_zilkin_revive(now_ms() + 30_000)
+                check("观察者回到视野内后下一轮复活照常",
+                      zil2.alive
+                      and any(m.get("type") == "alive" for m in s1.messages),
+                      results)
+            finally:
+                w.players = real_players
+                w.remove_actor(zil2.id)
+        finally:
+            w.remove_actor(zil.id)
+
         # 空图休眠：无人在线的图怪物 AI 冻结（第 20 轮性能优化）
         far_map = next((m for m in w.maps.values()
                         if all(pl.map is not m for pl in w.players())
