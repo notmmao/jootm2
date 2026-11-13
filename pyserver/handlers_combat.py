@@ -10,11 +10,11 @@ import random
 from typing import Any
 
 from .util import (
-    BAG_SIZE, SIGHT_RANGE, U_WEAPON, _int, calc_get_exp, delphi_round,
-    direction_delta, direction_toward, java_div, java_round, now_ms,
-    random_mine_dura,
+    BAG_SIZE, SIGHT_RANGE, U_ARMRINGL, U_BUJUK, U_WEAPON, _int,
+    calc_get_exp, delphi_round, direction_delta, direction_toward, java_div,
+    java_round, now_ms, random_mine_dura,
 )
-from .world import Monster, Player, melee_hit, positive_hit
+from .world import Monster, Player, mag_struck_damage, melee_hit, positive_hit
 
 COMBAT_TYPES = frozenset({"attack", "dirAttack", "castMagic"})
 POISON_INTERVAL_MS = 2_500
@@ -22,6 +22,10 @@ POISON_INTERVAL_MS = 2_500
 # 技能最高 3 级（原版 Magic.DB 的 btTrainLv 恒为 3，LocalDB.pas:382 写死；
 # CheckMagicLevelup 里 `btLevel < 4` 的上界等价于「升到 3 级为止」）。
 MAX_MAGIC_LEVEL = 3
+
+# 原版 ``RC_ANIMAL = 50``（MirClient/Grobal2.pas:1092-1096）：race >= 50 才算
+# 「动物/怪物」，玩家 race = RC_PLAYOBJECT = 0。RM_DELAYMAGIC 的 1.2 折减只对前者生效。
+RC_ANIMAL = 50
 
 # 原版组队经验加成（TPlayObject.GainExp，ObjBase.pas:15564）：按组内**有效人数**
 # n（同图、非死亡、12 格内的成员）取 bonus[n]，2 人 1.3、3 人 1.4 … 11 人 2.2；
@@ -33,14 +37,6 @@ PARTY_EXP_BONUS = (1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2)
 
 def is_heal_magic(magic_id: int) -> bool:
     return magic_id == 2
-
-
-def is_projectile_magic(magic_id: int) -> bool:
-    return magic_id in (1, 5, 11, 13, 23, 33)
-
-
-def is_area_magic(magic_id: int) -> bool:
-    return magic_id in (23, 33)
 
 
 def direction_from(fx: int, fy: int, tx: int, ty: int) -> int:
@@ -59,50 +55,98 @@ def spell_cost(t, lv: int) -> int:
     return java_round(t.spell / 4 * (lv + 1)) + t.defSpell
 
 
-def heal_power(p, t, lv: int) -> int:
-    """治愈术回血量（原版 Magic.pas:301 SKILL_HEALLING / :172 MagBigHealing）。
+# Magic.DB 的 btTrainLv 恒为 3（LocalDB.pas:382 写死），GetPower/GetPower13 都用它。
+MAGIC_TRAIN_LV = 3
 
-    nPower := GetAttackPower(GetPower(MPow(UserMagic)) + LoWord(SC) * 2,
-                             (HiWord(SC) - LoWord(SC)) * 2 + 1);
-    其中 GetPower（Magic.pas:59）= ROUND(n / (btTrainLv+1) * (btLevel+1))
-        + btDefPower + Random(btDefMaxPower - btDefPower)，btTrainLv 恒为 3
-        （LocalDB.pas:382 硬编码），GetAttackPower（ObjBase.pas:2416）= base + Random(range+1)。
-    注意是 SC **下限**×2 而不是上限；不掺 MC。旧实现用 magic_power（带 MC 掷点）
-    再加 scMax*2，回血量大约是原版的 2~4 倍。
+
+def _rand(n: int) -> int:
+    """Delphi ``Random(n)``：0..n-1；n<=0 时恒 0（``Random(0)=0``）。"""
+    return random.randrange(n) if n > 0 else 0
+
+
+def mpow(t) -> int:
+    """Magic.pas:230 ``MPow``：``wPower + Random(wMaxPower - wPower)``。
+
+    注意 **不含上界**：Magic.DB 里 Power=8/MaxPower=8 的技能（火球、治愈…）
+    永远只掷出 8；旧实现写成 ``Random(max-min+1)``，所有技能的上界都多 1 点。
     """
-    mpow = t.power + int(random.random() * (t.maxPower - t.power))     # MPow：Random 不含上界
-    base = (delphi_round(mpow / (3 + 1) * (lv + 1)) + t.defPower
-            + int(random.random() * max(0, t.defMaxPower - t.defPower)))
-    sc_lo = p.combat.get("scMin", 0)
-    sc_hi = p.combat.get("scMax", 0)
-    lo = base + sc_lo * 2
-    rng = max(0, (sc_hi - sc_lo) * 2 + 1)
-    luck = getattr(p, "luck", 0)
-    if luck > 0 and int(random.random() * 10) == 0:   # GetAttackPower 的幸运暴击
-        return lo + rng
-    return lo + int(random.random() * (rng + 1))
+    return t.power + _rand(t.maxPower - t.power)
+
+
+def get_power(t, lv: int, n: int) -> int:
+    """Magic.pas:234 ``GetPower``：按技能等级线性放大 + DefPower 随机段。"""
+    return (delphi_round(n / (MAGIC_TRAIN_LV + 1) * (lv + 1)) + t.defPower
+            + _rand(t.defMaxPower - t.defPower))
+
+
+def get_power13(t, lv: int, n: int) -> int:
+    """Magic.pas:238 ``GetPower13``：n 的 1/3 固定，其余 2/3 随技能等级放大。
+
+    施毒术的毒力、幽灵盾/困魔咒/隐身术的持续时间都走这条。
+    """
+    d10 = n / 3.0
+    d18 = n - d10
+    return (delphi_round(d18 / (MAGIC_TRAIN_LV + 1) * (lv + 1) + d10)
+            + t.defPower + _rand(t.defMaxPower - t.defPower))
+
+
+def get_rpow(lo: int, hi: int) -> int:
+    """Magic.pas:247 ``GetRPow``：属性区间内取随机值（hi<=lo 取 lo）。"""
+    if hi > lo:
+        return random.randrange(hi - lo + 1) + lo
+    return lo
+
+
+def attack_power(a, base: int, n_power: int) -> int:
+    """ObjBase.pas:2416 ``GetAttackPower``：``base + Random(nPower+1)``。
+
+    幸运 >0 时 1/(10-luck) 概率直接取上界；诅咒（luck<0）则取底。
+    """
+    luck = int(getattr(a, "luck", 0))
+    if luck > 0:
+        if _rand(10 - min(9, luck)) == 0:
+            return base + n_power
+        return base + _rand(n_power + 1)
+    result = base + _rand(n_power + 1)
+    if luck < 0 and _rand(10 - max(0, -luck)) == 0:
+        return base
+    return result
 
 
 def magic_power(p, t, lv: int) -> int:
-    base = t.power + int(random.random() * (t.maxPower - t.power + 1))
-    scaled = (java_round(base / 4 * (lv + 1)) + t.defPower
-              + int(random.random() * max(1, t.defMaxPower - t.defPower + 1)))
+    """法师系法术掷点：``GetAttackPower(GetPower(MPow)+MC底, MC高-MC底+1)``。"""
     lo, hi = p.combat.get("mcMin", 0), p.combat.get("mcMax", 0)
-    mc = lo + int(random.random() * (hi - lo + 1))
-    return scaled + mc
+    return attack_power(p, get_power(t, lv, mpow(t)) + lo, (hi - lo) + 1)
 
 
-def magic_damage(p, t, lv: int, m) -> int:
-    return max(1, magic_power(p, t, lv) - (m.template.mac if m.template else 0))
-
-
-def taoist_damage(p, t, lv: int, m) -> int:
-    base = t.power + int(random.random() * (t.maxPower - t.power + 1))
-    scaled = (java_round(base / 4 * (lv + 1)) + t.defPower
-              + int(random.random() * max(1, t.defMaxPower - t.defPower + 1)))
+def taoist_power(p, t, lv: int) -> int:
+    """道士系法术掷点：同 magic_power 但取 SC。"""
     lo, hi = p.combat.get("scMin", 0), p.combat.get("scMax", 0)
-    sc = lo + int(random.random() * (hi - lo + 1))
-    return max(1, scaled + sc - (m.template.mac if m.template else 0))
+    return attack_power(p, get_power(t, lv, mpow(t)) + lo, (hi - lo) + 1)
+
+
+def heal_power(p, t, lv: int) -> int:
+    """治愈术/群体治疗回血量（Magic.pas:308 / :533）。
+
+    ``GetAttackPower(GetPower(MPow) + LoWord(SC)*2, (HiWord(SC)-LoWord(SC))*2 + 1)``
+    —— SC **下限**×2，随机段是 SC 区间×2。
+    """
+    lo, hi = p.combat.get("scMin", 0), p.combat.get("scMax", 0)
+    return attack_power(p, get_power(t, lv, mpow(t)) + lo * 2, (hi - lo) * 2 + 1)
+
+
+def anti_magic(a) -> int:
+    """``m_nAntiMagic``（ObjBase.pas:2855 初值 1 + 装备魔法躲避）。"""
+    return int(a.combat.get("antiMagic", 1)) if isinstance(a, Player) else 1
+
+
+def magic_hits(target) -> bool:
+    """Magic.pas 各分支的命中闸门 ``Random(10) >= m_nAntiMagic``。
+
+    怪物 AntiMagic 恒 1 → 90%；玩家带魔法躲避项链时按项链值降低。
+    旧实现用 ``1 + MAC//5`` 做「魔法闪避」是自造规则：MAC 在原版只减伤不闪避。
+    """
+    return random.randrange(10) >= anti_magic(target)
 
 
 def roll_dc_with_luck(p) -> int:
@@ -364,9 +408,10 @@ class CombatHandlers:
             return
         raw = roll_dc_with_luck(p)
         sword_hit, bonus = self._sword_flag(p, raw, True)
-        dmg = max(1, raw - target.combat.get("acMax", 0))
+        # 原版 Inc(nPower, m_nHitPlus) 发生在扣 AC 之前（ObjBase.pas:22122-22133）
         if sword_hit in (26, 7):
-            dmg += bonus
+            raw += bonus
+        dmg = max(1, raw - target.combat.get("acMax", 0))
         target.hp = max(0, target.hp - dmg)
         o = {"type": "attack", "attackerId": p.id, "targetId": target.id,
              "damage": dmg, "x": target.x, "y": target.y}
@@ -684,19 +729,23 @@ class CombatHandlers:
         return False
 
     def _train_sword_skills(self, p, sword_hit: int) -> None:
-        """物理攻击命中后的被动技能修炼（原版 ObjBase.pas:22283-22312）。
+        """物理攻击命中后的剑术修炼（原版 ObjBase.pas:22283-22365）。
 
-        原版在 ``_Attack`` 里 nPower > 0（已命中）之后：
-        - 基本剑术（3）：每次命中 ``TrainSkill(Random(3)+1)``；
-        - 攻杀剑术（7）：只在 ``bo21``（攻杀/烈火/双龙发动的那一击）
-          ``TrainSkill(Random(3)+1)``；
-        两者都要 ``btLevel < 3`` 且 TrainLevel[btLevel] <= 人物等级。
-        刺杀/半月/烈火的**副目标**不加点（原版只在主目标结算处调用）。
+        原版在 ``_Attack`` 里 nPower > 0（已命中）之后按 hitMode 分别加点：
+        - 基本剑术（3）：**每次**命中 ``TrainSkill(Random(3)+1)``；
+        - 攻杀剑术（7）：只在 ``bo21``（攻杀/烈火发动的那一击）``Random(3)+1``；
+        - 刺杀剑术（12, hitMode=4）／半月弯刀（25, hitMode=5）／
+          烈火剑法（26, hitMode=7）：每次命中 ``TrainSkill(1)``。
+        都要 ``btLevel < 3`` 且 TrainLevel[btLevel] <= 人物等级。
+        刺杀/半月的**副目标**不加点（原版只在主目标结算处调用）。
         """
         if self._can_train(p, 3):
             self._train_skill(p, 3, random.randint(1, 3))
         if sword_hit in (26, 7) and self._can_train(p, 7):   # bo21
             self._train_skill(p, 7, random.randint(1, 3))
+        for mid in (12, 25, 26):
+            if sword_hit == mid and self._can_train(p, mid):
+                self._train_skill(p, mid, 1)
 
     def _finish_cast(self, p, t, skill: dict, lv: int, now: int,
                      cost: int, success: bool) -> None:
@@ -711,51 +760,38 @@ class CombatHandlers:
                 extras = {"skills": p.skills_json(w)}
         w.send_stats(p, extras)
 
-    def _splash_magic(self, p, m, damage: int, magic_id: int, now: int) -> None:
-        splash = java_div(damage, 2)
-        for nb in self.world.nearby(m.map, m.x, m.y, 1):
-            if not isinstance(nb, Monster) or nb is m or not nb.alive:
-                continue
-            nb.hp = max(0, nb.hp - splash)
-            self._broadcast_magic_hit(p, nb, splash, magic_id)
-            self._kill_if_dead(p, nb, now)
-
-    def _elec_blizzard(self, p, pwr: int, now: int) -> int:
-        hit = 0
-        for a in self.world.nearby(p.map, p.x, p.y, 2):
-            if not isinstance(a, Monster) or not a.alive:
-                continue
-            undead = a.template.undead if a.template else 0
-            dmg = pwr if undead == 1 else max(1, java_div(pwr, 10))
-            a.hp = max(0, a.hp - dmg)
-            self._broadcast_magic_hit(p, a, dmg, 24)
-            self._kill_if_dead(p, a, now)
-            hit += 1
-        return hit
-
     def _pass_through_magic(self, p, ndir: int, rng: int, pwr: int,
                             undead_attack: bool, magic_id: int, now: int) -> int:
+        """原版 ``MagPassThroughMagic``（ObjBase.pas:2536）：直线穿透，最多 13 格。
+
+        每格取该格的移动对象，命中闸门是 ``Random(10) >= m_nAntiMagic``（不是
+        按 MAC 闪避），伤害走 ``RM_MAGSTRUCK`` 直接结算（扣 MAC，不除 1.2）。
+        疾光电影（10）的 undeadattack 在原版是「每命中一个 ×1.5 并累乘」。
+        """
         hit = 0
-        x, y = p.x, p.y
+        # 调用方先 GetNextPosition(..., rng) 得到终点格，再由此往回逐格走
         dx, dy = direction_delta(ndir)
-        for _ in range(rng):
-            x, y = x + dx, y + dy
+        ex, ey = p.x + dx * rng, p.y + dy * rng
+        x, y = p.x, p.y
+        cur_pwr = pwr
+        for _ in range(13):
+            step = direction_toward(x, y, ex, ey, 0)
+            sdx, sdy = direction_delta(step)
+            x, y = x + sdx, y + sdy
             if not p.map.inside(x, y):
                 break
             a = self._find_target_at(p.map, x, y)
-            if not isinstance(a, Monster) or not a.alive:
-                continue
-            mac = a.template.mac if a.template else 0
-            if random.random() * 10 < 1 + java_div(mac, 5):
-                continue
-            dmg = pwr
-            undead = a.template.undead if a.template else 0
-            if undead_attack and undead == 1:
-                dmg = java_round(dmg * 1.5)
-            a.hp = max(0, a.hp - dmg)
-            self._broadcast_magic_hit(p, a, dmg, magic_id)
-            self._kill_if_dead(p, a, now)
-            hit += 1
+            if isinstance(a, Monster) and a.alive and magic_hits(a):
+                # 原版这里是把 magpwr 变量本身 ×1.5（ObjBase.pas:2550-2552）：
+                # 不分目标是否不死系，而且**逐次累乘**（3 个目标 = 1.5³）。看着像
+                # 原版的笔误，但疾光电影（10）穿过一排怪越打越疼就是这个原因，
+                # 按「还原原版」的要求照抄。
+                if undead_attack:
+                    cur_pwr = delphi_round(cur_pwr * 1.5)
+                if self._direct_magic(p, a, cur_pwr, magic_id, now) > 0:
+                    hit += 1
+            if x == ex and y == ey:
+                break
         return hit
 
     def _push_creature(self, m, d: int, push: int) -> bool:
@@ -831,33 +867,64 @@ class CombatHandlers:
                       else "你向前冲撞。")
         return True
 
-    def _random_teleport(self, p) -> None:
-        # 原版瞬息移动（Magic.pas:959 + SpaceMove nInt=1）：两段都是 2 号特效
-        # —— 消失 SM_SPACEMOVE_HIDE2（TScrollHideEffect 1590-1599）+ 现身 SHOW2（1600-1609）。
-        w = self.world
-        for _ in range(100):
-            nx = p.x + int(random.random() * 9) - 4
-            ny = p.y + int(random.random() * 9) - 4
-            if p.map.can_walk(nx, ny) and not p.map.occupied(nx, ny):
-                w.broadcast_around(p.map, {"type": "spaceMoveHide", "x": p.x, "y": p.y,
-                                           "variant": 1}, p.x, p.y)
-                p.map.remove(p.id)
-                p.x, p.y = nx, ny
-                p.map.add(p)
-                p.session.send_json(w.map_snapshot(p, "changeMap"))
-                w.broadcast_entity_add(p)
-                w.broadcast_around(p.map, {"type": "spaceMoveShow", "x": p.x, "y": p.y,
-                                           "variant": 1}, p.x, p.y)
-                return
-        w.send_system(p, "传送失败。")
+    def _random_teleport(self, p, lv: int) -> bool:
+        """原版瞬息移动（Magic.pas:951 ``MagSaceMove``）。
 
-    def _poison_shape(self, p) -> int:
-        for shape in (1, 2):
-            for it in p.bag:
-                t = self.world.item_templates.get(int(it.get("index", 0)))
-                if t is not None and t.stdMode == 25 and t.shape == shape:
-                    return shape
-        return 0
+        ``if Random(11) < nLevel*2 + 4`` 才成功（0 级 4/11≈36%，3 级 10/11），
+        成功后 ``MapRandomMove(m_sHomeMap, 1)``：**不是原地小范围闪避**，而是
+        「家地图」上的随机点（``ObjBase.pas:9810``，边距按地图高度取 2/20/50）。
+        本项目 ``home_map`` 即角色出生/回城点，语义一致。
+        """
+        w = self.world
+        if random.randrange(11) >= lv * 2 + 4:
+            return False
+        gm = w.get_or_load_map(p.home_map) or p.map
+        if gm is None:
+            return False
+        edge = 2 if gm.height < 30 else (20 if gm.height < 150 else 50)
+        for _ in range(60):
+            nx = random.randrange(max(1, gm.width - edge - 1)) + edge
+            ny = random.randrange(max(1, gm.height - edge - 1)) + edge
+            if not gm.can_walk(nx, ny) or gm.occupied(nx, ny):
+                continue
+            w.space_move(p, gm.name, nx, ny, variant=1)
+            w.space_move_show(p, 1)
+            return True
+        return False
+
+    # ---- 护身符 / 毒药粉（原版 CheckAmulet / UseAmulet，Magic.pas:81-144）----
+    #
+    # 原版只认**已装备**的两个槽：手镯位（U_ARMRINGL）与符位（U_BUJUK）。
+    # 护身符 = StdMode 25 且 Shape=5，每张 100 点耐久；毒药粉 = StdMode 25
+    # 且 Shape<=2（灰色=1 红毒 / 黄色=2 绿毒）。施法按张数扣除耐久，扣光后
+    # 装备消失。
+
+    def _find_amulet(self, p, kind: int, count: int):
+        w = self.world
+        for slot in (U_ARMRINGL, U_BUJUK):
+            it = p.equipment[slot] if slot < len(p.equipment) else None
+            t = w.item_templates.get(int(it.get("index", 0))) if it else None
+            if t is None or t.stdMode != 25:
+                continue
+            ok = (t.shape == 5) if kind == 1 else (t.shape <= 2)
+            if not ok:
+                continue
+            if int(it.get("durability", 0)) // 100 >= count:
+                return slot, it, t
+        return None
+
+    def _use_amulet(self, p, slot: int, item: dict, count: int) -> None:
+        """``UseAmulet``：扣 ``count*100`` 耐久，不足则整件消失（含重算与下发）。"""
+        w = self.world
+        dura = int(item.get("durability", 0) or 0)
+        if dura > count * 100:
+            item["durability"] = dura - count * 100
+        else:
+            item["durability"] = 0
+            p.equipment[slot] = None
+            p.recompute(w)
+            w.send_stats(p)
+        self.send_bag_update(p)
 
     # ---- 消息入口：施法 ------------------------------------------------
 
@@ -872,60 +939,99 @@ class CombatHandlers:
         t = w.magic_templates.get(magic_id)
         if t is None:
             return
-        if magic_id in (3, 4, 7, 12):
-            w.send_system(p, "被动技能无法主动施放。")
+        # 纯被动技能（3 基本剑术 / 4 精神力战法 / 7 攻杀剑术）：原版
+        # ClientSpellXY 直接 Result := True，MagicManager.DoSpell 里 IsWarrSkill
+        # 再 return 一次 —— 不扣 MP、没有任何效果，学了就常驻生效。
+        if magic_id in (3, 4, 7):
+            w.send_system(p, "被动技能无需施放，学会后自动生效。")
             return
         skill = p.skills.get(magic_id)
         if skill is None:
             w.send_system(p, "尚未学会该技能。")
             return
         lv = skill.get("level", 0)
-        cost = spell_cost(t, lv)
-        if p.mp < cost:
-            w.send_system(p, "魔法值不足。")
-            return
         now = now_ms()
         last = p.skill_cooldown.get(magic_id)
         if last is not None and now - last < t.delay:
             return
-        if (magic_id not in (7, 12, 25, 26, 27) and tx >= 0 and ty >= 0):
+        cost = spell_cost(t, lv)
+
+        # ---- 开关类：原版走 ClientSpellXY 的 case 分支，不扣 MP、不施法 ---------
+        if magic_id == 12:                       # 刺杀剑术 ThrustingOnOff
+            p.long_hit_on = not p.long_hit_on
+            p.skill_cooldown[magic_id] = now
+            w.send_system(p, "刺杀剑术开启。" if p.long_hit_on else "刺杀剑术关闭。")
+            return
+        if magic_id == 25:                       # 半月弯刀 HalfMoonOnOff
+            p.wide_hit_on = not p.wide_hit_on
+            p.skill_cooldown[magic_id] = now
+            w.send_system(p, "半月弯刀开启。" if p.wide_hit_on else "半月弯刀关闭。")
+            return
+
+        if p.mp < cost:
+            w.send_system(p, "魔法值不足。")
+            return
+
+        # ---- 蓄力/冲撞：ClientSpellXY 里先扣 MP 再判定（ObjBase.pas:9098/9119）----
+        if magic_id == 26:                       # 烈火剑法 AllowFireHitSkill
+            if now - p.last_fire_hit_at < 10_000:
+                w.send_system(p, "凝聚内力失败。")
+                return
+            p.mp -= cost
+            p.last_fire_hit_at = now
+            p.fire_hit_on = True
+            p.skill_cooldown[magic_id] = now
+            w.send_system(p, "你的武器因精神火焰而炙热。")
+            w.send_stats(p)
+            return
+        if magic_id == 27:                       # 野蛮冲撞 DoMotaebo（3 秒一次）
+            # ObjBase.pas:9112-9150：**先**判 3 秒冷却（不满足连 MP 都不扣，
+            # 也没有任何提示），满足才 DamageSpell → DoMotaebo → 修炼。
+            if now - p.last_rush_rush_at < 3_000:
+                return
+            p.last_rush_rush_at = now
+            p.mp -= cost
+            p.skill_cooldown[magic_id] = now
+            ok = self._rush_rush(p, tx, lv)
+            if ok and lv < MAX_MAGIC_LEVEL:
+                # 这里的门槛是**严格小于**（ClientSpellXY 用 `< m_Abil.Level`，
+                # 与 Magic.pas:722 施法修炼的 `<=` 不同）。
+                need_lv = t.needLevel[lv] if lv < len(t.needLevel) else 0
+                if need_lv < p.level:
+                    self._train_skill(p, magic_id, random.randint(1, 3))
+            w.send_stats(p)
+            return
+
+        # ---- TPlayObject.DoSpell：先 DamageSpell，再 MagicManager.DoSpell ------
+        p.mp -= cost
+        p.skill_cooldown[magic_id] = now
+        # 施法半径 8 格（Magic.pas:266）：|dx|/|dy| 超 8 直接放弃，MP 已经扣掉。
+        if tx >= 0 and ty >= 0 and (abs(p.x - tx) > 8 or abs(p.y - ty) > 8):
+            w.send_stats(p)
+            return
+        if tx >= 0 and ty >= 0 and not is_heal_magic(magic_id):
             cast_dir = direction_from(p.x, p.y, tx, ty)
             if cast_dir != p.dir:
                 p.dir = cast_dir
                 w.broadcast_move(p)
 
-        # 开关 / 蓄力类技能：提前结算并 return
-        if magic_id == 25:
-            p.wide_hit_on = not p.wide_hit_on
-            w.send_system(p, "半月弯刀开启。" if p.wide_hit_on else "半月弯刀关闭。")
-            self._finish_cast(p, t, skill, lv, now, cost, True)
-            return
-        if magic_id == 26:
-            if now - p.last_fire_hit_at < 10_000:
-                w.send_system(p, "凝聚内力失败。")
-                return
-            p.last_fire_hit_at = now
-            p.fire_hit_on = True
-            w.send_system(p, "你的武器因精神火焰而炙热。")
-            self._finish_cast(p, t, skill, lv, now, cost, True)
-            return
-        if magic_id == 27:
-            if now - p.last_rush_rush_at < 3000:
-                w.send_system(p, "冲撞需要休息。")
-                return
-            p.last_rush_rush_at = now
-            self._finish_cast(p, t, skill, lv, now, cost,
-                              self._rush_rush(p, tx, lv))
-            return
-
         target = w.actor(target_id) if target_id > 0 else None
-        if target is None or not target.alive:
-            target = self._find_target_at(p.map, tx, ty)
-        if isinstance(target, Monster) and target.alive:
+        if target is not None and not target.alive:
+            target = None
+        # CretInNearXY：目标必须落在施法点 3x3 内，否则视为对地面施法（target=nil）
+        if (target is not None and tx >= 0 and ty >= 0
+                and (abs(target.x - tx) > 1 or abs(target.y - ty) > 1)):
+            target = None
+        if isinstance(target, Monster):
             p.target_id = target.id
-        cast_tx, cast_ty = (p.x, p.y) if is_heal_magic(magic_id) else (tx, ty)
+        if is_heal_magic(magic_id):
+            if target is None:
+                target = p
+            tx, ty = target.x, target.y
+
+        cast_tx, cast_ty = tx, ty
         blocked = False
-        if (magic_id in (1, 5, 13) and isinstance(target, Monster) and target.alive):
+        if magic_id in (1, 5, 13) and isinstance(target, Monster):
             bp = self._blocked_point(p, target)
             if bp is not None:
                 cast_tx, cast_ty, blocked = bp[0], bp[1], True
@@ -937,197 +1043,436 @@ class CombatHandlers:
 
         success = self._resolve_magic(p, t, skill, lv, now, magic_id,
                                       tx, ty, target, blocked)
-        self._finish_cast(p, t, skill, lv, now, cost, success)
+        self._finish_cast(p, t, skill, lv, now, 0, success)
+
+    # ------------------------------------------------------------------
+    # MagicManager.DoSpell 的分支（Magic.pas:278-713），逐条对照
+    # ------------------------------------------------------------------
+
+    def _mc_range(self, p) -> tuple[int, int]:
+        return p.combat.get("mcMin", 0), p.combat.get("mcMax", 0)
+
+    def _sc_range(self, p) -> tuple[int, int]:
+        return p.combat.get("scMin", 0), p.combat.get("scMax", 0)
+
+    @staticmethod
+    def _anti_poison(a) -> int:
+        return int(a.combat.get("antiPoison", 0)) if isinstance(a, Player) else 0
+
+    def _delayed_magic(self, p, target, pwr: int, magic_id: int, now: int) -> int:
+        """``RM_DELAYMAGIC`` 结算（ObjBase.pas:4565）。
+
+        先按怪物 1.2 折减（``if race >= RC_ANIMAL then nPower := Round(nPower/1.2)``），
+        再进 ``RM_MAGSTRUCK`` → ``GetMagStruckDamage``（扣 MAC / 过魔法盾）。
+        """
+        if target is None or not target.alive:
+            return 0
+        # 只有 race >= RC_ANIMAL(50) 的**动物/怪物**才吃 1.2 折减；
+        # 玩家 race=0（RC_PLAYOBJECT），照原版不受这条影响。
+        pwr = delphi_round(pwr / 1.2) if getattr(target, "race", 0) >= RC_ANIMAL else pwr
+        dmg = mag_struck_damage(target, pwr)
+        if dmg <= 0:
+            return 0
+        target.hp = max(0, target.hp - dmg)
+        self._broadcast_magic_hit(p, target, dmg, magic_id)
+        self._kill_if_dead(p, target, now)
+        return dmg
+
+    def _direct_magic(self, p, target, pwr: int, magic_id: int, now: int) -> int:
+        """``RM_MAGSTRUCK`` 直接结算（爆裂火焰/冰咆哮/地狱雷光/火墙）。"""
+        if target is None or not target.alive:
+            return 0
+        dmg = mag_struck_damage(target, pwr)
+        if dmg <= 0:
+            return 0
+        target.hp = max(0, target.hp - dmg)
+        self._broadcast_magic_hit(p, target, dmg, magic_id)
+        self._kill_if_dead(p, target, now)
+        return dmg
 
     def _resolve_magic(self, p, t, skill, lv, now, magic_id,
                        tx, ty, target, blocked) -> bool:
-        """castMagic 的效果分派；返回是否施放成功（决定是否加熟练度）。"""
+        """castMagic 的效果分派；返回 True 表示原版的 ``boTrain``（加熟练度）。"""
         w = self.world
+        mc_lo, mc_hi = self._mc_range(p)
+        sc_lo, sc_hi = self._sc_range(p)
+
+        # 1 火球术 / 5 大火球（Magic.pas:279-300）
+        if magic_id in (1, 5):
+            if not isinstance(target, Monster) or blocked or not magic_hits(target):
+                return False
+            pwr = magic_power(p, t, lv)
+            self._delayed_magic(p, target, pwr, magic_id, now)
+            if magic_id == 5 and p.level > target.level:
+                # MagHbFireBall 的击退：Random(lv)-1 > 0 才推
+                gap = p.level - target.level
+                if _rand(20) < 6 + lv * 3 + gap:
+                    push = _rand(lv) - 1
+                    if push > 0:
+                        self._push_creature(target, direction_from(p.x, p.y,
+                                                                  target.x, target.y), push)
+            return True
+
+        # 2 治愈术（:301）
         if is_heal_magic(magic_id):
+            if not isinstance(target, Player):
+                return False
+            if target.hp >= target.max_hp:
+                return False
             heal = max(1, heal_power(p, t, lv))
-            p.inc_healing = min(300, p.inc_healing + heal)
-            w.send_system(p, f"施展了 {t.name}。")
-            w.send_stats(p)
-            return True
-        if magic_id in (9, 10):
-            ndir = direction_from(p.x, p.y, tx, ty)
-            p.dir = ndir
-            w.broadcast_move(p)
-            rng = 5 if magic_id == 9 else 8
-            hit = self._pass_through_magic(p, ndir, rng, magic_power(p, t, lv),
-                                           magic_id == 10, magic_id, now)
-            w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
-            return True
-        if magic_id == 24:
-            hit = self._elec_blizzard(p, magic_power(p, t, lv), now)
-            w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
-            return True
-        if is_projectile_magic(magic_id):
-            if isinstance(target, Monster) and target.alive:
-                if p.distance_to(target) > 8:
-                    return False
-                mac = target.template.mac if target.template else 0
-                if blocked:
-                    w.send_system(p, "目标被障碍物挡住了。")
-                elif random.random() * 10 < 1 + java_div(mac, 5):
-                    w.send_system(p, "魔法被躲过了。")
-                else:
-                    damage = (taoist_damage(p, t, lv, target) if magic_id == 13
-                              else magic_damage(p, t, lv, target))
-                    undead = target.template.undead if target.template else 0
-                    if magic_id == 11 and undead == 1:
-                        damage = java_round(damage * 1.5)
-                    target.hp = max(0, target.hp - damage)
-                    self._broadcast_magic_hit(p, target, damage, magic_id)
-                    self._kill_if_dead(p, target, now)
-                    if is_area_magic(magic_id):
-                        self._splash_magic(p, target, damage, magic_id, now)
-            return True
-        if magic_id == 6:
-            if target is None or not target.alive:
-                w.send_system(p, "没有目标。")
-                return False
-            shape = self._poison_shape(p)
-            if shape == 0:
-                w.send_system(p, "没有毒药粉。")
-                return False
-            sc = p.combat.get("scMax", 0)
-            if shape == 2:
-                sec = 13 + 7 * (lv + 1) + 2 * sc
-                target.poison_armor_until = now + sec * 1000
-                w.send_system(p, f"对 {target.name} 施放了绿毒，防御下降。")
-            else:
-                sec = 10 + 5 * (lv + 1) + 2 * sc
-                target.poison_ticks = max(1, java_round(sec * 1000 / POISON_INTERVAL_MS))
-                target.poison_damage = 1 + lv
-                target.last_poison_at = now
-                w.send_system(p, f"对 {target.name} 施放了红毒，持续掉血。")
+            target.inc_healing = (min(300, target.inc_healing + heal)
+                                 if target.inc_healing + heal < 300 else 300)
             w.send_stats(target)
             return True
-        if magic_id in (17, 30):
-            old = w.actor(p.summon_id) if p.summon_id >= 0 else None
-            if isinstance(old, Monster) and old.alive:
-                w.remove_summon(old)
-            summon = w.spawn_summon(p, "变异骷髅" if magic_id == 17 else "神兽")
-            if summon is not None:
-                summon.slave_make_level = lv
-                p.summon_id = summon.id
-                w.send_system(p, f"召唤了 {summon.name}。")
-                return True
-            w.send_system(p, "召唤失败。")
-            return False
+
+        # 6 施毒术（:318-383）：毒药粉 1 张；AntiPoison 越高中毒越难
+        if magic_id == 6:
+            if not isinstance(target, Monster):
+                w.send_system(p, "没有目标。")
+                return False
+            am = self._find_amulet(p, 2, 1)
+            if am is None:
+                w.send_system(p, "没有毒药粉。")
+                return False
+            slot, item, st = am
+            self._use_amulet(p, slot, item, 1)
+            if random.randrange(self._anti_poison(target) + 7) > 6:
+                w.send_system(p, f"{target.name} 抵抗了施毒术。")
+                return False
+            n = get_power13(t, lv, 40 if st.shape == 1 else 30) + get_rpow(sc_lo, sc_hi) * 2
+            point = delphi_round(lv / 3 * (n / 10))     # nAmyOunsulPoint = 10
+            if st.shape == 1:                            # 灰色药粉 = POISON_DECHEALTH（绿毒，掉血）
+                target.poison_ticks = max(1, delphi_round(n * 1000 / POISON_INTERVAL_MS))
+                target.poison_damage = point + 1
+                target.last_poison_at = now
+                w.send_system(p, f"对 {target.name} 施放了绿毒。")
+            else:                                        # 黄色药粉 = POISON_DAMAGEARMOR（红毒，降防）
+                target.poison_armor_until = now + n * 1000
+                w.send_system(p, f"对 {target.name} 施放了红毒。")
+            w.send_stats(target)
+            return True
+
+        # 8 抗拒火环（:384 MagPushArround）
         if magic_id == 8:
             pushed = self._push_around(p, lv)
             w.send_system(p, f"推开了 {pushed} 个敌人。" if pushed > 0
                           else "周围没有可推开的敌人。")
-            return True
-        if magic_id == 21:
-            self._random_teleport(p)
-            return True
-        if magic_id in (18, 19):
-            dur = (30 + 3 * p.combat.get("scMax", 0)) * 1000
-            hidden = 0
-            if magic_id == 18:
-                p.hide_until = now + dur
-                w.send_stats(p)
-                hidden = 1
+            return pushed > 0
+
+        # 9 地狱火 / 10 疾光电影（:387-406）：穿透直线，最多 13 格
+        if magic_id in (9, 10):
+            ndir = direction_from(p.x, p.y, tx, ty)
+            steps = 5 if magic_id == 9 else 8
+            hit = self._pass_through_magic(p, ndir, steps, magic_power(p, t, lv),
+                                           magic_id == 10, magic_id, now)
+            w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
+            return hit > 0
+
+        # 11 雷电术（:407）/ 13 灵魂火符（:420-450）
+        # 灵魂火符在**命中判定之前**就 CheckAmulet(1,1) + UseAmulet(1,1)：
+        # 打空了护身符也照扣（Magic.pas:418-424）。
+        if magic_id in (11, 13):
+            if magic_id == 13:
+                am = self._find_amulet(p, 1, 1)
+                if am is None:
+                    w.send_system(p, "没有护身符。")
+                    return False
+                slot, item, _st = am
+                self._use_amulet(p, slot, item, 1)
+            if not isinstance(target, Monster) or blocked or not magic_hits(target):
+                return False
+            if magic_id == 11:
+                pwr = magic_power(p, t, lv)
+                undead = target.template.undead if target.template else 0
+                if undead == 1:
+                    pwr = delphi_round(pwr * 1.5)   # 只有雷电术对不死系 ×1.5
             else:
-                for nb in w.nearby(p.map, tx, ty, 1):
-                    if isinstance(nb, Player) and nb.alive:
-                        nb.hide_until = now + dur
-                        w.send_stats(nb)
-                        hidden += 1
-            w.send_system(p, f"你进入了隐身状态（{dur // 1000} 秒）。" if hidden > 0
-                          else "范围内没有可以隐身的目标。")
+                pwr = taoist_power(p, t, lv)        # 灵魂火符走 SC，无不死系加成
+            self._delayed_magic(p, target, pwr, magic_id, now)
             return True
-        if magic_id == 22:
-            wx = target.x if target is not None else tx
-            wy = target.y if target is not None else ty
-            damage = max(1, p.combat.get("mcMax", 0) + t.power + lv * 2)
-            made = w.make_fire_wall_at(p, wx, wy, damage, 8 + lv * 2)
-            w.send_system(p, f"释放了火墙。({made} 格)" if made > 0 else "火墙释放失败。")
-            return made > 0
-        if magic_id == 20:
-            if isinstance(target, Monster) and target.alive:
-                if target.master_id == p.id:
-                    target.paralyzed_until = now + (10 + lv * 5) * 1000
-                    w.send_stats(target)
-                    w.send_system(p, f"{target.name} 被定身了。")
-                    return True
-                if random.random() < 0.05 + lv * 0.05:
-                    if target.master_id >= 0:
-                        old_master = w.actor(target.master_id)
-                        if isinstance(old_master, Player) and old_master.summon_id == target.id:
-                            old_master.summon_id = -1
-                        target.hp = max(1, java_div(target.hp, 10))
-                        w.send_system(p, f"你抢走了 {target.name}！")
-                    target.master_id = p.id
-                    target.slave_make_level = lv
-                    p.summon_id = target.id
-                    w.send_system(p, f"诱惑了 {target.name}！")
-                else:
-                    w.send_system(p, "诱惑失败。")
-                return True
-            return False
-        if magic_id == 29:
-            heal = max(1, heal_power(p, t, lv))
-            healed = 0
-            for nb in w.nearby(p.map, p.x, p.y, 5):
-                if isinstance(nb, Player) and nb.alive and nb.hp < nb.max_hp:
-                    nb.inc_healing = min(300, nb.inc_healing + heal)
-                    w.send_stats(nb)
-                    healed += 1
-            w.send_system(p, f"施展了 {t.name}，治疗了 {healed} 个目标。")
-            return True
+
+        # 14 幽灵盾 / 15 神圣战甲术（:451-460 MagMakeDefenceArea）
+        # 同属 CheckAmulet(1,1) 的 case 块（Magic.pas:414-416），两种盾都吃 1 张护身符。
         if magic_id in (14, 15):
-            dur = (30 + lv * 10) * 1000
+            am = self._find_amulet(p, 1, 1)
+            if am is None:
+                w.send_system(p, "没有护身符。")
+                return False
+            slot, item, _st = am
+            self._use_amulet(p, slot, item, 1)
+            n = attack_power(p, get_power13(t, lv, 60) + sc_lo * 10, (sc_hi - sc_lo) + 1)
             buffed = 0
-            for nb in w.nearby(p.map, p.x, p.y, 3):
+            for nb in w.nearby(p.map, tx, ty, 3):
                 if not isinstance(nb, Player) or not nb.alive:
                     continue
-                nb.ac_buff_until = now + dur
-                bonus = 2 + java_div(nb.level, 7)
-                if magic_id == 15:
-                    nb.ac_buff_bonus = bonus
-                else:
-                    nb.mac_buff_bonus = bonus
-                nb.recompute(w)
-                w.send_stats(nb)
+                # DefenceUp / MagDefenceUp：只延长不缩短，AC/MAC 上限 +2+等级/7
+                if nb.ac_buff_until < now + n * 1000:
+                    nb.ac_buff_until = now + n * 1000
+                    if magic_id == 15:
+                        nb.ac_buff_bonus = 2 + nb.level // 7
+                        nb.mac_buff_bonus = 0
+                    else:
+                        nb.mac_buff_bonus = 2 + nb.level // 7
+                        nb.ac_buff_bonus = 0
+                    nb.recompute(w)
+                    w.send_stats(nb)
                 buffed += 1
             w.send_system(p, f"施展了 {t.name}，为 {buffed} 个目标提升防御。")
-            return True
-        if magic_id == 31:
-            dur = (30 + lv * 10) * 1000
-            p.shield_until = now + dur
-            w.send_system(p, f"魔法盾开启，减伤持续 {dur // 1000} 秒。")
-            return True
+            return buffed > 0
+
+        # 16 困魔咒（:461 MagMakeHolyCurtain）：3x3 内等级判定，任一失败即整体失败
         if magic_id == 16:
-            if isinstance(target, Monster) and target.alive:
-                target.paralyzed_until = now + (5 + lv * 3) * 1000
-                w.send_stats(target)
-                w.send_system(p, f"困住了 {target.name}。")
-                return True
-            w.send_system(p, "没有目标。")
+            am = self._find_amulet(p, 1, 1)
+            if am is None:
+                w.send_system(p, "没有护身符。")
+                return False
+            slot, item, _st = am
+            self._use_amulet(p, slot, item, 1)
+            n = get_power13(t, lv, 40) + get_rpow(sc_lo, sc_hi) * 3
+            result = 0
+            for nb in w.nearby(p.map, tx, ty, 1):
+                if not isinstance(nb, Monster) or not nb.alive:
+                    continue
+                if (random.randrange(4) + p.level - 1) > nb.level and nb.master_id < 0:
+                    nb.paralyzed_until = now + n * 1000
+                    w.send_stats(nb)
+                    result += 1
+                else:
+                    result = 0
+            if result <= 0:
+                w.send_system(p, "困魔咒失败。")
+                return False
+            w.send_system(p, f"困住了 {result} 个目标。")
+            return True
+
+        # 17 召唤骷髅 / 30 召唤神兽（:465-475 / :537-556）
+        if magic_id in (17, 30):
+            need = 1 if magic_id == 17 else 5
+            am = self._find_amulet(p, 1, need)
+            if am is None:
+                w.send_system(p, "没有护身符。" if need == 1 else "护身符不足 5 张。")
+                return False
+            slot, item, _st = am
+            self._use_amulet(p, slot, item, need)
+            old = w.actor(p.summon_id) if p.summon_id >= 0 else None
+            if isinstance(old, Monster) and old.alive:
+                w.remove_summon(old)
+            summon = w.spawn_summon(p, "变异骷髅" if magic_id == 17 else "神兽")
+            if summon is None:
+                w.send_system(p, "召唤失败。")
+                return False
+            summon.slave_make_level = lv
+            p.summon_id = summon.id
+            w.send_system(p, f"召唤了 {summon.name}。")
+            return True
+
+        # 18 隐身术 / 19 集体隐身术（:476-483）
+        if magic_id in (18, 19):
+            am = self._find_amulet(p, 1, 1)
+            if am is None:
+                w.send_system(p, "没有护身符。")
+                return False
+            slot, item, _st = am
+            self._use_amulet(p, slot, item, 1)
+            n = get_power13(t, lv, 30) + get_rpow(sc_lo, sc_hi) * 3
+            hidden = 0
+            targets = [p] if magic_id == 18 else [
+                nb for nb in w.nearby(p.map, tx, ty, 1)
+                if isinstance(nb, Player) and nb.alive]
+            for nb in targets:
+                if nb.hide_until > now:          # 原版：已在隐身状态不再叠加
+                    continue
+                self._make_transparent(nb, n, now)
+                hidden += 1
+            w.send_system(p, f"你进入了隐身状态（{n} 秒）。" if hidden > 0
+                          else "范围内没有可隐身的目标。")
+            return hidden > 0
+
+        # 20 诱惑之光（:489 MagTamming）
+        if magic_id == 20:
+            if isinstance(target, Monster):
+                return self._tamming(p, target, lv, now)
             return False
-        if magic_id == 32:
-            if isinstance(target, Monster) and target.alive:
-                undead = target.template.undead if target.template else 0
-                if undead != 1:
-                    w.send_system(p, "圣言术只对不死系怪物有效。")
-                    return False
-                damage = magic_damage(p, t, lv, target) * 3
-                target.hp = max(0, target.hp - damage)
-                self._broadcast_magic_hit(p, target, damage, magic_id)
-                self._kill_if_dead(p, target, now)
-                w.send_system(p, f"圣言术对 {target.name} 造成 {damage} 伤害。")
-                return True
-            w.send_system(p, "没有目标。")
-            return False
+
+        # 21 瞬息移动（:495 MagSaceMove）
+        if magic_id == 21:
+            ok = self._random_teleport(p, lv)
+            if not ok:
+                w.send_system(p, "瞬息移动失败。")
+            return ok
+
+        # 22 火墙（:501 MagMakeFireCross）：十字 5 格，伤害/持续时间都按公式掷点
+        if magic_id == 22:
+            pwr = magic_power(p, t, lv)
+            htime = get_power(t, lv, 10) + (get_rpow(mc_lo, mc_hi) >> 1)
+            made = w.make_fire_wall_at(p, tx, ty, pwr, htime)
+            w.send_system(p, f"释放了火墙。({made} 格)" if made > 0 else "火墙释放失败。")
+            return made > 0
+
+        # 23 爆裂火焰 / 33 冰咆哮（:510 MagBigExplosion，范围按 1 半径 = 3x3）
+        if magic_id in (23, 33):
+            pwr = magic_power(p, t, lv)
+            hit = 0
+            for nb in w.nearby(p.map, tx, ty, 1):
+                if isinstance(nb, Monster) and nb.alive:
+                    if self._direct_magic(p, nb, pwr, magic_id, now) > 0:
+                        hit += 1
+            w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
+            return hit > 0
+
+        # 24 地狱雷光（:518 MagElecBlizzard）：自身半径 2，非不死系只有 1/10
+        if magic_id == 24:
+            pwr = magic_power(p, t, lv)
+            hit = 0
+            for nb in w.nearby(p.map, p.x, p.y, 2):
+                if isinstance(nb, Monster) and nb.alive:
+                    undead = nb.template.undead if nb.template else 0
+                    part = pwr if undead == 1 else pwr // 10
+                    if self._direct_magic(p, nb, part, magic_id, now) > 0:
+                        hit += 1
+            w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
+            return hit > 0
+
+        # 28 心灵启示（:522）：Random(6) <= lv+3 才成功，目标血量显示 n 秒
         if magic_id == 28:
-            if isinstance(target, Monster) and target.alive:
-                w.send_system(p, f"{target.name} 血量 {target.hp}/{target.max_hp}")
-                return True
-            w.send_system(p, "没有目标。")
-            return False
+            if target is None:
+                w.send_system(p, "没有目标。")
+                return False
+            if target.open_hp_until > now:
+                return False
+            if random.randrange(6) > lv + 3:
+                w.send_system(p, "心灵启示失败。")
+                return False
+            n = get_power13(t, lv, get_rpow(sc_lo, sc_hi) * 2 + 30)
+            target.open_hp_until = now + n * 1000
+            w.broadcast_around(target.map, {
+                "type": "openHealth", "id": target.id, "until": target.open_hp_until,
+                "hp": target.hp, "maxHp": target.max_hp}, target.x, target.y, SIGHT_RANGE)
+            return True
+
+        # 29 群体治疗术（:532 MagBigHealing）：目标点 3x3 内的队友
+        if magic_id == 29:
+            pwr = heal_power(p, t, lv)
+            healed = 0
+            for nb in w.nearby(p.map, tx, ty, 1):
+                if not isinstance(nb, Player) or not nb.alive or nb.hp >= nb.max_hp:
+                    continue
+                nb.inc_healing = (min(300, nb.inc_healing + pwr)
+                                 if nb.inc_healing + pwr < 300 else 300)
+                w.send_stats(nb)
+                healed += 1
+            w.send_system(p, f"施展了 {t.name}，治疗了 {healed} 个目标。")
+            return healed > 0
+
+        # 31 魔法盾（:568 MagBubbleDefenceUp）：已开启时不再叠加
+        if magic_id == 31:
+            if p.shield_until > now:
+                w.send_system(p, "魔法盾已经开启。")
+                return False
+            n = get_power(t, lv, get_rpow(mc_lo, mc_hi) + 15)
+            p.shield_until = now + n * 1000
+            p.shield_level = lv
+            w.send_stats(p)
+            w.send_system(p, f"魔法盾开启，持续 {n} 秒。")
+            return True
+
+        # 32 圣言术（:572 MagTurnUndead）：只对不死系，掷概率秒杀（无直接伤害）
+        if magic_id == 32:
+            if not isinstance(target, Monster) or not target.alive:
+                w.send_system(p, "没有目标。")
+                return False
+            undead = target.template.undead if target.template else 0
+            if undead != 1:
+                w.send_system(p, "圣言术只对不死系怪物有效。")
+                return False
+            self._hate(target, p)
+            if (random.randrange(2) + (p.level - 1)) > target.level:
+                if target.level < 50:
+                    gap = p.level - target.level
+                    if random.randrange(100) < (lv * 8 - lv + 15 + gap):
+                        target.hp = 0
+                        w.broadcast_around(target.map, {
+                            "type": "attack", "attackerId": p.id, "targetId": target.id,
+                            "damage": target.max_hp, "magicId": 32,
+                            "x": target.x, "y": target.y}, target.x, target.y, SIGHT_RANGE)
+                        self._kill_if_dead(p, target, now)
+                        w.send_system(p, f"圣言术消灭了 {target.name}！")
+                        return True
+            w.send_system(p, f"圣言术对 {target.name} 失效了。")
+            return False    # 没秒掉 → 原版 Result=False，不加熟练度
+
         w.send_system(p, "该魔法暂未开放。")
         return False
+
+    # ------------------------------------------------------------------
+    # 技能辅助实现
+    # ------------------------------------------------------------------
+
+    def _make_transparent(self, actor, seconds: int, now: int) -> None:
+        """原版 ``MagMakePrivateTransparent``（Magic.pas:734）。
+
+        附近 9 格内把「以我为目标」的怪物仇恨清掉（距离 >1 或 50% 概率），
+        然后给自己挂 STATE_TRANSPARENT；移动/攻击会立刻破除（那边由
+        service 的移动处理清 hide_until）。
+        """
+        w = self.world
+        for m in w.nearby(actor.map, actor.x, actor.y, 9):
+            if not isinstance(m, Monster) or not m.alive:
+                continue
+            if m.target_id != actor.id:
+                continue
+            if (abs(m.x - actor.x) > 1 or abs(m.y - actor.y) > 1
+                    or random.randrange(2) == 0):
+                m.target_id = -1
+        actor.hide_until = now + seconds * 1000
+        w.send_stats(actor)
+
+    def _tamming(self, p, target: Monster, lv: int, now: int) -> bool:
+        """原版 ``MagTamming``（Magic.pas:773）：诱惑之光。
+
+        1. ``Random(4-lv)=0`` 才进入判定（0 级 25%，3 级 100%）；
+        2. ``Random(2)`` 一半概率「被定住」（OpenHolySeizeMode）；
+        3. 等级 ≤ 自己+2、``RandomRange(自身等级, 自身等级+20)+lv*5 > 目标等级+10``
+           才有机会；再受 50 级上限、5 只上限、非不死系、未被训过 限制；
+        4. 成功概率 = 1/n14（n14 由目标最大 HP/100 决定，低于 2 取 2，否则 ×2）。
+        """
+        w = self.world
+        if lv >= 4 or random.randrange(4 - lv) != 0:
+            # 原版 else 分支：Random(2)=0 也返回 True（算「施法成功」）
+            return random.randrange(2) == 0
+        target.target_id = -1
+        if random.randrange(2) == 0:
+            if target.level <= p.level + 2:
+                roll = random.randint(p.level, p.level + 20) + lv * 5
+                if roll > target.level + 10:
+                    undead = target.template.undead if target.template else 0
+                    if (target.level <= 50 and undead != 1
+                            and target.master_id < 0 and p.summon_id < 0):
+                        hp_rate = max(2, target.max_hp // 100)
+                        n14 = hp_rate * 2
+                        if random.randrange(n14) == 0:
+                            old = w.actor(p.summon_id) if p.summon_id >= 0 else None
+                            if isinstance(old, Monster) and old.alive:
+                                w.remove_summon(old)
+                            target.master_id = p.id
+                            target.slave_make_level = lv
+                            target.target_id = -1
+                            p.summon_id = target.id
+                            w.send_system(p, f"诱惑了 {target.name}！")
+                            return True
+                        if random.randrange(14) == 0:
+                            target.hp = 0
+                            self._kill_if_dead(p, target, now)
+                        w.send_system(p, "诱惑失败。")
+                        return False
+                    if undead == 1 and random.randrange(20) == 0:
+                        target.hp = 0
+                        self._kill_if_dead(p, target, now)
+                w.send_system(p, "诱惑失败。")
+                return False
+            w.send_system(p, "诱惑失败。")
+            return False
+        target.paralyzed_until = now + random.randrange(lv * 5 + 10) * 1000
+        w.send_stats(target)
+        w.send_system(p, f"{target.name} 被定住了。")
+        return True

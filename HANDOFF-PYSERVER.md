@@ -1309,6 +1309,129 @@ end;
 
 ---
 
+## §52 数据 profile 切换工具（1.76 实验）（2026-11-14）
+
+**需求**：用户要基于 ruchu8 站/REDM2 交叉验证过的 1.76 原版数值做实验，需要与当前"我本沉默"私服数据快切。
+
+**新增** `scripts/switch_data.py`（切换面 = `gamedata/mud2/DB/{StdItems,Monster,Magic}.csv` + `Envir/{MonGen,Npcs,MerChant}.txt` + `MonItems/` + `Market_Def/`，profile 落 gitignored 的 `data/profiles/`）：
+
+- `save <name>` / `use <name>` / `list` / `build-176 [--redm2 --src176]`。
+- `build-176` = REDM2.DB（SQLite，位置对齐的 24/22/19 列前缀）合并进当前 CSV：**同名行覆盖数值、本地 Idx 保留**（角色 storage 按 idx 引用）、本地独有行原样保留、1.76 独有行插入（物品 +121、怪 +196、技能 +0）；Envir 五件套整目录照抄 `D:\work\me\game\传奇\176-mir2-red`。
+- **关键坑 1**：`db.py::seed_game_data` 只在 `std_items` 为空时导入 CSV——`use` 必须清 SQLite 三张模板表（脚本自动做，accounts/characters 不动）。
+- **关键坑 2**：首次 build 曾因 `[keep_idx]+rr[2:]` 少写 Name 列致整行左移（物品名变数字）；现 `_csv_write` 带列数断言，写出即校验。
+- **边界**：176 profile 的 MerChant 脚本列含 `传送员\传送员` 反斜杠子目录——**只能本机 Windows 用，别部署进 Docker/Linux**；176 包 MapInfo 有幻境/生肖等私服垃圾，切换面刻意不含 MapInfo（地图属性仍用本地）；`gamedata` 受 git 跟踪，切 176 后 `git status` 大量改动属预期，`use current` 后归零（已验证字节级无损）。
+
+**验证**（8099 + 一次性 db）：启动 0 Traceback，spawn 5062 怪、318 掉落表、165 NPC；`test_pyserver --live` 94 PASS/0 FAIL、smoke_ws 全通；数值抽查 = 1.76 口径（僵尸1 Exp 160（本地 480）、木剑 Price 50（本地 91）、强效金创药 550）。
+
+**当前状态**：`use 176` 已生效，gamedata 处于 **176 profile**，玩腻了 `python scripts/switch_data.py use current` 回私服数据。**8080 上的常驻服务重启前不受影响**（模板在启动时导入内存）。
+
+---
+
+## §53 33 个技能数值/判定全面对齐原版（第 32 轮，2026-11-14）
+
+**需求**：用户要求「检查下其他技能和原版的差异，然后还原」——把 33 个技能（魔法 + 剑术）
+的数值、判定闸门、MP/护身符消耗、状态效果逐条对回 `M2Server/Magic.pas` +
+`ObjBase.pas`，删掉 Java 版遗留的自造规则。
+
+### 施法链路（两层，别只看一层）
+
+| 层 | 原版位置 | 本项目 |
+|---|---|---|
+| `ClientSpellXY` | ObjBase.pas:9029-9241 | `_cast_magic` 的开关/蓄力分支 |
+| `DoSpell` → `GetSpellPoint` → `MagicManager.DoSpell` | ObjBase.pas:21852 / Magic.pas:216 | `_cast_magic` 主路径 + `_resolve_magic` |
+
+- **3 基本剑术 / 4 精神力战法 / 7 攻杀剑术**：`IsWarrSkill`（Magic.pas:208）直接 exit，
+  不扣 MP、无效果，只回一句「被动技能无需施放」，不产生 `spellCast`。
+- **12 刺杀 / 25 半月**：只切开关，不扣 MP（`ThrustingOnOff` / `HalfMoonOnOff`）。
+- **26 烈火**（10 秒冷却）/ **27 野蛮冲撞**（3 秒冷却）：**先判冷却再扣 MP**；27 成功时
+  才 `TrainSkill(Random(3)+1)`，门槛是 `TrainLevel[lv] **<** 人物等级`（严格小于，
+  与 Magic.pas:722 施法修炼的 `<=` 不同）。
+- 其余：先扣 MP → 判 `abs(dx)>8 或 abs(dy)>8`（超距 **MP 照扣**、直接返回）→ 转向
+  （`broadcast_move`）→ `CretInNearXY` 3x3 闸门（不满足则 `target=nil` 当空地施法）→
+  广播 `spellCast` → 结算 → `_finish_cast`（`boTrain` 才加点）。
+
+### 数值函数（重写，全部对齐 Delphi 语义）
+
+- `mpow(t) = wPower + Random(wMaxPower - wPower)`（**不含上界**）。
+- `get_power(t,lv,n) = ROUND(n/(btTrainLv+1)*(btLevel+1)) + btDefPower + Random(btDefMaxPower-btDefPower)`，
+  `btTrainLv` 恒 3（LocalDB.pas:382 写死）。
+- `get_power13(t,lv,n)`：1/3 固定 + 2/3 随等级放大（`GetPower13`）。
+- `get_rpow(lo,hi)` = MC/SC 区间随机；`attack_power` = `base + Random(rng+1)`，
+  幸运 >0 时 `Random(10-luck)=0` 取上界、诅咒取底（`GetAttackPower`）。
+- **魔法命中闸门** `Random(10) >= m_nAntiMagic`（怪物恒 1 → 90%，玩家项链魔法躲避可降）；
+  **MAC 只减伤不闪避**（旧实现 `1+MAC//5` 几率闪避是自造，已删）。
+- `mag_struck_damage()`（ObjBase.pas:22441 `GetMagStruckDamage`）统一收口：先扣 MAC
+  （玩家按区间随机），再过魔法盾 `Round(dmg/100*(lv+2)*8)`。物理侧**不再**受魔法盾影响
+  （旧代码 `_apply_hit_to_player` 统一 ×0.7 已删）。
+- `RM_DELAYMAGIC`（4565）：只对 `race >= RC_ANIMAL(50)` 折 `Round(pwr/1.2)` 再走
+  `RM_MAGSTRUCK`；玩家 race=0 不吃这条。
+
+### 逐技能还原要点
+
+| 技能 | 还原内容 |
+|---|---|
+| 1 火球 / 5 大火球 | `magic_hits` 闸门 + `RM_DELAYMAGIC`；大火球 `MagHbFireBall` 击退（`Random(20) < 6+lv*3+等级差` 且 `Random(lv)-1 > 0`） |
+| 2 治愈术 | 目标默认自己；满血不 `boTrain`；治疗进 `inc_healing` 池（每 tick 5 点） |
+| 6 施毒术 | 毒药粉 1 张（Shape<=2）；`Random(AntiPoison+7) <= 6` 才生效；Shape1=绿毒掉血 / Shape2=红毒降防；点数 `ROUND(lv/3*(n/10))` |
+| 8 抗拒火环 | 1 格内、`等级 > 目标等级`、`Random(20) < 6+lv*3+等级差`、`push=1+max(0,lv-1)+Random(2)` |
+| 9 地狱火 / 10 疾光电影 | 穿透 13 步（5 / 8 格终点）；疾光 `undeadattack` 的 ×1.5 在**原版是每命中累乘**（照抄） |
+| 11 雷电术 | 只有它对不死系 ×1.5；`Random(10) >= AntiMagic` |
+| 13 灵魂火符 | **先扣 1 张护身符再判命中**；走 SC；无不死系加成 |
+| 14 幽灵盾 / 15 神圣战甲 | 各要 1 张护身符；半径 3；`GetAttackPower(GetPower13(60)+SC下限*10, SC区间+1)`；AC/MAC **上限** `+2+等级 div 7`（14=MAC、15=AC，`btState` 1/0） |
+| 16 困魔咒 | 1 张护身符；3x3 内 `Random(4)+等级-1 > 目标等级` 且无主；**任一失败整体 Result=0**（已定住的不解除，原版同款）；时长 `GetPower13(40)+GetRPow(SC)*3` |
+| 17 骷髅 / 30 神兽 | 护身符 1 / 5 张；先清旧召唤再召 |
+| 18 隐身 / 19 集体隐身 | 1 张护身符；先把 9 格内以我为目标的怪清仇恨（距离>1 或 50%）；时长 `GetPower13(30)+GetRPow(SC)*3` |
+| 20 诱惑之光 | `Random(4-lv)=0` 才进入；`Random(2)=0` 尝试诱惑、另一半「定住」`Random(lv*5+10)` 秒；概率 `1/n14`（`MaxHP div 100`，<=2 取 2，否则 ×2）；失败 `Random(14)=0` 打死 |
+| 21 瞬息移动 | `Random(11) < lv*2+4`；落 **家地图**随机点（边距 2/20/50，`MapRandomMove(m_sHomeMap,1)`），特效 variant=1 |
+| 22 火墙 | 十字 5 格；伤害 `GetAttackPower(GetPower(MPow)+MC下限, MC区间+1)`；时长 `GetPower(10)+(GetRPow(MC) shr 1)` |
+| 23 爆裂 / 33 冰咆哮 | `MagBigExplosion` 半径 `nFireBoomRage/nSnowWindRange=1` → 3x3 |
+| 24 地狱雷光 | 自身半径 `nElecBlizzardRange=2`；**非不死系只有 pwr div 10** |
+| 28 心灵启示 | `Random(6) <= lv+3`；时长 `GetPower13(GetRPow(SC)*2+30)`；下发 `openHealth` 给视野 |
+| 29 群体治疗 | 目标点 3x3 队友，治疗进池 |
+| 31 魔法盾 | 已开不叠加；时长 `GetPower(GetRPow(MC)+15)`；记 `shield_level` 决定折减系数 |
+| 32 圣言术 | 只对不死系；`Random(2)+等级-1 > 目标等级`、`目标等级<50`、`Random(100) < lv*8-lv+15+等级差` 秒杀（HP=0，非伤害）；**失败返 False 不涨点** |
+
+### 服务端其它配套改动
+
+- `world.py`：`Actor.open_hp_until`（`brief_json.openHealth`）、`Player.shield_level`、
+  新增模块级 `mag_struck_damage()`（火墙/技能共用）、`_tick_fire_walls` 改 3 秒一跳且
+  首跳立即（`m_dwRunTick=500`）、火墙伤害改扣 MAC、删掉物理侧的魔法盾 0.7 折减。
+- 剑术修炼点（`_train_sword_skills`）：基本剑术每次命中 `Random(3)+1`；攻杀只在
+  `bo21` 那击；刺杀/半月/烈火每次命中 `+1`；副目标不加。
+- `_attack_player` 的剑术加成（`m_nHitPlus` / `m_nHitDouble`）改到**扣 AC 之前**
+  （`Inc(nPower, ...)` 在原版位于 `_Attack` 的破防计算前）。
+- 删掉自造内容：`_splash_magic`、`_poison_shape`、「恢复了 X 点生命」「XXX 血量 x/y」
+  之类提示、`is_projectile_magic` / `is_area_magic` 两个伪分类。
+
+### 前端
+
+- `PlayScene.mjs` 新增 `openHealth` 分支（写实体 `openHealth`/`hp`/`maxHp`）。
+- `MapActor.mjs` 头顶血条加闸门：`SHOW_RED_HP_LABEL || e.isSelf || e.openHealth > now`
+  （原版 `DrawScrn.pas:305-307` 的 `g_boShowRedHPLable`，客户端设置缺省 False；
+  这里默认开，`localStorage['jootm2.showHpLabel']='0'` 可切回原版缺省行为）。
+
+### 回归
+
+- `test_all_messages` 91/0（33 个技能分支 0 异常）+ `test_tick_systems` 167/2 +
+  `test_pyserver` 87/0 + `test_map_view` 34/0。
+- `test_tick_systems` 剩 2 个失败是 **176 数据 profile** 下 MonItems 目录差异
+  （「MonItems 尾随空格」「狼1 掉落表」），与代码无关，`switch_data.py use current` 后自愈。
+- 测试脚本同步修正三处夹具：护身符/毒药粉装备（原版只认已装备槽，不给就永远走不到
+  伤害分支）、挖肉循环 12→40 刀（鹿 `m_nBodyLeathery=150`，每刀 5~20）、守卫测试先清
+  上一段的骷髅（守卫「锁定扫描到的第一只」）。
+
+### 已知未做（留给后续）
+
+- `IsProperTarget` 的 PK/阵营筛选：火墙、穿透、抗拒、群疗目前只对怪物生效，没有对敌对
+  玩家的判定（本项目 PvP 本身也还没有命中判定的完整链路）。
+- 诱惑之光成功后原版还有 `OpenCrazyMode` 狂怒分支、宠物攻速/移速封顶
+  （`1500-lv*200` / `2000-lv*200`）、叛变计时 `m_dwMasterRoyaltyTick`。
+- 圣言术命中后原版会让「无目标」的不死系逃跑 10 秒（`m_boRunAwayMode`）。
+- 14/15 的 buff 在原版是 `STATE_DEFENCEUP` / `STATE_MAGDEFENCEUP` 两个独立计时，
+  本项目仍共用一个 `ac_buff_until`。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

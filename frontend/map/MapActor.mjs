@@ -14,6 +14,17 @@ import { perf } from '../core/perf.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
+/** 原版客户端设置 ``boShowRedHPLable``（ClMain.pas:7005，缺省 False）。
+ *  为 True 时 DrawScrn.pas:305 把所有 actor 的 m_boOpenHealth 置 True → 头顶全显示血条；
+ *  为 False 时只有心灵启示(28)打到 openHealth 的目标显示。这里默认开（保持现有观感），
+ *  `localStorage['jootm2.showHpLabel'] = '0'` 可切到原版缺省行为。 */
+const SHOW_RED_HP_LABEL = (() => {
+    try {
+        return globalThis.localStorage?.getItem('jootm2.showHpLabel') !== '0';
+    } catch {
+        return true;
+    }
+})();
 // 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑/近黑会被看成「一条一条的黑条」，
 // 这里用明显亮于纯黑的地色，并且优先借用已绘制格像素，保证任何时刻都不会露出黑条带。
 export const FLOOR_FALLBACK = '#3a3222';
@@ -1308,8 +1319,17 @@ export class MapActor {
         // 原版只有一种 HEALTHBAR_RED，人物也不换色；以前给「自己」用了天蓝色，
         // 看起来像魔法条，跟左下红血球对不上（用户反馈的「两边不一致」）。
         // DrawScrn.pas:306 的 `not actor.m_boDeath` → 死亡/尸体一根都不画。
+        // 显示条件（DrawScrn.pas:305-307）：
+        //   if g_boShowRedHPLable then actor.m_boOpenHealth := True;
+        //   if (actor.m_boOpenHealth or actor.m_noInstanceOpenHealth) and not m_boDeath
+        // 即「客户端设置里勾了显示血条」→ 全部显示；没勾 → 只有被心灵启示(28)
+        // 打到 openHealth 的目标显示。g_boShowRedHPLable 原版缺省 False
+        // （ClMain.pas:7005），这里默认开以保持现在「所有怪都有血条」的观感，
+        // localStorage['jootm2.showHpLabel']='0' 可关掉它验证心灵启示的效果。
+        const showHp = SHOW_RED_HP_LABEL || e.isSelf
+            || (e.openHealth > 0 && e.openHealth > Date.now());
         const dead = e.dead || e.hp <= 0;
-        if (e.maxHp > 0 && !dead) {
+        if (showHp && e.maxHp > 0 && !dead) {
             const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
             // 与血球同一取整口径：先算百分比整数，再换算像素，避免两边四舍五入不一致
             const pct = Math.max(0, Math.min(100, Math.round(hp * 100 / e.maxHp)));

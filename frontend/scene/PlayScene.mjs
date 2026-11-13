@@ -1261,6 +1261,17 @@ export class PlayScene extends Scene {
                 }
                 break;
             }
+            case 'openHealth': {
+                // 原版 RM_OPENHEALTH → SM_OPENHEALTH（ObjBase.pas:6290）：把目标标成
+                // m_boOpenHealth（心灵启示 28，STATE_OPENHEATH 计时到期再 RM_CLOSEHEALTH）。
+                // 客户端 DrawScrn.pas:305-307 据此决定画不画头顶血条。
+                const t = this.entities.get(msg.id);
+                if (t) {
+                    t.openHealth = msg.until || 0;
+                    if (msg.maxHp > 0) { t.hp = msg.hp; t.maxHp = msg.maxHp; }
+                }
+                break;
+            }
             case 'attack': {
                 const a = this.entities.get(msg.attackerId);
                 // noAttackAnim：冲撞等不触发攻击者攻击动作（只播目标受击，对齐原版 RM_STRUCK）

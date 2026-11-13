@@ -109,6 +109,18 @@ def prepare(service: GameService):
     # 学会全部技能以覆盖 castMagic 的所有分支
     for mid in w.magic_templates:
         p.skills[mid] = {"level": 0, "train": 0, "key": 0}
+    # 护身符 / 毒药粉夹具：原版 6（施毒术）要毒药粉、13~19 要护身符，而且只认
+    # **已装备**的 U_ARMRINGL(5) / U_BUJUK(9) 槽（Magic.pas:81-144 CheckAmulet）。
+    # 不给夹具，这些分支只会走到「没有护身符。」就返回，等于没测到伤害/时长。
+    from pyserver.util import U_ARMRINGL, U_BUJUK
+    amulet = next((t for t in w.item_templates.values()
+                   if t.stdMode == 25 and t.shape == 5), None)
+    if amulet is not None:
+        p.equipment[U_ARMRINGL] = w.new_item_instance(amulet, 5000)
+    powder = next((t for t in w.item_templates.values()
+                   if t.stdMode == 25 and t.shape <= 2), None)
+    if powder is not None:
+        p.equipment[U_BUJUK] = w.new_item_instance(powder, 5000)
 
     equip_mi = int(equip_inst["makeIndex"]) if equip_inst is not None else 0
     consumable_mi = (int(consumable_inst["makeIndex"])
@@ -425,10 +437,10 @@ def run_success_paths() -> int:
                   animal.id not in {a.id for a in w.nearby(p.map, p.x, p.y)},
                   results)
             s1.messages.clear()
-            # 原版挖肉是随机次数（BodyLeathery 50，每次扣 Random(16)+5 → 3~10 次），
-            # 且两次之间要隔 600ms（ObjBase.pas:17465）。这里按上限 12 次循环，
-            # 每次把 last_butch_at 归零绕开真实等待。
-            for _ in range(12):
+            # 原版挖肉是随机次数（BodyLeathery 鸡 50 / 鹿狼 150，每次扣
+            # Random(16)+5 → 5~20），且两次之间要隔 600ms（ObjBase.pas:17465）。
+            # 鹿最多要 30 刀，这里按 40 次循环，每次把 last_butch_at 归零绕开真实等待。
+            for _ in range(40):
                 p.last_butch_at = 0
                 h["butch"](s1, {"type": "butch", "actorId": animal.id,
                                 "x": animal.x, "y": animal.y})
@@ -841,6 +853,9 @@ def run_success_paths() -> int:
             check("大刀守卫主动攻击视野内怪物（不移动）",
                   mob.hp < mob.max_hp and (guard.x, guard.y) == (gx, gy), results)
             # 打玩家召唤物（race>=80 的有主对象，m_boAttackPet=True 照打）
+            # 守卫每次按 actors 插入顺序锁定「扫描到的第一只」（ObjGuard.pas:87-126），
+            # 上一段的骷髅还在场就会被一直锁着打，先清场保证目标是召唤物。
+            w.remove_actor(mob.id)
             slave = Monster(id=w.new_id(), name="骷髅宝宝", x=guard.x + 1, y=guard.y + 1,
                             hp=30, max_hp=30, level=10, race=100,
                             template=victim.template, master_id=p.id,

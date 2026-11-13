@@ -24,7 +24,10 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.gamedata import MapQuest, parse_map_quest  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
-from pyserver.world import Monster, Player, direction_delta, now_ms  # noqa: E402
+from pyserver.util import delphi_round  # noqa: E402
+from pyserver.world import (  # noqa: E402
+    Monster, Player, direction_delta, mag_struck_damage, now_ms,
+)
 
 PASS = 0
 FAIL = 0
@@ -226,10 +229,10 @@ def test_poison(w, p, sess):
 
 
 def test_fire_wall(w, p, sess):
-    print("\n[4] 火墙每秒伤害 / 过期 / 击杀")
+    print("\n[4] 火墙每 3 秒伤害 / 过期 / 击杀")
     base_t = next(iter(w.monster_templates.values()))
     t = replace(base_t, name="火墙测试怪", race=1, dc=1, maxDc=1,
-                ac=0, hp=100, level=1, walkSpeed=800, attackSpeed=1000)
+                ac=0, mac=0, hp=100, level=1, walkSpeed=800, attackSpeed=1000)
     m = Monster(id=w.new_id(), name=t.name, x=p.x, y=p.y, dir=4,
                 hp=100, max_hp=100, level=1, race=1, template=t,
                 spawn_x=p.x, spawn_y=p.y)
@@ -240,17 +243,29 @@ def test_fire_wall(w, p, sess):
     sess.drain()
     now = now_ms()
     w._tick_fire_walls(now)
-    check("踩火墙的怪物每秒扣血", m.hp == 95, f"hp={m.hp}")
+    # 原版 TEvent.Create 把 m_dwRunTick 置 500（Event.pas:283），
+    # 所以第一次 Run 立刻结算（GetTickCount-500 > 3000 恒成立），之后每 3 秒一跳。
+    check("踩火墙的怪物首跳就扣血", m.hp == 95, f"hp={m.hp}")
     hits = [x for x in sess.messages if x.get("type") == "attack"
             and x.get("magicId") == 22]
     check("火墙广播 attack(magicId=22)", len(hits) >= 1)
     m.hp = 3
-    w._tick_fire_walls(now + 1100)
+    w._tick_fire_walls(now + 1_100)
+    check("不到 3 秒不结算（TFireBurnEvent.Run > 3000）", m.hp == 3, f"hp={m.hp}")
+    w._tick_fire_walls(now + 3_100)
     check("火墙击杀进入重生队列", m.pending_respawn and not m.alive)
     for f in w.combat_state["fire_walls"]:
         f["expire"] = now - 1
-    w._tick_fire_walls(now + 2000)
+    w._tick_fire_walls(now + 4_000)
     check("过期火墙被清理", not w.combat_state["fire_walls"])
+    # 伤害走 RM_MAGSTRUCK_MINE → GetMagStruckDamage：先扣目标 MAC（区间随机）
+    mt = replace(base_t, mac=4)
+    mm = Monster(id=w.new_id(), name="高防怪", x=p.x, y=p.y, dir=4,
+                 hp=100, max_hp=100, level=1, race=1, template=mt,
+                 spawn_x=p.x, spawn_y=p.y)
+    check("火墙伤害扣目标 MAC（fire power 5 - mac 4 = 1）",
+          mag_struck_damage(mm, 5, now) == 1,
+          f"got={mag_struck_damage(mm, 5, now)}")
 
 
 def test_ranged(w, p, sess):
@@ -282,10 +297,17 @@ def test_ranged(w, p, sess):
     raw = max(1, m.roll_attack())
     p.hp = 1000
     p.shield_until = now + 60_000
+    p.shield_level = 3
     w._apply_hit_to_player(m, p, raw)
-    expected = (raw * 7) // 10
-    check("魔法盾减伤 30%", p.hp == 1000 - expected,
-          f"raw={raw} expected={expected} hp={p.hp}")
+    # 魔法盾（STATE_BUBBLEDEFENCEUP）只折减**魔法**伤害（GetMagStruckDamage，
+    # ObjBase.pas:22451）；物理伤害走 StruckDamage，不受魔法盾影响。
+    check("魔法盾不减物理伤害（只作用于 GetMagStruckDamage）", p.hp == 1000 - raw,
+          f"raw={raw} hp={p.hp}")
+    p.combat["macMin"] = p.combat["macMax"] = 0
+    want = delphi_round(raw / 100 * (3 + 2) * 8)
+    got = mag_struck_damage(p, raw, now)
+    check("3 级魔法盾把魔法伤害折成 Round(dmg/100*(3+2)*8)", got == want,
+          f"raw={raw} expect={want} got={got}")
     p.shield_until = 0
     p.hp = 1000
     p.mana_to_health = 1

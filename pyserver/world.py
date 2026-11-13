@@ -30,7 +30,8 @@ from .util import (
     SHAPE_MANA_TO_HP, SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING,
     SHAPE_SUCK_HEALTH, SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP,
     SUPER_GUARD_RACES, SUPER_GUARD_VIEW, YSET_SHAPES,
-    calc_get_exp, java_div, java_round, init_meat_quality, slot_accepts, slot_for,
+    calc_get_exp, delphi_round, java_div, java_round, init_meat_quality,
+    slot_accepts, slot_for,
 )
 from .world_extra import BODY_LEATHERY, WorldExtra
 
@@ -294,6 +295,9 @@ class Actor:
     running: bool = False
     map: GameMap | None = None
     seen: set[int] = field(default_factory=set)
+    # 原版 STATE_OPENHEATH（心灵启示）：头顶血条只在被「启示」后显示一段时间
+    # （DrawScrn.pas:306 的 actor.m_boOpenHealth；默认不画）。
+    open_hp_until: int = 0
 
     def is_player(self) -> bool:
         return isinstance(self, Player)
@@ -310,6 +314,8 @@ class Actor:
             "hp": self.hp, "maxHp": self.max_hp,
             "race": self.race, "raceImg": self.race_img,
             "appr": self.appr, "level": self.level,
+            # 心灵启示到期时间（0 = 不显示血条）；客户端按此开关头顶血条
+            "openHealth": self.open_hp_until if self.open_hp_until > now_ms() else 0,
         }
 
 
@@ -338,6 +344,7 @@ class Player(Actor):
     wide_hit_on: bool = False
     fire_hit_on: bool = False
     shield_until: int = 0
+    shield_level: int = 0
     hide_until: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
@@ -855,6 +862,38 @@ def melee_hit(attacker, target) -> bool:
     if hit_point(target) <= 0:
         return True
     return not (hit_point(attacker) < delphi_random(speed_point(target)))
+
+
+def mag_struck_damage(target, dmg: int, now: int | None = None) -> int:
+    """原版 ``TBaseObject.GetMagStruckDamage``（ObjBase.pas:22441）。
+
+    ```pascal
+    n14 := LoWord(MAC) + Random(HiWord(MAC) - LoWord(MAC) + 1);
+    nDamage := _MAX(0, nDamage - n14);
+    if (nDamage > 0) and m_boAbilMagBubbleDefence then
+      nDamage := Round((nDamage/100) * (btMagBubbleDefenceLevel+2) * 8);
+    ```
+
+    两条要点：**MAC 只减伤不闪避**；魔法盾把伤害折成
+    ``Round(dmg/100*(等级+2)*8)``（0 级 16%、3 级 40%），且**只作用于魔法伤害**
+    —— 物理路径 ``_apply_hit_to_player`` 不过这一步。
+
+    火墙的 ``RM_MAGSTRUCK_MINE``、火球/雷电的 ``RM_MAGSTRUCK``、
+    ``RM_DELAYMAGIC`` 的门槛判定都走这里。
+    """
+    if now is None:
+        now = now_ms()
+    compat = getattr(target, "combat", None)
+    if compat is not None:                    # 玩家：MAC 区间随机
+        lo = int(compat.get("macMin", 0))
+        hi = int(compat.get("macMax", 0))
+        dmg = max(0, dmg - (lo + delphi_random(hi - lo + 1)))
+        if dmg > 0 and getattr(target, "shield_until", 0) > now:
+            dmg = delphi_round(dmg / 100 * (getattr(target, "shield_level", 0) + 2) * 8)
+        return dmg
+    tpl = getattr(target, "template", None)
+    mac = getattr(tpl, "mac", 0) if tpl is not None else 0
+    return max(0, dmg - int(mac or 0))
 
 
 def positive_hit(attacker, target) -> bool:
@@ -1555,7 +1594,9 @@ class GameWorld(WorldExtra):
             if now >= f["expire"]:
                 continue
             keep.append(f)
-            if now - f.get("last_tick", 0) < 1000:
+            # 原版 TFireBurnEvent.Run（Event.pas:239-245）：每 **3 秒** 结算一次，
+            # 且伤害走 RM_MAGSTRUCK_MINE → GetMagStruckDamage（要扣 MAC）。
+            if now - f.get("last_tick", 0) < 3000:
                 continue
             f["last_tick"] = now
             gm = f["map"]
@@ -1564,7 +1605,9 @@ class GameWorld(WorldExtra):
                     continue
                 if a.x != f["x"] or a.y != f["y"]:
                     continue
-                dmg = f["damage"]
+                dmg = mag_struck_damage(a, f["damage"], now)
+                if dmg <= 0:
+                    continue
                 a.hp = max(0, a.hp - dmg)
                 self.broadcast_around(gm, {"type": "attack", "attackerId": f["owner"],
                                            "targetId": a.id, "damage": dmg,
@@ -2194,8 +2237,9 @@ class GameWorld(WorldExtra):
         if not target.alive:
             return                      # 尸体不再挨打（原版 m_boDeath 目标清空）
         now = now_ms()
-        if target.shield_until > now:
-            dmg = java_div(dmg * 7, 10)
+        # 魔法盾（STATE_BUBBLEDEFENCEUP）只折减**魔法**伤害（GetMagStruckDamage，
+        # ObjBase.pas:22451）；物理伤害在 StruckDamage 里不过这条，以前在这
+        # 里统一 ×0.7 是错的。
         if target.poison_armor_until > now:
             dmg = java_round(dmg * 1.2)
         if target.mana_to_health > 0 and target.mp > 0:
