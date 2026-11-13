@@ -634,14 +634,18 @@ class CombatHandlers:
         w = self.world
         p.mp -= cost
         p.skill_cooldown[t.magId] = now
+        extras = None
         if success and skill.get("level", 0) < 3:
             skill["train"] = skill.get("train", 0) + 1 + int(random.random() * 3)
             need = t.maxTrain[lv] if lv < len(t.maxTrain) else 0
             if need > 0 and skill["train"] >= need:
                 skill["train"] -= need
                 skill["level"] = lv + 1
+                # 原版技能修炼成功时同样 SendAddMagic（ObjBase.pas:10172），
+                # 客户端技能页的等级要随消息刷新，否则停在 0 级。
+                extras = {"skills": p.skills_json(w)}
                 w.send_system(p, f"你的 {t.name} 升到了 {skill['level'] + 1} 级！")
-        w.send_stats(p)
+        w.send_stats(p, extras)
 
     def _splash_magic(self, p, m, damage: int, magic_id: int, now: int) -> None:
         splash = java_div(damage, 2)

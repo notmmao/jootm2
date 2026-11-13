@@ -208,6 +208,36 @@ def run_success_paths() -> int:
         # 原版药水不即时回血：AC 写入回血池 m_nIncHealth，由 regen tick 慢慢消耗
         check("消耗品写入回血池", p.inc_health > 0, results)
 
+        # 技能书：原版 TPlayObject.ReadBook 加入 m_MagicList 后立刻 SendAddMagic
+        # （SM_ADDMAGIC），本项目对应 stats.skills 全量快照——缺这条消息就会出现
+        # 「书用掉了、技能栏没技能、重登才看到」。
+        book_t, book_mt = None, None
+        for t in w.item_templates.values():
+            if t.stdMode != 4:
+                continue
+            mt = next((m for m in w.magic_templates.values() if m.name == t.name), None)
+            if mt is None or (mt.job not in (99, p.job)):
+                continue
+            if p.level < (mt.needLevel[0] if mt.needLevel else 0):
+                continue
+            book_t, book_mt = t, mt
+            break
+        if book_t is not None:
+            p.skills.pop(book_mt.magId, None)      # 先遗忘，制造「未学」状态
+            book_inst = w.new_item_instance(book_t)
+            p.bag.append(book_inst)
+            book_mi = int(book_inst["makeIndex"])
+            s1.messages.clear()
+            h["useItem"](s1, {"type": "useItem", "makeIndex": book_mi})
+            check("技能书学习后进入技能列表", book_mt.magId in p.skills, results)
+            check("技能书学习后书本离开背包", p.bag_item(book_mi) is None, results)
+            check("技能书学习后下发 stats.skills（原版 SM_ADDMAGIC）",
+                  any(m.get("type") == "stats"
+                      and str(book_mt.magId) in (m.get("skills") or {})
+                      for m in s1.messages), results)
+        else:
+            check("找到可学的技能书模板", False, results)
+
         # 丢弃 → 拾取
         s1.messages.clear()
         h["drop"](s1, {"type": "drop", "makeIndex": eq_mi})

@@ -169,6 +169,13 @@ class ItemHandlers:
             return
         p.skills[mt.magId] = {"level": 0, "train": 0, "key": 0}
         p.bag.remove(it)
+        p.clear_quick_ref(int(it.get("makeIndex", 0)))
+        # 原版 TPlayObject.ReadBook（ObjBase.pas:23459-23472）：加入 m_MagicList 后
+        # 立刻 RecalcAbilitys + SendAddMagic(SM_ADDMAGIC)。SM_ADDMAGIC 是「服务端主动
+        # 推单条技能」，本项目对应 stats 里的 skills 全量快照——旧实现只回 bagUpdate，
+        # 客户端 this.self.skills 一直是登录时的旧值，技能栏要重登才出现新技能。
+        p.recompute(w)
+        w.send_stats(p, {"skills": p.skills_json(w)})
         w.send_system(p, f"学会了 {mt.name}！")
         self.send_bag_update(p)
 

@@ -1109,6 +1109,57 @@ ReAlive();
 
 ---
 
+## 55. 技能书学习后技能栏不出现（第 29 轮）
+
+**现象**：买一本「攻杀剑术」书双击使用，书消失了、聊天框也有提示，但 F11 技能窗 /
+状态窗技能页里没有新技能，重登才看得到。
+
+**原版依据**
+
+```pascal
+// M2Server/ObjBase.pas:23443-23477 TPlayObject.ReadBook
+Magic := UserEngine.FindMagic(StdItem.Name);          // 按**物品名**查魔法
+if not IsTrainingSkill(Magic.wMagicId) then
+  if (Magic.btJob = 99) or (Magic.btJob = m_btJob) then
+    if m_Abil.Level >= Magic.TrainLevel[0] then begin
+      ...
+      m_MagicList.Add(UserMagic);
+      RecalcAbilitys();
+      PlayObject.SendAddMagic(UserMagic);             // ← SM_ADDMAGIC 主动推送
+      Result := True;
+    end;
+// 23504: MakeDefaultMsg(SM_ADDMAGIC, ...) + TClientMagic 结构体下发
+```
+
+注意原版**没有任何「学会了 XXX」文字提示**——玩家看到的反馈就是技能出现在技能栏。
+
+**根因**：`handlers_items._learn_skill_book` 只做了 `p.skills[magId] = {...}` + `bagUpdate`，
+既没有 `send_stats`（本项目的 SM_ADDMAGIC 等价物是 stats 的 `skills` 全量快照），
+也没 `recompute`。前端只在 `msg.skills !== undefined` 时才更新 `this.self.skills`
+（PlayScene.mjs:1220），于是学习结果只在内存里，UI 要等重登（`to_player_json` 带 skills）才刷新。
+
+**修复**
+
+- `_learn_skill_book`：学会后 `p.recompute(w)`（原版 RecalcAbilitys，被动技能命中/攻杀加成
+  立刻生效）+ `w.send_stats(p, {"skills": p.skills_json(w)})`；顺带补 `clear_quick_ref`。
+- 同类漏发：`handlers_combat._finish_cast` 技能修炼升级（`skill["level"] = lv + 1`）时
+  同样带 `skills` 下发（原版 10172 训练成功也 SendAddMagic），否则技能页等级永远停在 0。
+
+**验证**
+
+- 离线：`test_all_messages` 83/0（+3：学习后进入技能列表 / 书本离开背包 / 下发 stats.skills）。
+  其余 `test_tick_systems` 157/0、`test_pyserver` 95/0、`test_map_view` 34/0。
+- live WS（8080）：临时战士号 level 30 背包塞攻杀剑术 → `useItem` 后收到
+  `stats.skills = {"3":基本剑术, "7":攻杀剑术}`。
+- Playwright 端到端（无头，脚本用完即删）：登录后 `self.skills` 只有 `["3"]`，
+  双击背包里的书后立刻变成 `{"3":…,"7":攻杀剑术}`，F11 技能窗截图里两行技能都在。
+
+**未做（原版额外行为，留作后续）**：原版 `EatItems` StdMode 4 分支在学会刺杀/半月后
+会自动 `ThrustingOnOff(True)` / `HalfMoonOnOff(True)` 并下发 `'+LNG'` / `'+WID'` 开关状态；
+本项目暂未实现自动开启，需要时按 ObjBase.pas:17377-17391 补。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
