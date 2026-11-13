@@ -1036,6 +1036,44 @@ world.py`）；客户端只发 `attack { targetId }` 意图、播挥击动画、
 
 ---
 
+## 53. 僵尸出土洞口改回地面层（盖住人物）
+
+**现象**：僵尸从地下钻出来后留下一个洞口/土堆，它会盖在人物身上；应当和地面、
+尸体一样在角色之下。
+
+**原版依据**
+
+- 洞口/土堆 = 客户端场景事件 `TClEvent`，类型 `ET_DIGOUTZOMBI`，图
+  `WMon6Img[ZOMBIDIGUPDUSTBASE(420) + dir]`（clEvent.pas:14/105），单帧、
+  `m_boBlend` 保持默认 `FALSE`（普通混合，不是加色光效）。
+- 绘制位置在 **`for j` 行循环内部**：`if j = evn.m_nY - BlockTop then
+  evn.DrawEvent(...)`（PlayScn.pas:1259-1266），顺序是「同行地砖/大对象 →
+  事件 → 掉落物 → 角色」，所以角色站在洞口上会盖住它，后一行的树/城墙也会。
+  锚点 = 格子左上角 + 图自带 px/py（`Draw(ax + m_nPx, ay + m_nPy)`），不做格中心换算。
+- 生命周期：M2 `TDigOutZombi.sub_4AA8DC` 建 `TEvent.Create(..., 1, 5*60*1000, True)`
+  （ObjMon.pas:1213），客户端留 5 分钟。
+
+**修复**
+
+- `MapActor.render()` 新增 `drawEvent / groundEvents` 两个参数：按 `ev.y` 分桶，
+  在每行大对象画完之后、掉落物与实体之前回调绘制（`_eventsByRow` 每帧复用）。
+- `PlayScene` 每帧把 `effects` 里的 `digDust` 收进 `_groundEvents` 传给 MapActor；
+  `_renderEffects` 的 `digDust` 分支只保留保活（5 分钟），不再绘制。
+- 新增 `PlayScene._drawGroundEvent()`：普通混合、格左上 + px/py，与原版一致。
+
+**验证**（Playwright 无头，独立临时账号，未打扰在线会话）
+
+- 打桩 `_drawEntity` / `_drawGroundEvent` 记录一帧内调用顺序：
+  `["ev","ent","ent",...]` → 洞口确实先于实体；
+- 截图差分：脚下的洞口像素被画出来（变化 3162 px，bbox 落在格子周围），
+  角色躯干区域在「有/无洞口」两张图里完全一致 → 没被盖住；
+- `node --check` 两个文件通过。临时账号 / 脚本 / 截图已清理。
+
+> 注：原版只在登出/换服时 `EventMan.ClearEvents`（ClMain.pas:3231/3273），
+> 换图时不清理事件，洞口会跟着坐标留在新地图上——这里**照原版保留**，未额外清理。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

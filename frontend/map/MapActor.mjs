@@ -930,7 +930,8 @@ export class MapActor {
         return !!tex && tex.canvas.width === 48 && tex.canvas.height === 32;
     }
 
-    render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0, drawDrop = null, groundItems = null) {
+    render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0, drawDrop = null, groundItems = null,
+           drawEvent = null, groundEvents = null) {
         if (!this.map) return;
         const m = this.map;
         this._cx = cx;
@@ -995,6 +996,20 @@ export class MapActor {
                 dropsByRow.get(g.y).push(g);
             }
         }
+        // 场景事件（原版 TClEvent：僵尸出土的洞口、尸块、圣言术帘幕等）也按行调度。
+        // PlayScn.pas:1259-1266 在**行循环内**、同行地砖/大对象画完之后、掉落物与
+        // 角色之前 `if j = evn.m_nY - BlockTop then evn.DrawEvent(...)`——所以洞口
+        // 属于地面层，站在上面的角色/怪会盖住它，后一行的树/城墙也会盖住它。
+        // 以前放在整帧末尾的特效层（_renderEffects）里画，洞口会盖在人身上。
+        const eventsByRow = this._eventsByRow || (this._eventsByRow = new Map());
+        eventsByRow.clear();
+        if (drawEvent && groundEvents) {
+            for (const ev of groundEvents) {
+                if (ev.y < top || ev.y > bottom) continue;
+                if (!eventsByRow.has(ev.y)) eventsByRow.set(ev.y, []);
+                eventsByRow.get(ev.y).push(ev);
+            }
+        }
         // 名字/血条排队（每帧复用，避免分配）：[snap, anchorX, anchorY] 三元组平铺
         const hudQueue = this._hudQueue || (this._hudQueue = []);
         hudQueue.length = 0;
@@ -1034,6 +1049,13 @@ export class MapActor {
             }
             perf.add('obj', performance.now() - tPhase);
             tPhase = performance.now();
+            // 本行场景事件（原版 PlayScn.pas:1259-1266）：在同行地砖/大对象之上、
+            // 掉落物与角色之下。锚点 = 格子左上角 + 图自带 px/py（DrawEvent 里
+            // `Draw(ax + m_nPx, ay + m_nPy)`，不做格中心换算、不做加色混合）。
+            const evs = eventsByRow.get(gy);
+            if (evs) {
+                for (const ev of evs) drawEvent(ctx, ev, sx(ev.x), sy(ev.y));
+            }
             // 本行地面物品：先于实体绘制，后续行的对象/角色才能正确遮挡它
             const drops = dropsByRow.get(gy);
             if (drops) {

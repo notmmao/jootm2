@@ -3636,11 +3636,21 @@ export class PlayScene extends Scene {
                 || fx.kind === 'firegun' || fx.kind === 'beam';
             if (lit) lights.push({ x: fx.x, y: fx.y, level: 1 });
         }
+        // 地面场景事件（原版 TClEvent）：目前只有僵尸出土留下的洞口/土堆
+        // （mon6 420+dir）。它们在行循环里画在角色之下，所以必须交给 MapActor
+        // 按行调度，不能留在 _renderEffects 的整帧末尾特效层。
+        const groundEvents = this._groundEvents || (this._groundEvents = []);
+        groundEvents.length = 0;
+        for (const fx of this.effects) {
+            if (fx.kind === 'digDust') groundEvents.push(fx);
+        }
         // 掉落物交给 MapActor 按行调度，才能被同格/下一行的角色、树木、建筑正确遮挡
         let tPhase = performance.now();
         this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY,
             (c, g, sx, sy, slot) => this._drawGroundItem(c, g, sx, sy, slot),
-            this.groundItems);
+            this.groundItems,
+            (c, ev, sx, sy) => this._drawGroundEvent(c, ev, sx, sy),
+            groundEvents);
         perf.add('map', performance.now() - tPhase);
         tPhase = performance.now();
         this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
@@ -3893,15 +3903,10 @@ export class PlayScene extends Scene {
                 this._drawFx(ctx, def, 1 + (fx.dir || 0) * 10 + rel, fx.x, fx.y);
                 if (elapsed < def.frames * ft) survivors.push(fx);
             } else if (fx.kind === 'digDust') {
-                // 僵尸出土尘土：mon6 ZOMBIDIGUPDUSTBASE=420+dir 单帧（clEvent.pas:105），
-                // 原版 m_boBlend=FALSE 正常混合（非光效）；服务端尘土事件 5 分钟超时
-                // （ObjMon.pas:1213 TEvent.Create(..., 5*60*1000)），这里同样留 5 分钟。
-                const tex = this._fxTexture({ lib: 'mon6', base: 420 }, fx.dir || 0);
-                if (tex) {
-                    const sx = this.mapActor.screenX(fx.x);
-                    const sy = this.mapActor.screenY(fx.y);
-                    ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
-                }
+                // 僵尸出土洞口/土堆：不在这一层画——原版它在行循环里属于地面事件
+                // （PlayScn.pas:1259-1266，角色画在它上面），绘制由 MapActor 按行
+                // 调度到 _drawGroundEvent。这里只负责保活（服务端事件 5 分钟超时，
+                // ObjMon.pas:1213 TEvent.Create(..., 5*60*1000)）。
                 if (elapsed < 300000) survivors.push(fx);
             } else if (fx.kind === 'fly') {
                 const def = FX_FRAMES[fx.fx];
@@ -4023,6 +4028,21 @@ export class PlayScene extends Scene {
             nums.push(d);
         }
         this.damageNumbers = nums;
+    }
+
+    /**
+     * 单个地面场景事件（原版 TClEvent.DrawEvent，clEvent.pas:87-92）。
+     * 由 MapActor 在行循环里按 `ev.y` 调度：同一行地砖/大对象之后、掉落物与
+     * 角色之前，因此角色站上去会盖住它（与地面/尸体同层）。
+     * 锚点 = 格子左上角 + 图自带 px/py（原版 `Draw(ax + m_nPx, ay + m_nPy)`）。
+     */
+    _drawGroundEvent(ctx, ev, sx, sy) {
+        if (ev.kind === 'digDust') {
+            // 僵尸出土留下的洞口/土堆：mon6 ZOMBIDIGUPDUSTBASE=420+dir 单帧
+            // （clEvent.pas:105）。原版 m_boBlend 默认 FALSE → 普通混合，不是光效。
+            const tex = this._fxTexture({ lib: 'mon6', base: 420 }, ev.dir || 0);
+            if (tex) ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+        }
     }
 
     // 单个地面物品（原版 PlayScn.pas 的 `for j` 行循环里绘制 DropedItemList）。
