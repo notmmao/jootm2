@@ -937,6 +937,50 @@ node --check 通过。合计 351 PASS。
 
 ---
 
+## §51 仓库交互流程对齐原版（第 25 轮）
+
+用户反馈：保管（存入）窗口点一下背包物品就直接存了，原版应先把物品放进
+对话框下方的**圈**（DSellDlgSpot）里，再点 **OK** 才提交（类似卖东西）。
+
+### 51.1 原版依据（FState.pas / ClMain.pas）
+
+- 窗口即卖出窗口的 dmStorage 模式：`ClientGetSendUserStorage`（ClMain.pas:
+  6245-6248）→ `CloseDSellDlg; SpotDlgMode := dmStorage; ShowShopSellDlg`
+  → 窗口 (260,170)、背包 (475,0)、标题 `'保管物品:'`（FState.pas:5378）。
+- 圈：`DSellDlgSpot (27,67) 61x52`（FState.pas:1443-1446），物品图标绘制见
+  `DSellDlgSpotDirectPaint`（5425-5439）。
+- 点背包物品 = 拿起（`DItemGridGridSelect`，FState.pas:4747-4797；放入圈内后
+  背包格清空）。
+- OK 按钮 `(85,150)` 图 386 系（FState.pas:1435-1437 `DSellDlgOk`）→
+  `DSellDlgOkClick`（5447-5459）才 `SendStorageItem`；关窗 `CloseDSellDlg`
+  （4984-4990）把圈内物品 `AddItemBag` 放回。
+- 取回列表同理：点行只 **选中**（`DMenuDlgClick` 设 MenuIndex，5104-5168），
+  点 OK(386 @215,171) 才 `SendTakeBackStorageItem`（`DMenuBuyClick`，5223-5239）。
+
+### 51.2 修复
+
+- `_showStorageDlg` 重写：标题「保管物品:」、圈 (27,67) 61x52、OK 热区
+  `(85,150)`（prguse 393 按下态）＋关闭 (115,0)；新增 `storagePending`
+  暂存、`_renderStorageSpot` 画图标、`_confirmStorageDeposit` 才发
+  `storageStore`；点圈可取回暂存（清 `storagePending` 并刷新背包）；
+  `_refreshBag` 把暂存物品从网格里过滤掉（原版移入圈后 g_ItemArr 清空）；
+  `_closeShopPanel` 清暂存 → 物品自然回到背包。
+- `_showStorageList` 重写：标题「保管物品 / 持久」（27 / 170，对齐
+  DMenuDlgDirectPaint）、行点击只选中（红色 ▶）、OK(386 @215,171) 才发
+  `storageTake`；原来「点行即取回」。
+- 失败兜底：OK 后先本地刷新背包（服务端成功随后用 bag 更新移除；仓库满/
+  超距时物品保持可见，对齐原版失败分支 AddItemBag）。
+
+### 51.3 验证（Playwright 无头实测，脚本用完即删）
+
+打开窗口标题「保管物品:」+ OK/圈齐全 → 点背包物品：暂存进圈、背包格 -1、
+**未发** storageStore → 点 OK：发 1 条 storageStore 且暂存清空 → 点圈：物品
+回背包、暂存清空。取回列表：点行只选中（未发 storageTake）→ 点 OK 发
+storageTake 取选中项。截图核对标题/列/按钮无错位。回归脚本未改（纯前端
+交互），`node --check` 通过。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

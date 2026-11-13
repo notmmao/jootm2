@@ -2771,7 +2771,11 @@ export class PlayScene extends Scene {
         // 快捷栏里的物品从背包网格里「移出」（原版 ItemArr[0..5] 是独立于背包 6..45 的槽，
         // 物品是从背包移进快捷栏的，所以背包里看不到它；服务端 bag 不变，这里只是视图过滤）
         const quickSet = new Set((this.self.quickSlots || []).filter(v => v > 0));
-        const bagItems = items.filter(x => x.slot === undefined && !quickSet.has(x.makeIndex));
+        // 仓库存入模式下已放进圈里暂存的物品同样从网格移出（原版点物品即从 g_ItemArr
+        // 清空、由 DSellDlgSpot 承载，关窗时 CloseDSellDlg → AddItemBag 才放回）
+        const pendingIdx = this.storagePending ? this.storagePending.makeIndex : null;
+        const bagItems = items.filter(x => x.slot === undefined && !quickSet.has(x.makeIndex)
+            && (pendingIdx == null || x.makeIndex !== pendingIdx));
         // 网格只显示 8×5=40 格（原版 ItemArr[6..45]），第 41-46 个在溢出区（ItemArr[46..51]，
         // 原版 DItemGrid 不渲染）——服务端容量 MAXBAGITEM=46，用完网格物品后溢出区自动前移
         const visibleItems = bagItems.slice(0, 40);
@@ -2869,10 +2873,12 @@ export class PlayScene extends Scene {
 
     // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）/ 拿着已穿装备点背包 = 卸下
     _onBagItemClick(it, cell) {
-        // 仓库存入模式：点背包物品直接存（原版 dmStorage 分支 FState.pas:5454，
-        // 不走「拿起→投放」流程）
+        // 仓库存入模式：点背包物品 = 放进 DSellDlgSpot 的圈里暂存（不发请求），
+        // 点 OK 才 SendStorageItem（原版 FState.pas:5393-5459 / 5447-5459）
         if (this.storageMode === 'deposit') {
-            this.conn.send('storageStore', { npcId: this.storageNpcId, makeIndex: it.makeIndex });
+            this.storagePending = it;
+            this._renderStorageSpot();
+            this._refreshBag();     // 暂存物品从背包网格移出（原版 g_ItemArr[idx].S.Name := ''）
             return;
         }
         if (!this.pickedItem) {
@@ -3220,6 +3226,13 @@ export class PlayScene extends Scene {
         this.shopGoldEl = null;
         this.shopSellMode = false;
         this.shopSellItem = null;
+        // 关窗时圈里暂存的物品自然回到背包（原版 CloseDSellDlg → AddItemBag，
+        // FState.pas:4984-4990）；这里从未从服务端移走，只需清暂存并刷新视图
+        this.storagePending = null;
+        this.storageSpotEl = null;
+        this.storageListEl = null;
+        this.storageTakeItems = null;
+        this.storageTakeSel = -1;
         this.storageMode = null;
         this.storageNpcId = -1;
         // 恢复背包位置（卖出/存入时移到右侧）
@@ -3233,12 +3246,13 @@ export class PlayScene extends Scene {
     // ---- 仓库（原版 dmStorage / BoStorageMenu 两套窗口，FState.pas） ----
 
     /** 存入窗口（原版 @storage → SM_SENDUSERSTORAGEITEM → dmStorage 模式的
-     * DSellDlg：投放框只是视觉提示，点背包物品直接 SendStorageItem，
-     * FState.pas:5454）。 */
+     * DSellDlg：点背包物品把它们放进 DSellDlgSpot 的圈里（暂存，不上服务器），
+     * 点 OK 才 SendStorageItem（FState.pas:5393-5459 / ClMain.pas:6245-6248）。 */
     _showStorageDlg(msg) {
         this._closeShopPanel();
         this.storageMode = 'deposit';
         this.storageNpcId = msg.npcId;
+        this.storagePending = null;
         const gui = this.manager.winManager.container;
         const panel = document.createElement('div');
         panel.style.cssText = 'position:absolute;left:260px;top:176px;width:140px;height:181px;'
@@ -3253,22 +3267,46 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
+        // 标题「保管物品:」（原版 DSellDlgDirectPaint：dmStorage → actionname，FState.pas:5378）
         const title = document.createElement('div');
-        title.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
-        title.textContent = '仓库保管';
+        title.style.cssText = 'position:absolute;left:6px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
+        title.textContent = '保管物品:';
         panel.appendChild(title);
-        // 投放框（27,67)61x52：视觉提示（原版 dmStorage 下点背包物品直接存入，
-        // 不经过投放框；这里保留框体与原版窗口外观一致）
+        // 投放圈 Spot (27,67) 61x52：点背包物品先放进这里暂存，点 OK 才真正存入
         const spot = document.createElement('div');
         spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
-            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
-        spot.title = '点击背包里的物品存入仓库';
+            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
+        spot.title = '点背包物品放入，再点 OK 存入';
+        spot.addEventListener('click', () => {
+            // 点圈取回暂存（原版 DSellDlgSpotClick 拿起物品，FState.pas:5391-5424）
+            if (!this.storagePending) return;
+            this.storagePending = null;
+            this._renderStorageSpot();
+            this._refreshBag();
+        });
+        this.storageSpotEl = spot;
         panel.appendChild(spot);
-        // 关闭（背景已画红X，热区 115,0）
-        const close = document.createElement('div');
-        close.style.cssText = 'position:absolute;left:115px;top:0px;width:16px;height:23px;cursor:pointer;';
-        close.addEventListener('click', () => this._closeShopPanel());
-        panel.appendChild(close);
+        // OK / 关闭 热区按钮（与卖出窗口同款；原版 393 是 OK 按下态图）
+        const mkBtn = (idx, x, y, w, h, cb) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`;
+            b.addEventListener('click', cb);
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'visibility:hidden;display:block;';
+                    b.appendChild(im);
+                    b.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                    const restore = () => { im.style.visibility = 'hidden'; };
+                    b.addEventListener('mouseup', restore);
+                    b.addEventListener('mouseleave', restore);
+                }
+            });
+            panel.appendChild(b);
+        };
+        mkBtn(393, 85, 150, 24, 13, () => this._confirmStorageDeposit());
+        mkBtn(64, 115, 0, 16, 23, () => this._closeShopPanel());
         gui.appendChild(panel);
         if (!this.bagPanel) this._buildBag();
         this.bagPanel.style.display = 'block';
@@ -3277,9 +3315,39 @@ export class PlayScene extends Scene {
         this._refreshBag();
     }
 
+    /** 圈里暂存物品的图标绘制（对应原版 DSellDlgSpotDirectPaint，FState.pas:5425-5439） */
+    _renderStorageSpot() {
+        if (!this.storageSpotEl) return;
+        this.storageSpotEl.innerHTML = '';
+        const it = this.storagePending;
+        if (!it || !(it.looks > 0)) return;
+        this._libUrl('items', it.looks).then((url) => {
+            if (url && this.storagePending === it) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                this.storageSpotEl.appendChild(im);
+            }
+        });
+    }
+
+    /** OK：把圈里的物品发给服务端存入（原版 DSellDlgOkClick → dmStorage:
+     * SendStorageItem，FState.pas:5447-5459）。 */
+    _confirmStorageDeposit() {
+        const it = this.storagePending;
+        if (!it) return;
+        this.storagePending = null;
+        this._renderStorageSpot();
+        // 先刷新背包：暂存期间该格被视图过滤掉，清暂存后立即恢复显示；
+        // 服务端成功会下发 bag 更新把它真正移除，失败（仓库满/超距）则保持可见
+        // ——对齐原版失败分支 AddItemBag(g_SellDlgItemSellWait)（ClMain.pas:5172）
+        this._refreshBag();
+        this.conn.send('storageStore', { npcId: this.storageNpcId, makeIndex: it.makeIndex });
+    }
+
     /** 取出列表（原版 @getback → SM_SAVEITEMLIST → ShowShopMenuDlg +
-     * BoStorageMenu=TRUE：物品行点击直接 SendTakeBackStorageItem，
-     * FState.pas:5236）。 */
+     * BoStorageMenu=TRUE：点行只选中（红色标记），点 OK(386) 才
+     * SendTakeBackStorageItem，FState.pas:5104-5168 / 5223-5239）。 */
     _showStorageList(msg) {
         this._closeShopPanel();
         this.storageMode = 'getback';
@@ -3299,36 +3367,68 @@ export class PlayScene extends Scene {
             }
         });
         const title = document.createElement('div');
-        title.style.cssText = 'position:absolute;left:19px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
-        title.textContent = '仓库物品';
+        title.style.cssText = 'position:absolute;left:27px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
+        title.textContent = '保管物品';
         panel.appendChild(title);
         const duraTitle = document.createElement('div');
-        duraTitle.style.cssText = 'position:absolute;left:222px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
+        duraTitle.style.cssText = 'position:absolute;left:170px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
         duraTitle.textContent = '持久';
         panel.appendChild(duraTitle);
-        const list = document.createElement('div');
-        list.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'
+        this.storageListEl = document.createElement('div');
+        this.storageListEl.style.cssText = 'position:absolute;left:27px;top:30px;width:262px;height:138px;'
             + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
-        panel.appendChild(list);
-        const items = msg.items || [];
-        for (const it of items) {
-            const row = document.createElement('div');
-            row.style.cssText = 'position:relative;height:13px;cursor:pointer;color:#fff;';
-            row.innerHTML = `<span style="position:absolute;left:0;">${it.name}</span>`
-                + `<span style="position:absolute;left:222px;color:#fff;">${Math.round((it.durability || 0) / 1000)}/${Math.round((it.durabilityMax || 0) / 1000)}</span>`;
-            row.title = '点击取回该物品';
-            row.dataset.sfx = String(SFX.buttonGlass);
-            const npcId = this.storageNpcId;
-            row.addEventListener('click', () => {
-                this.conn.send('storageTake', { npcId, makeIndex: it.makeIndex });
+        panel.appendChild(this.storageListEl);
+        this.storageTakeItems = msg.items || [];
+        this.storageTakeSel = -1;
+        // 热区按钮（背景 385 已画正常态：箭头/买入/关闭；img 为按下态）
+        const mkBtn = (idx, x, y, w, h, cb) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`;
+            b.addEventListener('click', cb);
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'visibility:hidden;display:block;';
+                    b.appendChild(im);
+                    b.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                    const restore = () => { im.style.visibility = 'hidden'; };
+                    b.addEventListener('mouseup', restore);
+                    b.addEventListener('mouseleave', restore);
+                }
             });
-            list.appendChild(row);
-        }
-        const close = document.createElement('div');
-        close.style.cssText = 'position:absolute;left:291px;top:0px;width:16px;height:23px;cursor:pointer;';
-        close.addEventListener('click', () => this._closeShopPanel());
-        panel.appendChild(close);
+            panel.appendChild(b);
+        };
+        mkBtn(386, 215, 171, 44, 16, () => this._confirmStorageTake());
+        mkBtn(64, 291, 0, 16, 23, () => this._closeShopPanel());
         gui.appendChild(panel);
+        this._renderStorageTakeList();
+    }
+
+    _renderStorageTakeList() {
+        if (!this.storageListEl) return;
+        this.storageListEl.innerHTML = '';
+        const items = this.storageTakeItems || [];
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            const sel = i === this.storageTakeSel;
+            const row = document.createElement('div');
+            row.style.cssText = `position:relative;height:13px;cursor:pointer;color:${sel ? '#ff4444' : '#fff'};`;
+            row.innerHTML = `<span style="position:absolute;left:0;">${sel ? '▶' : ''}${it.name}</span>`
+                + `<span style="position:absolute;left:143px;">${Math.round((it.durability || 0) / 1000)}/${Math.round((it.durabilityMax || 0) / 1000)}</span>`;
+            row.dataset.sfx = String(SFX.buttonGlass);
+            row.addEventListener('click', () => { this.storageTakeSel = i; this._renderStorageTakeList(); });
+            this.storageListEl.appendChild(row);
+        }
+    }
+
+    /** OK：取回选中的物品（原版 DMenuBuyClick 的 BoStorageMenu 分支，
+     * FState.pas:5236-5239 → SendTakeBackStorageItem）。 */
+    _confirmStorageTake() {
+        const items = this.storageTakeItems || [];
+        const it = this.storageTakeSel >= 0 ? items[this.storageTakeSel] : null;
+        if (!it) return;
+        this.conn.send('storageTake', { npcId: this.storageNpcId, makeIndex: it.makeIndex });
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本
@@ -4107,6 +4207,11 @@ export class PlayScene extends Scene {
         this.shopBagListEl = null;
         this.shopListEl = null;
         this.shopSpotEl = null;
+        this.storageSpotEl = null;  // 仓库存入窗口的投放圈
+        this.storagePending = null; // 圈里暂存的待存物品（OK 才发 storageStore）
+        this.storageListEl = null;  // 仓库取回列表容器
+        this.storageTakeItems = null;   // 取回列表数据（选中行才发 storageTake）
+        this.storageTakeSel = -1;
         this.shopGoldEl = null;
         this.shopSellItem = null;
         this.pickedItem = null;
