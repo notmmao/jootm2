@@ -2350,17 +2350,17 @@ export class PlayScene extends Scene {
                 + (passive ? 'color:#888;' : '');
             // 技能图标（原版 MagIcon[Effect*2]，Effect=0 的被动技能也用 magicon[0]）
             // 单击图标弹快捷键设置对话框（原版 DStMag1Click，仅图标可点，整行不可点）
+            // 原版 DStMag1Click（FState.pas:3671-3701）不区分被动/主动，被动技能
+            // 一样能绑键（按下去只发 CM_SPELL，服务端对战士技能直接返回，无效果）。
             if (sk.effect != null && sk.effect >= 0) {
                 this._libUrl('magicon', sk.effect * 2).then((url) => {
                     if (url) {
                         const im = document.createElement('img');
                         im.src = url; im.draggable = false;
                         im.style.cssText = 'position:absolute;left:0;top:0;width:31px;height:33px;'
-                            + (passive ? '' : 'cursor:pointer;');
-                        if (!passive) {
-                            im.title = '点击设置快捷键';
-                            im.addEventListener('click', () => this._setupSkillKey(mid, sk));
-                        }
+                            + 'cursor:pointer;';
+                        im.title = '点击设置快捷键';
+                        im.addEventListener('click', () => this._setupSkillKey(mid, sk));
                         row.appendChild(im);
                     }
                 });
@@ -2375,23 +2375,27 @@ export class PlayScene extends Scene {
             lvEl.textContent = String(sk.level);
             lvEl.style.cssText = 'position:absolute;left:56px;top:17px;font-size:11px;';
             row.appendChild(lvEl);
-            if (!passive) {
-                // 快捷键图标（原版 keyimg Prguse[650..657]，此资源缺失改用 DKeySelDlg 的 F 键图 232/234/...）
-                if (sk.key) {
-                    this._libUrl('prguse', 232 + (sk.key - 1) * 2).then((url) => {
-                        if (url) {
-                            const im = document.createElement('img');
-                            im.src = url; im.draggable = false;
-                            im.style.cssText = 'position:absolute;left:137px;top:8px;';
-                            row.appendChild(im);
-                        }
-                    });
-                } else {
-                    const unset = document.createElement('div');
-                    unset.textContent = '未设置';
-                    unset.style.cssText = 'position:absolute;left:70px;top:12px;font-size:11px;color:#a8a090;';
-                    row.appendChild(unset);
-                }
+            // 修炼进度 CurTrain/MaxTrain（原版 FState.pas:3114-3118：满 3 级显示 '-'）
+            if (sk.maxTrain > 0) {
+                const trEl = document.createElement('div');
+                trEl.textContent = (sk.level >= 3 || !sk.maxTrain)
+                    ? '-' : `${sk.train || 0}/${sk.maxTrain}`;
+                trEl.style.cssText = 'position:absolute;left:88px;top:17px;font-size:11px;color:#c8c0b0;';
+                row.appendChild(trEl);
+            }
+            // 快捷键图标（原版 keyimg Prguse[650..657]，此资源缺失改用 DKeySelDlg 的 F 键图 232/234/...）
+            // 被动技能同样显示已绑键位（原版一套绘制代码不区分）；未绑键时原版
+            // 什么都不画（FState.pas:3084-3089 `if keyimg > 0 then Draw`），
+            // 这里不再自造「未设置」文字——它还会和右边的修炼进度挤在一起。
+            if (sk.key) {
+                this._libUrl('prguse', 232 + (sk.key - 1) * 2).then((url) => {
+                    if (url) {
+                        const im = document.createElement('img');
+                        im.src = url; im.draggable = false;
+                        im.style.cssText = 'position:absolute;left:137px;top:8px;';
+                        row.appendChild(im);
+                    }
+                });
             }
             this.stateSkillListEl.appendChild(row);
         }

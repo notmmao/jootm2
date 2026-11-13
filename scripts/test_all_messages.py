@@ -238,6 +238,61 @@ def run_success_paths() -> int:
         else:
             check("找到可学的技能书模板", False, results)
 
+        # 被动技能修炼（原版 ObjBase.pas:22283-22312）：基本剑术每次物理命中
+        # +Random(3)+1 点；攻杀剑术只在 bo21（攻杀/烈火发动）那一击加点。
+        if monster is not None:
+            monster.x, monster.y = p.x + 1, p.y
+            monster.hp = monster.max_hp = 999999
+            monster.template.speed = 1        # 敏捷 1 → 近战必中，排除随机 miss 干扰
+            p.skills[3] = {"level": 0, "train": 0, "key": 0}
+            p.skills[7] = {"level": 0, "train": 0, "key": 0}
+            p.fire_hit_on = False
+            p.power_hit_count, p.power_hit_point = 1, 0   # 下一击必发动攻杀
+            s1.messages.clear()
+            h["attack"](s1, {"type": "attack", "targetId": monster.id})
+            check("基本剑术命中后累积修炼点",
+                  p.skills[3]["train"] in (1, 2, 3), results)
+            check("攻杀剑术在攻杀发动时累积修炼点",
+                  p.skills[7]["train"] in (1, 2, 3), results)
+
+            t7_before = p.skills[7]["train"]
+            p.power_hit_count, p.power_hit_point = 99, -1  # 本次不发动攻杀
+            s1.messages.clear()
+            h["attack"](s1, {"type": "attack", "targetId": monster.id})
+            check("未发动攻杀时不加攻杀修炼点",
+                  p.skills[7]["train"] == t7_before, results)
+
+            # 练满点数 → 升级 + 下发 skills（原版 CheckMagicLevelup）
+            t3 = w.magic_templates[3]
+            p.skills[3] = {"level": 1, "train": t3.maxTrain[1] - 1, "key": 0}
+            p.power_hit_count, p.power_hit_point = 99, -1
+            s1.messages.clear()
+            h["attack"](s1, {"type": "attack", "targetId": monster.id})
+            check("修炼点到位后技能升级", p.skills[3]["level"] == 2, results)
+            check("技能升级后下发 stats.skills",
+                  any(m.get("type") == "stats"
+                      and (m.get("skills") or {}).get("3", {}).get("level") == 2
+                      for m in s1.messages), results)
+
+            # TrainLevel 门槛：人物等级低于 needLevel[0] 时命中不加点（基本剑术 7 级）
+            saved_lv = p.level
+            p.level = 1
+            p.skills[3] = {"level": 0, "train": 0, "key": 0}
+            p.power_hit_count, p.power_hit_point = 99, -1
+            h["attack"](s1, {"type": "attack", "targetId": monster.id})
+            check("人物等级不足 TrainLevel 时不加点",
+                  p.skills[3]["train"] == 0, results)
+            p.level = saved_lv
+
+        # 快捷键：原版 ClientChangeMagicKey 不校验技能类型，被动技能也能绑键
+        s1.messages.clear()
+        h["magicKeyChange"](s1, {"type": "magicKeyChange", "magicId": 7, "key": 3})
+        check("被动技能（攻杀）可以设置快捷键", p.skills[7]["key"] == 3, results)
+        check("设置快捷键后下发 skills",
+              any(m.get("type") == "stats" and "skills" in m for m in s1.messages),
+              results)
+        h["magicKeyChange"](s1, {"type": "magicKeyChange", "magicId": 7, "key": 0})
+
         # 丢弃 → 拾取
         s1.messages.clear()
         h["drop"](s1, {"type": "drop", "makeIndex": eq_mi})

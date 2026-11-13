@@ -376,6 +376,9 @@ class Player(Actor):
     last_rush_rush_at: int = 0
     power_hit_count: int = 0
     power_hit_point: int = 0
+    # 技能修炼进度下发节流（原版 TrainSkill 后用 SendDelayMsg(RM_MAGIC_LVEXP, 3000ms)
+    # 把 CurTrain 推给客户端；技能页的「25/50」进度条靠它刷新）
+    skill_lvexp_at: int = 0
     attack_mode: int = 1
     skill_cooldown: dict[int, int] = field(default_factory=dict)
     # 原版 m_boDeath：死亡后客户端停在黑白屏，不自动回城；重登时按
@@ -640,9 +643,16 @@ class Player(Actor):
         out: dict[str, dict] = {}
         for mid, s in self.skills.items():
             mt: MagicTemplate | None = world.magic_templates.get(int(mid))
+            lv = int(s.get("level", 0))
+            # 原版 TClientMagic 同时下发 CurTrain（已修炼点数）与 Magic.Def.MaxTrain，
+            # 客户端技能页按「CurTrain/MaxTrain[level]」显示修炼进度
+            # （MirClient/FState.pas:3114-3118）。没有 train/maxTrain 就只剩一个等级数字，
+            # 玩家无法感知「打了多少刀才升一级」。
+            max_train = mt.maxTrain[lv] if mt and lv < len(mt.maxTrain) else 0
             out[str(mid)] = {
                 "name": mt.name if mt else str(mid),
-                "level": s.get("level", 0), "key": s.get("key", 0),
+                "level": lv, "key": s.get("key", 0),
+                "train": int(s.get("train", 0)), "maxTrain": max_train,
                 "effectType": mt.effectType if mt else 0,
                 "effect": mt.effect if mt else 0,
             }

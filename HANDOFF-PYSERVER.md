@@ -1160,6 +1160,81 @@ if not IsTrainingSkill(Magic.wMagicId) then
 
 ---
 
+## 56. 被动技能（基本剑术 / 攻杀剑术）的修炼与快捷键（第 30 轮）
+
+**现象**：用户问「基本剑术、攻杀剑术怎么用、怎么升级？他好像不能像道士法师那样
+添加快捷键」。查下来是**两件事**：① 被动技能从来不涨修炼点（永远 0 级）；
+② 我们自造了「被动技能不能绑键」的限制（原版允许绑）。
+
+**原版依据**
+
+```pascal
+// ① 不能主动施放：DoSpell 对战士技能直接返回（ObjBase.pas:21859）
+if not MagicManager.IsWarrSkill(UserMagic.wMagIdx) then ... // 3/4/7/12/25/26/27 都在表里
+// ② 修炼：命中造成伤害之后（ObjBase.pas:22283-22312）
+if (m_MagicOneSwordSkill <> nil) and (btLevel < 3)
+   and (MagicInfo.TrainLevel[btLevel] <= m_Abil.Level) then
+  TrainSkill(m_MagicOneSwordSkill, Random(3)+1);          // 基本剑术：每次命中 1~3 点
+if bo21 and (m_MagicPowerHitSkill <> nil) and (btLevel < 3) ... then
+  TrainSkill(m_MagicPowerHitSkill, Random(3)+1);          // 攻杀：只在攻杀发动那一击
+// ③ 升级：CheckMagicLevelup（ObjBase.pas:21825）：TrainLevel[btLevel] 是**人物等级**门槛，
+//    MaxTrain[btLevel] 是需要的点数，够了 btLevel+1 并扣点
+// ④ 攻杀是自动触发，不需要按键（ObjBase.pas:8862-8875）：
+Dec(m_btAttackSkillCount);
+if m_btAttackSkillPointCount = m_btAttackSkillCount then begin m_boPowerHit := True; SendSocket('+PWR'); end;
+if m_btAttackSkillCount <= 0 then begin
+  m_btAttackSkillCount := 7 - m_MagicPowerHitSkill.btLevel;
+  m_btAttackSkillPointCount := Random(m_btAttackSkillCount);
+end;
+// 客户端收到 '+PWR' 置 g_boNextTimePowerHit（ClMain.pas:4197），下次攻击改发 CM_POWERHIT
+// ⑤ 绑键：服务端 ClientChangeMagicKey（17506-17520）不校验技能类型；
+//    客户端 DStMag1Click（FState.pas:3671-3701）只处理「键被别的技能占用」，不过滤被动
+// ⑥ 技能页显示 CurTrain/MaxTrain（FState.pas:3114-3118，满 3 级显示 '-'）
+```
+
+**修复**
+
+- `handlers_combat`：新增 `_can_train` / `_train_skill`（原版 TrainSkill +
+  CheckMagicLevelup，升级时 `send_system` + `send_stats(skills)`）/
+  `_train_sword_skills`（基本剑术每次命中 1~3 点；攻杀只在 `sword_hit in (26, 7)`
+  即 bo21 那一击 1~3 点）。接到 `_attack_monster`、`_attack_player`、两个刺杀
+  long-hit 的主目标；副目标（半月/刺杀扫到的）**不**加点，与原版一致。
+- `_finish_cast` 改为复用 `_train_skill`（顺手修掉提示里 `level+1` 的 off-by-one，
+  文案改回原版「XXX 的 YYY 技能修炼成功！！！」）。
+- `world.skills_json` 增加 `train` / `maxTrain`（对应 TClientMagic.CurTrain +
+  Magic.Def.MaxTrain）；未升级时按 1 秒节流下发 skills（原版是
+  `SendDelayMsg(RM_MAGIC_LVEXP, 3000)` 推 CurTrain），否则玩家看不到进度在涨。
+- `handlers_items._magic_key_change`：删掉「被动技能无法设置快捷键」的自造拒绝。
+- 前端 `_refreshSkillPage`：等级右侧显示 `train/maxTrain`（满级显示 `-`）；
+  被动技能图标恢复可点击设键、已绑键位正常显示；去掉自造的「未设置」文字
+  （原版 `if keyimg > 0` 才画，没绑键就是空白，且会与进度文字重叠）。
+
+**数值（Magic.DB，人物等级门槛 / 所需点数）**
+
+| 技能 | 0→1 | 1→2 | 2→3 |
+|---|---|---|---|
+| 基本剑术(3) | 7 级 / 10 点 | 11 级 / 20 点 | 16 级 / 30 点 |
+| 攻杀剑术(7) | 19 级 / 50 点 | 22 级 / 80 点 | 24 级 / 120 点 |
+
+攻杀每次发动 +1~3 点，发动间隔 = `7 - 等级` 刀随机一次（0 级约 7 刀一次），
+所以 0→1 平均三四百刀，符合原版手感。
+
+**验证**
+
+- `test_all_messages` 91/0（+8：命中加基本剑术点 / 攻杀发动加点 / 未发动不加 /
+  满点升级 / 升级下发 skills / 等级不足不加点 / 被动技能可绑键 / 绑键下发 skills）；
+  `test_tick_systems` 157/0、`test_pyserver` 95/0、`test_map_view` 34/0。
+- live WS（8080）：40 级战士走到鸡旁边砍一刀 → 收到 `stats.skills` 里
+  `基本剑术 train=2/10`。
+- Playwright：技能页显示「基本剑术 0 2/10 [F3]」「攻杀剑术 0 5/50」，无文字重叠。
+
+**说明（给玩家/后续）**：这几个技能绑了键按下去**没有效果**——原版客户端会发
+`CM_SPELL`，服务端 `DoSpell` 对战士技能直接 return。真正起作用的是：
+基本剑术常驻加命中点（3×等级）、攻杀发动时该刀伤害 +5+等级、精神力战法加命中点
+（8/3×等级，原版只能 GM 升级，`_Attack` 里没有它的加点分支）。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

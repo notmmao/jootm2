@@ -19,6 +19,10 @@ from .world import Monster, Player, melee_hit, positive_hit
 COMBAT_TYPES = frozenset({"attack", "dirAttack", "castMagic"})
 POISON_INTERVAL_MS = 2_500
 
+# 技能最高 3 级（原版 Magic.DB 的 btTrainLv 恒为 3，LocalDB.pas:382 写死；
+# CheckMagicLevelup 里 `btLevel < 4` 的上界等价于「升到 3 级为止」）。
+MAX_MAGIC_LEVEL = 3
+
 # 原版组队经验加成（TPlayObject.GainExp，ObjBase.pas:15564）：按组内**有效人数**
 # n（同图、非死亡、12 格内的成员）取 bonus[n]，2 人 1.3、3 人 1.4 … 11 人 2.2；
 # 再按等级比例分给每个人（dwExp / sumlv * 个人等级，ObjBase.pas:15594）。
@@ -309,6 +313,7 @@ class CombatHandlers:
         w.broadcast_around(m.map, o, m.x, m.y, SIGHT_RANGE)
         w.send_stats(m)
         now = now_ms()
+        self._train_sword_skills(p, sword_hit)   # 基本剑术/攻杀剑术修炼点
         if sword_hit == 12:
             self._sword_long_attack(p, sword_second_dam(p, dam, 12, 5), m)
         elif sword_hit == 25:
@@ -369,6 +374,7 @@ class CombatHandlers:
             o["swordHit"] = sword_hit
         w.broadcast_around(target.map, o, target.x, target.y, SIGHT_RANGE)
         w.send_stats(target)
+        self._train_sword_skills(p, sword_hit)   # 原版 _Attack 对 PvP 同样加点
         if sword_hit == 12:
             self._sword_long_attack(p, sword_second_dam(p, raw, 12, 5), target)
         elif sword_hit == 25:
@@ -410,6 +416,7 @@ class CombatHandlers:
                                    "x": m.x, "y": m.y, "swordHit": 12},
                            m.x, m.y, SIGHT_RANGE)
         w.send_stats(m)
+        self._train_sword_skills(p, 12)      # 刺杀主目标命中（原版 _Attack 统一加点）
         self._kill_if_dead(p, m, now)
 
     def _sword_long_hit_player(self, p, target) -> None:
@@ -448,6 +455,7 @@ class CombatHandlers:
                                         "x": target.x, "y": target.y, "swordHit": 12},
                            target.x, target.y, SIGHT_RANGE)
         w.send_stats(target)
+        self._train_sword_skills(p, 12)      # 刺杀主目标命中（原版 _Attack 统一加点）
         if target.hp <= 0:
             w.kill_player(target)
 
@@ -629,22 +637,78 @@ class CombatHandlers:
         p.bag.append(it)
         self.send_bag_update(p)
 
+    # ---- 技能修炼（原版 TrainSkill / CheckMagicLevelup）-------------------
+
+    def _can_train(self, p, magic_id: int) -> bool:
+        """原版调用点前置条件：``btLevel < 3`` 且 ``TrainLevel[btLevel] <= 人物等级``。
+
+        TrainLevel 就是 Magic.DB 的 NeedLevel（本项目 MagicTemplate.needLevel），
+        所以 0 级练满点数后还要人物等级够才继续涨点（攻杀 19/22/24 级）。
+        """
+        t = self.world.magic_templates.get(magic_id)
+        if t is None or magic_id not in p.skills:
+            return False
+        skill = p.skills[magic_id]
+        lv = int(skill.get("level", 0))
+        if lv >= MAX_MAGIC_LEVEL:
+            return False
+        need_lv = t.needLevel[lv] if lv < len(t.needLevel) else 0
+        return need_lv <= p.level
+
+    def _train_skill(self, p, magic_id: int, points: int) -> bool:
+        """原版 ``TBaseObject.TrainSkill`` + ``CheckMagicLevelup``（ObjBase.pas:21817/21825）。
+
+        返回是否升级。升级时下发 skills（等价原版 RM_MAGIC_LVEXP 之后的 SendAddMagic）。
+        """
+        w = self.world
+        t = w.magic_templates.get(magic_id)
+        skill = p.skills.get(magic_id)
+        if t is None or skill is None:
+            return False
+        skill["train"] = int(skill.get("train", 0)) + points
+        lv = int(skill.get("level", 0))
+        need = t.maxTrain[lv] if lv < len(t.maxTrain) else 0
+        if lv < MAX_MAGIC_LEVEL and need > 0 and int(skill["train"]) >= need:
+            skill["train"] = int(skill["train"]) - need
+            skill["level"] = lv + 1
+            w.send_system(p, f"{p.name} 的 {t.name} 技能修炼成功！！！")
+            w.send_stats(p, {"skills": p.skills_json(w)})
+            return True
+        # 未升级也要让客户端技能页的「CurTrain/MaxTrain」跟着走。原版是
+        # SendDelayMsg(RM_MAGIC_LVEXP, ..., 3000) 异步推 CurTrain（ObjBase.pas:22294），
+        # 这里用 1 秒节流直接带在 stats 里，避免每刀一条消息。
+        now = now_ms()
+        if now - p.skill_lvexp_at >= 1000:
+            p.skill_lvexp_at = now
+            w.send_stats(p, {"skills": p.skills_json(w)})
+        return False
+
+    def _train_sword_skills(self, p, sword_hit: int) -> None:
+        """物理攻击命中后的被动技能修炼（原版 ObjBase.pas:22283-22312）。
+
+        原版在 ``_Attack`` 里 nPower > 0（已命中）之后：
+        - 基本剑术（3）：每次命中 ``TrainSkill(Random(3)+1)``；
+        - 攻杀剑术（7）：只在 ``bo21``（攻杀/烈火/双龙发动的那一击）
+          ``TrainSkill(Random(3)+1)``；
+        两者都要 ``btLevel < 3`` 且 TrainLevel[btLevel] <= 人物等级。
+        刺杀/半月/烈火的**副目标**不加点（原版只在主目标结算处调用）。
+        """
+        if self._can_train(p, 3):
+            self._train_skill(p, 3, random.randint(1, 3))
+        if sword_hit in (26, 7) and self._can_train(p, 7):   # bo21
+            self._train_skill(p, 7, random.randint(1, 3))
+
     def _finish_cast(self, p, t, skill: dict, lv: int, now: int,
                      cost: int, success: bool) -> None:
         w = self.world
         p.mp -= cost
         p.skill_cooldown[t.magId] = now
         extras = None
-        if success and skill.get("level", 0) < 3:
-            skill["train"] = skill.get("train", 0) + 1 + int(random.random() * 3)
-            need = t.maxTrain[lv] if lv < len(t.maxTrain) else 0
-            if need > 0 and skill["train"] >= need:
-                skill["train"] -= need
-                skill["level"] = lv + 1
-                # 原版技能修炼成功时同样 SendAddMagic（ObjBase.pas:10172），
-                # 客户端技能页的等级要随消息刷新，否则停在 0 级。
+        if success and skill.get("level", 0) < MAX_MAGIC_LEVEL:
+            # 原版 Magic.pas:722-728：施法成功且 TrainLevel[btLevel] <= 人物等级
+            # 才 TrainSkill(Random(3)+1)，升级时 SendAddMagic 刷新客户端。
+            if self._train_skill(p, t.magId, random.randint(1, 3)):
                 extras = {"skills": p.skills_json(w)}
-                w.send_system(p, f"你的 {t.name} 升到了 {skill['level'] + 1} 级！")
         w.send_stats(p, extras)
 
     def _splash_magic(self, p, m, damage: int, magic_id: int, now: int) -> None:

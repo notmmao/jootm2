@@ -356,9 +356,11 @@ class ItemHandlers:
         skill = p.skills.get(magic_id)
         if skill is None:
             return
-        if key != 0 and magic_id in (3, 4, 7):
-            self.world.send_system(p, "被动技能无法设置快捷键。")
-            return
+        # 原版 TPlayObject.ClientChangeMagicKey（ObjBase.pas:17506-17520）**不校验**
+        # 技能类型：被动技能（基本剑术/精神力战法/攻杀）同样可以绑键，客户端
+        # DStMag1Click（FState.pas:3671-3701）也只过滤「键已被别的技能占用」。
+        # 之前这里拒绝被动技能是自造限制，已去掉。按下这些键后客户端发 CM_SPELL，
+        # 服务端 DoSpell 对战士技能直接返回（实际无效果）——与原版一致。
         if key != 0:
             for other in p.skills.values():
                 if other is not skill and other.get("key", 0) == key:
