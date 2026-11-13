@@ -24,8 +24,8 @@
 
 | Race | 原版类 | 原版行为（依据） | 状态 | 备注 |
 |---|---|---|---|---|
-| 11 | TSuperGuard 超级卫士 | 守卫 AI | ✅ | GUARD_RACES（不追击）；CSV「卫士/卫士1」**被填成 51**，见 §3 |
-| 12 | TPetSuperGuard | 沙城守卫 | ✅ | GUARD_RACES；➖ CSV 无 |
+| 11 | TSuperGuard 超级卫士（大刀） | **主动攻击视野(7)内一切怪（race≥80）＋玩家召唤物＋PKLevel≥2 红名**（ObjGuard.pas:87-126，m_boAttackPet=True） | ✅ | TNormNpc 系；站桩不追击（Run 无 Walk）；CSV「卫士/卫士1」 |
+| 12 | TPetSuperGuard 宠物卫士 | 同上但 `m_boAttackPet=False`：有主召唤物先打它才反击（ObjGuard.pas:130-136） | ✅ | ➖ CSV 无 race 12 怪 |
 | 20 | TArcherPolice | 弓箭警察（远程守卫） | ✅ | GUARD+RANGED；➖ CSV 无 |
 | 51 | TMonster＋boAnimal 鸡 | MeatQuality R(3500)+3000、Leathery 50（UsrEngn:1835） | ✅ | 挖肉/肉品质；CSV race 51 挂的是「卫士」 |
 | 52 | 鹿：1/30 TChickenDeer，否则 TMonster | 见人就跑不攻击（ObjMon:531）；Leathery 150 | ✅ | chicken_deer 变种已实作（1/30、MeatQuality 10000+R(20000)） |
@@ -79,6 +79,9 @@
 | 肉品质 m_nMeatQuality | UsrEngn:1835-1864 出生初始化 | ✅ init_meat_quality（鸡/鹿/狼按原版区间） |
 | Leathery 磨损 50/150 | UsrEngn:1840/1849/1863 | ✅ ANIMAL_LEATHERY（第 17 轮按 race 修正） |
 | 守卫 AI GUARD_RACES {11,12,20,112} | 守卫不追远、不拉仇恨 | ✅ |
+| 大刀守卫主动打怪/召唤物/红名 | TSuperGuard.Run（ObjGuard.pas:87-126） | ✅（第 22 轮；守卫目标 pk_point≥200 = PKLevel≥2） |
+| 杀怪经验等级惩罚 | CalcGetExp（ObjBase.pas:2250）：≥怪+10 级每超 1 级扣 1/15，保底 1 | ✅（第 22 轮；`boHighLevelKillMonFixExp` 默认 False=惩罚生效） |
+| 组队经验 ×bonus[n] 按等级比例分 | GainExp（ObjBase.pas:15557-15603，2 人 1.3…11 人 2.2） | ✅（第 22 轮；12 格内同图存活成员） |
 | 远程 RANGED_RACES {82,87,93,94,104,112,20} | 各远程类 | ✅（攻击距离/拉开距离/追击半径） |
 | 用毒 {82,119} | m_boUsePoison | ✅ |
 | 鹿 1/30 变种 TChickenDeer | UsrEngn:1844 | ✅ |

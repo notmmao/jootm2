@@ -800,6 +800,42 @@ FightExp div 2、HP 拉满、`ReAlive` 广播 RM_ALIVE(10153→SM_ALIVE=27)。
 
 ---
 
+## §48 第 22 轮：大刀守卫主动打怪/召唤物 + 杀怪经验等级惩罚与组队分配
+
+### 48.1 大刀守卫（用户确认「大刀守卫会攻击怪物和召唤物」属实）
+
+原版 `TSuperGuard`（race 11，`ObjGuard.pas`，继承 `TNormNpc`——与弓箭手的
+`TGuardUnit` 是**两套 AI**）：`Run`（:87-126）每攻击冷却扫视野 7，目标 =
+`PKLevel>=2` 玩家 或 `race>=RC_MONSTER(80)` 且非任务怪的**任何对象**；
+`m_boAttackPet=True` → **玩家召唤物照打**；race 12 `TPetSuperGuard`
+`m_boAttackPet=False` 只打无主怪（有主召唤物须先打它才反击）。守卫站桩
+（Run 无 Walk 分支）。弓箭守卫（112/20）`TGuardUnit.IsProperTarget`
+（ObjMon2.pas:828）不打普通怪，只有红名/反击——维持原状。
+
+| 端 | 改动 |
+|---|---|
+| `pyserver/util.py` | `SUPER_GUARD_RACES/SUPER_GUARD_VIEW(7)/RED_NAME_PK_POINT(200)`；`calc_get_exp` |
+| `pyserver/world.py` | `_resolve_target` 支持返回 Monster（大刀守卫目标集）；`_monster_ai` 守卫打怪结算（roll_attack−怪 AC，kill_monster 不给经验）；守卫有目标**不再追击移动**（站桩）；`_guard_hostile` 红名阈值 `pk_point>0 → ≥200`（原版 PKLevel=PkPoint div 100，ObjBase.pas:2236） |
+
+### 48.2 经验惩罚与组队分配（原版均有，此前未实作）
+
+- `CalcGetExp`（ObjBase.pas:2250-2261）：玩家等级 ≥ 怪等级+10 时
+  `exp - Round(exp/15 × 超出级数)`，保底 1；`boHighLevelKillMonFixExp`
+  默认 False（M2Share.pas:2141）＝惩罚生效。Delphi Round=银行家舍入＝Python round。
+- 组队 `GainExp`（ObjBase.pas:15557-15603）：不是平分！有效成员（同图、存活、
+  切比雪夫 ≤12）n>1 时 `exp × bonus[n]`（2 人 1.3 … 11 人 2.2）后按等级比例
+  （`dwExp/sumlv×个人等级`）分配。
+- 接入点：`handlers_combat._grant_exp`（击杀）、`world.py` 火墙击杀、宝宝击杀
+  （原版 20845-20852 主人走 CalcGetExp）。
+
+### 48.3 验证
+
+`test_all_messages` 72/0（+9：惩罚 3/单人/组队/守卫打怪/打召唤物/打红名/race12
+不打有主召唤物）；`test_tick_systems` 140/0（旧「守卫打红名」断言按原版口径修正：
+pk_point=1 黄名不打、≥200 才打）；`test_pyserver` 95/0；`test_map_view` 34/0。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

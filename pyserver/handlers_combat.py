@@ -10,13 +10,21 @@ import random
 from typing import Any
 
 from .util import (
-    BAG_SIZE, SIGHT_RANGE, U_WEAPON, _int, delphi_round, direction_delta,
-    direction_toward, java_div, java_round, now_ms, random_mine_dura,
+    BAG_SIZE, SIGHT_RANGE, U_WEAPON, _int, calc_get_exp, delphi_round,
+    direction_delta, direction_toward, java_div, java_round, now_ms,
+    random_mine_dura,
 )
 from .world import Monster, Player
 
 COMBAT_TYPES = frozenset({"attack", "dirAttack", "castMagic"})
 POISON_INTERVAL_MS = 2_500
+
+# 原版组队经验加成（TPlayObject.GainExp，ObjBase.pas:15564）：按组内**有效人数**
+# n（同图、非死亡、12 格内的成员）取 bonus[n]，2 人 1.3、3 人 1.4 … 11 人 2.2；
+# 再按等级比例分给每个人（dwExp / sumlv * 个人等级，ObjBase.pas:15594）。
+# boHighLevelKillMonFixExp=True 的「平均分配」分支默认关闭（M2Share.pas:2141）。
+GROUPMAX = 11
+PARTY_EXP_BONUS = (1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2)
 
 
 def is_heal_magic(magic_id: int) -> bool:
@@ -194,20 +202,36 @@ class CombatHandlers:
         w.send_stats(m)
 
     def _grant_exp(self, p, m) -> None:
+        """击杀经验结算（原版 ObjBase.pas:20809 死亡 → CalcGetExp → GainExp）。
+
+        1. 先过 ``CalcGetExp``（ObjBase.pas:2250）等级惩罚：玩家等级 ≥ 怪等级+10
+           时每超 1 级扣 1/15，保底 1（``boHighLevelKillMonFixExp`` 默认 False，
+           惩罚生效）。
+        2. 组队走 ``TPlayObject.GainExp``（ObjBase.pas:15557-15603）：有效成员
+           （同图、非死亡、|dx|/|dy|≤12，源码两处笔误都写成 dx，按意图取 dy，
+           等效切比雪夫 ≤12）n>1 时经验 ×bonus[n] 后**按等级比例**分配——
+           不是平分。
+        """
         w = self.world
         exp = m.template.exp if m.template else 0
+        mon_level = m.template.level if m.template else 1
+        exp = calc_get_exp(p.level, mon_level, exp)
         party = w.party_of(p.id)
         if party is not None and len(party.member_ids) > 1:
             nearby = []
             for pid in party.member_ids:
                 a = w.actor(pid)
                 if (isinstance(a, Player) and a.alive and a.map is p.map
-                        and a.distance_to(p) <= 10):
+                        and a.distance_to(p) <= 12):
                     nearby.append(a)
-            share = java_div(exp, max(1, len(nearby)))
-            for mp in nearby:
-                w.add_exp(mp, share)
-            return
+            n = len(nearby)
+            if n > 1:
+                total = round(exp * PARTY_EXP_BONUS[min(n, GROUPMAX)])
+                sumlv = sum(mp.level for mp in nearby)
+                if sumlv > 0:
+                    for mp in nearby:
+                        w.add_exp(mp, round(total / sumlv * mp.level))
+                    return
         w.add_exp(p, exp)
 
     def _kill_if_dead(self, p, m, now: int) -> None:

@@ -648,6 +648,134 @@ def run_success_paths() -> int:
         finally:
             w.remove_actor(zil.id)
 
+        # 第 22 轮：经验惩罚（CalcGetExp）+ 组队加成/按等级分配 + 大刀守卫
+        from pyserver.util import calc_get_exp, RED_NAME_PK_POINT
+        check("经验惩罚：玩家等级 < 怪等级+10 全额",
+              calc_get_exp(20, 15, 100) == 100, results)
+        check("经验惩罚：玩家 30 杀 10 级怪（超 10 级）扣 10/15 → 33",
+              calc_get_exp(30, 10, 100) == 33, results)
+        check("经验惩罚：扣到 ≤0 保底 1",
+              calc_get_exp(80, 10, 3) == 1, results)
+        # 单人杀怪走 _grant_exp：全额套惩罚
+        victim = Monster(id=w.new_id(), name="骷髅", x=p.x + 1, y=p.y,
+                         hp=10, max_hp=10, level=10, race=86,
+                         template=SimpleNamespace(name="骷髅", race=86, appr=8,
+                                                  walkSpeed=800, attackSpeed=1000,
+                                                  level=10, exp=100, ac=0, dc=1, maxDc=2),
+                         spawn_x=p.x + 1, spawn_y=p.y)
+        victim.hp = 0
+        w.add_actor(victim, p.map)
+        try:
+            lv0, exp0 = p.level, p.exp
+            service._grant_exp(p, victim)
+            check("单人击杀经验带等级惩罚（原版 CalcGetExp）",
+                  p.exp == exp0 + calc_get_exp(p.level, 10, 100), results)
+        finally:
+            w.remove_actor(victim.id)
+        # 组队：2 人同图 ≤12 格，经验 ×1.3 后按等级比例分（ObjBase.pas:15564/15594）
+        mate = Player(id=w.new_id(), name="队友", x=p.x + 2, y=p.y,
+                      hp=50, max_hp=50, map=p.map)
+        w.add_player(mate)
+        try:
+            old = {a.id: (a.level, a.exp) for a in (p, mate)}
+            w.create_party(p.id, mate.id)
+            victim2 = Monster(id=w.new_id(), name="骷髅", x=p.x + 1, y=p.y,
+                              hp=10, max_hp=10, level=10, race=86,
+                              template=victim.template,
+                              spawn_x=p.x + 1, spawn_y=p.y)
+            w.add_actor(victim2, p.map)
+            try:
+                service._grant_exp(p, victim2)
+                # 组队期望动态计算：先 CalcGetExp 惩罚，再 ×1.3、按等级比例分
+                exp_after = calc_get_exp(p.level, 10, 100)
+                total = round(exp_after * 1.3)
+                check("组队 2 人：总经验 ×1.3 后按等级比例分配（非平分）",
+                      p.exp - old[p.id][1] == round(total / (p.level + mate.level) * p.level)
+                      and mate.exp - old[mate.id][1] == round(total / (p.level + mate.level) * mate.level),
+                      results)
+            finally:
+                w.remove_actor(victim2.id)
+                w.leave_party(p.id)
+        finally:
+            w.remove_player(mate)
+
+        # 大刀守卫：主动攻击视野内怪物（ObjGuard.pas:87-126，race>=RC_MONSTER 80）。
+        # 测试图上还有别的怪（原版语义 = 锁定扫描到的第一只），所以要挑一块
+        # 距所有已有怪 >10 格的空地摆放，保证锁定目标就是测试造的怪。
+        spot = None
+        for dx in range(15, 90):
+            x0 = p.x + dx
+            if x0 >= p.map.width - 2:
+                break
+            if all(max(abs(a.x - x0), abs(a.y - p.y)) > 10
+                   for a in p.map.actors.values() if a is not p):
+                spot = x0
+                break
+        if spot is None:
+            spot = p.x + 15
+        guard = Monster(id=w.new_id(), name="卫士", x=spot + 6, y=p.y,
+                        hp=500, max_hp=500, level=40, race=11,
+                        template=SimpleNamespace(name="卫士", race=11, appr=12,
+                                                 walkSpeed=800, attackSpeed=1000,
+                                                 level=40, dc=20, maxDc=40),
+                        spawn_x=spot + 6, spawn_y=p.y)
+        mob = Monster(id=w.new_id(), name="骷髅", x=guard.x + 1, y=guard.y,
+                      hp=30, max_hp=30, level=10, race=86,
+                      template=victim.template, spawn_x=guard.x + 1, spawn_y=guard.y)
+        gx, gy = guard.x, guard.y
+        w.add_actor(guard, p.map)
+        w.add_actor(mob, p.map)
+        try:
+            w._monster_ai(guard, now_ms())
+            check("大刀守卫主动攻击视野内怪物（不移动）",
+                  mob.hp < mob.max_hp and (guard.x, guard.y) == (gx, gy), results)
+            # 打玩家召唤物（race>=80 的有主对象，m_boAttackPet=True 照打）
+            slave = Monster(id=w.new_id(), name="骷髅宝宝", x=guard.x + 1, y=guard.y + 1,
+                            hp=30, max_hp=30, level=10, race=100,
+                            template=victim.template, master_id=p.id,
+                            spawn_x=guard.x + 1, spawn_y=guard.y + 1)
+            w.add_actor(slave, p.map)
+            try:
+                w._monster_ai(guard, now_ms() + 1500)
+                check("大刀守卫攻击玩家召唤物（m_boAttackPet=True）",
+                      slave.hp < slave.max_hp, results)
+            finally:
+                w.remove_actor(slave.id)
+            # 红名玩家被锁定攻击（PKLevel = PkPoint div 100 >= 2）
+            p.pk_point = RED_NAME_PK_POINT
+            p.hp = 100
+            p.x, p.y = guard.x + 1, guard.y   # 原版守卫站桩，近战 _Attack 1 格内才命中
+            try:
+                w._monster_ai(guard, now_ms() + 3000)
+                check("大刀守卫攻击深红名玩家（PKLevel>=2，近战 1 格）",
+                      p.hp < 100, results)
+            finally:
+                p.pk_point = 0
+                p.x, p.y = gx, gy - 1
+            # race 12 宠物卫士不打有主的召唤物（m_boAttackPet=False，ObjGuard.pas:130-136）
+            guard12 = Monster(id=w.new_id(), name="卫士1", x=p.x + 6, y=p.y + 6,
+                              hp=500, max_hp=500, level=40, race=12,
+                              template=SimpleNamespace(name="卫士1", race=12, appr=12,
+                                                       walkSpeed=800, attackSpeed=1000,
+                                                       level=40, dc=20, maxDc=40),
+                              spawn_x=p.x + 6, spawn_y=p.y + 6)
+            w.add_actor(guard12, p.map)
+            slave2 = Monster(id=w.new_id(), name="骷髅宝宝", x=guard12.x + 1, y=guard12.y,
+                             hp=30, max_hp=30, level=10, race=100,
+                             template=victim.template, master_id=p.id,
+                             spawn_x=guard12.x + 1, spawn_y=guard12.y)
+            w.add_actor(slave2, p.map)
+            try:
+                w._monster_ai(guard12, now_ms() + 4500)
+                check("宠物卫士(race12)不打有主召唤物（m_boAttackPet=False）",
+                      slave2.hp == slave2.max_hp, results)
+            finally:
+                w.remove_actor(slave2.id)
+                w.remove_actor(guard12.id)
+        finally:
+            w.remove_actor(mob.id)
+            w.remove_actor(guard.id)
+
         # 空图休眠：无人在线的图怪物 AI 冻结（第 20 轮性能优化）
         far_map = next((m for m in w.maps.values()
                         if all(pl.map is not m for pl in w.players())

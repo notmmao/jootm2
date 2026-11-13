@@ -26,10 +26,11 @@ from .util import (
     HSET_SHAPES,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
-    RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
-    SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING, SHAPE_SUCK_HEALTH,
-    SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP, YSET_SHAPES,
-    java_div, java_round, init_meat_quality, slot_accepts, slot_for,
+    RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT, REGEN_INTERVAL_MS,
+    SHAPE_MANA_TO_HP, SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING,
+    SHAPE_SUCK_HEALTH, SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP,
+    SUPER_GUARD_RACES, SUPER_GUARD_VIEW, YSET_SHAPES,
+    calc_get_exp, java_div, java_round, init_meat_quality, slot_accepts, slot_for,
 )
 from .world_extra import BODY_LEATHERY, WorldExtra
 
@@ -1401,7 +1402,11 @@ class GameWorld(WorldExtra):
                     owner = self.actor(f["owner"])
                     self.kill_monster(a, now, owner)
                     if isinstance(owner, Player):
-                        self.add_exp(owner, a.template.exp if a.template else 0)
+                        t = a.template
+                        # 原版火墙/宝宝击杀同样走主人的 CalcGetExp（ObjBase.pas:20848）
+                        self.add_exp(owner, calc_get_exp(
+                            owner.level, t.level if t else 1,
+                            t.exp if t else 0))
         self.combat_state["fire_walls"] = keep
 
     def _tick_pending_ranged_hits(self, now: int) -> None:
@@ -1578,6 +1583,27 @@ class GameWorld(WorldExtra):
 
         if target is not None:
             d = m.distance_to(target)
+            if isinstance(target, Monster):
+                # 大刀守卫打怪（TSuperGuard.AttackTarget，ObjGuard.pas:31-66）：
+                # RM_HIT 挥刀 + _Attack 结算；守卫**不移动**（Run 无 Walk 分支），
+                # 目标跑出视野后下一轮扫描不再锁定（_resolve_target 返回 None）。
+                # 守卫杀怪：m_ExpHitter 是守卫（非玩家无主人）→ 无经验
+                # （ObjBase.pas:20804-20854 分支），掉落照常。
+                if (t.race in SUPER_GUARD_RACES and d <= 2
+                        and now >= m.next_attack_at):
+                    m.next_attack_at = now + attack_ms
+                    m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
+                    dmg = max(1, m.roll_attack()
+                              - (target.template.ac if target.template else 0))
+                    target.hp = max(0, target.hp - dmg)
+                    self.broadcast_around(
+                        m.map, {"type": "attack", "attackerId": m.id,
+                                "targetId": target.id, "damage": dmg,
+                                "x": target.x, "y": target.y}, m.x, m.y, SIGHT_RANGE)
+                    self.send_stats(target)
+                    if target.hp <= 0:
+                        self.kill_monster(target, now, None)
+                return
             if t.race in RANGED_RACES:
                 if d <= RANGED_ATTACK_RANGE:
                     if now >= m.next_attack_at:
@@ -1611,7 +1637,9 @@ class GameWorld(WorldExtra):
                                               m.x, m.y)
                     else:
                         self._apply_hit_to_player(m, target, dmg)
-            elif now >= m.next_move_at:
+            elif (now >= m.next_move_at and not is_guard):
+                # 原版守卫不追击：TGuardUnit.Run / TSuperGuard.Run 都没有 Walk
+                # 分支，目标跑出视野即放弃（ObjMon2.pas:924-980 / ObjGuard.pas:87）。
                 m.next_move_at = now + walk_ms
                 m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
                 if self.try_move(m, m.dir):
@@ -1747,7 +1775,11 @@ class GameWorld(WorldExtra):
                     self._send_hits(m, enemy, dmg)
                     if enemy.hp <= 0:
                         self.kill_monster(enemy, now, master)
-                        self.add_exp(master, enemy.template.exp if enemy.template else 0)
+                        t = enemy.template
+                        # 宝宝击杀：主人按 CalcGetExp（ObjBase.pas:20845-20852）
+                        self.add_exp(master, calc_get_exp(
+                            master.level, t.level if t else 1,
+                            t.exp if t else 0))
                         self._gain_slave_exp(m, enemy)
             elif now >= m.next_move_at:
                 m.next_move_at = now + walk_interval
@@ -1796,9 +1828,32 @@ class GameWorld(WorldExtra):
         slave.hp = min(slave.hp, slave.max_hp)
         self.send_stats(slave)
 
-    def _resolve_target(self, m: Monster, now: int) -> Player | None:
-        is_guard = m.template is not None and m.template.race in GUARD_RACES
-        if m.template is not None and m.template.race in NEUTRAL_RACES:
+    def _resolve_target(self, m: Monster, now: int) -> Actor | None:
+        t = m.template
+        is_guard = t is not None and t.race in GUARD_RACES
+        if t is not None and t.race in SUPER_GUARD_RACES:
+            # 大刀守卫 TSuperGuard.Run（ObjGuard.pas:87-126）：每攻击冷却扫视野
+            # (m_nViewRange=7)，目标条件 = PKLevel>=2 的玩家 或 race>=RC_MONSTER(80)
+            # 且非任务怪的**任何对象（含玩家召唤物）**，取扫描到的第一个锁定。
+            # race 12 TPetSuperGuard（m_boAttackPet=False）不打有主的召唤物，
+            # 除非它正以自己为目标（ObjGuard.pas:108-119）。守卫不移动，站桩打。
+            for a in list(m.map.actors.values()) if m.map is not None else ():
+                if a is m or not getattr(a, "alive", False):
+                    continue
+                if not isinstance(a, (Monster, Player)):
+                    continue    # NPC 不参与（原版 race<RC_MONSTER 不满足目标条件）
+                if a.distance_to(m) > SUPER_GUARD_VIEW:
+                    continue
+                if isinstance(a, Player):
+                    if a.pk_point >= RED_NAME_PK_POINT:
+                        return a
+                    continue
+                if isinstance(a, Monster) and a.template is not None and a.race >= 80:
+                    if t.race == 12 and a.master_id >= 0 and a.target_id != m.id:
+                        continue
+                    return a
+            return None
+        if t is not None and t.race in NEUTRAL_RACES:
             # 中立怪（鸡/鹿/羊/奥玛）在原版是 TMonster：Run 里没有 SearchTarget，
             # 只 Wondering 乱走，唯一的目标来源是被打时 TAnimalObject.Struck →
             # SetTargetCreat(hiter)。所以这里**不搜索**，只沿用已被打出仇恨的目标，
@@ -1826,7 +1881,10 @@ class GameWorld(WorldExtra):
 
     @staticmethod
     def _guard_hostile(m: Monster, p: Player) -> bool:
-        return p.id == m.last_hiter_id or p.pk_point > 0
+        # TGuardUnit.IsProperTarget（ObjMon2.pas:875-878）：①m_LastHiter=对象
+        # ②其当前目标指向 112 守卫（简化为还击）③PKLevel>=2 —— PKLevel =
+        # PkPoint div 100（ObjBase.pas:2236），>=2 即深红名 pk_point>=200。
+        return p.id == m.last_hiter_id or p.pk_point >= RED_NAME_PK_POINT
 
     def _ranged_damage(self, m: Monster, target: Player) -> int:
         """怪物对玩家的原始伤害（DC 掷点 − AC），可能 <= 0。

@@ -27,12 +27,43 @@ EQUIP_SLOTS = 13
 RANGED_RACES = frozenset({82, 87, 93, 94, 104, 112, 20})
 # 守卫：原版 SUPREGUARD=11 / PETSUPREGUARD=12 / ARCHER_POLICE=20 / RC_ARCHERGUARD=112
 GUARD_RACES = frozenset({11, 12, 20, 112})
+# 大刀守卫（TSuperGuard race 11 / TPetSuperGuard race 12，ObjGuard.pas）：
+# 主动攻击视野(7)内的一切怪物（race >= RC_MONSTER=80）与红名玩家；
+# m_boAttackPet=True 时**玩家的召唤物也照打**（race 12 唯一例外，见 _resolve_target）。
+SUPER_GUARD_RACES = frozenset({11, 12})
+# 原版 PKLevel = PkPoint div 100（ObjBase.pas:2236），守卫目标条件 PKLevel >= 2
+# （TGuardUnit.IsProperTarget ObjMon2.pas:878 / TSuperGuard.Run ObjGuard.pas:100）
+# = 深红名 pk_point >= 200。黄名（100~199）不会被守卫攻击。
+RED_NAME_PK_POINT = 200
 # 中立怪：不主动搜敌，**被打才还击**。原版这些 race 实例化成 TMonster，
 # 而 TMonster.Run（ObjMon.pas:415）里没有 SearchTarget 调用（只有 Wondering 乱走），
 # 目标只可能来自 TAnimalObject.Struck(hiter) → SetTargetCreat(hiter)。
 #   ANIMAL_CHICKEN=51 鸡 / ANIMAL_DEER=52 鹿·羊 / MONSTER_OMA=80 奥玛
 # 对照：53 狼 与 81~ 各类走 TATMonster，Run 里每 1.5~3 秒 SearchTarget → 主动。
 NEUTRAL_RACES = frozenset({51, 52, 80})
+# 大刀守卫视野（TSuperGuard.Create：m_nViewRange := 7，ObjGuard.pas:71）
+SUPER_GUARD_VIEW = 7
+
+
+def calc_get_exp(player_level: int, mon_level: int, exp: int) -> int:
+    """原版 ``TBaseObject.CalcGetExp``（ObjBase.pas:2250-2261）经验惩罚。
+
+    ```pascal
+    if g_Config.boHighLevelKillMonFixExp or (m_Abil.Level < (nLevel + 10)) then
+      Result := nExp                                    // 玩家 < 怪等级+10：全额
+    else
+      Result := nExp - Round((nExp / 15) * (m_Abil.Level - (nLevel + 10)));
+    if Result <= 0 then Result := 1;                    // 保底 1
+    ```
+
+    ``boHighLevelKillMonFixExp`` 默认 False（M2Share.pas:2141）——惩罚默认生效，
+    即玩家等级 ≥ 怪等级+10 时每超 1 级扣 1/15。Delphi ``Round`` 是银行家舍入，
+    Python 3 的 ``round`` 同为 half-to-even，直接对应。
+    """
+    if player_level < mon_level + 10:
+        return exp
+    result = exp - round(exp / 15 * (player_level - mon_level - 10))
+    return result if result > 0 else 1
 RANGED_ATTACK_RANGE = 7
 RANGED_KEEP_AWAY = 4
 RANGED_CHASE_RANGE = 11

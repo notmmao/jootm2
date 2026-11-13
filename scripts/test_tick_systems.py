@@ -329,7 +329,12 @@ def test_ai_targeting(w, p):
     check("守卫反击打过自己的玩家", w._resolve_target(guard, now) is p)
     guard.last_hiter_id = -1
     p.pk_point = 1
-    check("守卫打红名玩家", w._resolve_target(guard, now) is p)
+    # 原版 PKLevel = PkPoint div 100（ObjBase.pas:2236），PKLevel>=2 即
+    # pk_point>=200 才是守卫目标（ObjMon2.pas:878）；黄名（1~199）不打。
+    check("守卫不打黄名玩家（PKLevel<2）", w._resolve_target(guard, now) is None)
+    p.pk_point = 200
+    check("守卫打红名玩家（PKLevel>=2 = pk_point>=200）",
+          w._resolve_target(guard, now) is p)
     p.pk_point = 0
     p.hide_until = now + 60_000
     check("隐身中不成为仇恨目标", w._resolve_target(guard, now) is None)
