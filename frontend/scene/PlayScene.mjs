@@ -1300,7 +1300,9 @@ export class PlayScene extends Scene {
                     e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
                     this._sprite(e).prefetchDeathFrame(e);
                     if (msg.animal) {
-                        this._log('[提示] 按住 Alt + 左键点击动物尸体可以挖肉', '#e8d9b0');
+                        // 原版 m_boAnimal 覆盖的不只是鸡鹿羊狼：毒蜘蛛/蝎子/
+                        // 食人花/洞蛆也能 Alt+左键挖尸体（挖空后不出肉）。
+                        this._log('[提示] 按住 Alt + 左键点击尸体可以挖取', '#e8d9b0');
                     }
                 }
                 if (this.castTarget === msg.id) this.castTarget = null;

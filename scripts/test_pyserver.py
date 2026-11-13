@@ -92,7 +92,7 @@ def test_csv_templates() -> None:
 
 
 def test_text_data() -> None:
-    print("\n[4] GBK 配置解析")
+    print("\n[4] GBK / UTF-8 配置解析（按内容自动识别）")
     env = ROOT / "gamedata" / "Mir200" / "Envir"
     sp = parse_start_point(env / "StartPoint.txt")
     check("StartPoint 解析", sp.map_id and sp.x > 0 and sp.y > 0, str(sp))
@@ -101,6 +101,35 @@ def test_text_data() -> None:
     check("MapInfo 门数量", len(info.gates) >= 2000, f"{len(info.gates)} 个")
     check("MonGen 刷怪条目", len(parse_mon_gen(env / "MonGen.txt")) >= 2000)
     check("MiniMap 索引", len(parse_mini_map(env / "MiniMap.txt")) >= 150)
+    # 同一份内容分别写成 GBK / UTF-8 / UTF-8+BOM，read_lines 必须都读对
+    sample = ";注释\n[3\t比奇省]\n0 330 330 鹿 50 10 5\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        gbk = d / "a.txt"
+        gbk.write_bytes(sample.encode("gbk"))
+        u8 = d / "b.txt"
+        u8.write_bytes(sample.encode("utf-8"))
+        bom = d / "c.txt"
+        bom.write_bytes(b"\xef\xbb\xbf" + sample.encode("utf-8"))
+        check("GBK 文本可读", read_lines(gbk)[1] == "[3\t比奇省]")
+        check("UTF-8 文本可读（无 BOM）", read_lines(u8)[1] == "[3\t比奇省]")
+        check("UTF-8 文本可读（带 BOM）", read_lines(bom)[1] == "[3\t比奇省]")
+    # 一键转换脚本：幂等 + 真的把 GBK 变 UTF-8
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        f = d / "x.txt"
+        f.write_bytes("[0\t比奇省]\n".encode("gbk"))
+        script = ROOT / "scripts" / "convert_gbk_to_utf8.py"
+        subprocess.run([sys.executable, str(script), str(d), "--apply",
+                        "--backup-dir", str(d / ".gbk-backup"), "--quiet"],
+                       check=True, capture_output=True)
+        check("转换脚本输出 UTF-8", f.read_bytes().decode("utf-8") == "[0\t比奇省]\n")
+        check("转换脚本已备份原文件", (d / ".gbk-backup" / "x.txt").is_file())
+        r = subprocess.run([sys.executable, str(script), str(d), "--check", "--quiet"],
+                           capture_output=True)
+        check("转换脚本幂等（--check 通过）", r.returncode == 0,
+              r.stdout.decode("utf-8", "ignore").strip())
 
 
 def _write_map(path: Path, width: int, height: int, tile: struct.Struct,

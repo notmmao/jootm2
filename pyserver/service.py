@@ -613,31 +613,40 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                                        "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
             w.send_system(p, "正在挖肉……")
             return
-        # RM_SKELETON：尸体变成骷髅，但**不**删除（仍留到 makeGhost 时间）。
+        # 原版 ObjBase.pas:17479-17495：挖开（leathery ≤ 0）后
+        # ① race ∈ [50,80) 才变骷髅 + ApplyMeatQuality + RM_SKELETON；
+        # ② race ≥ 80（毒蜘蛛/蝎子/食人花/洞蛆）**不变骷髅**，尸体原样留着；
+        # ③ 无论哪种都 TakeBagItems 清空尸体背包，然后 leathery := 50。
         m.body_leathery = BODY_LEATHERY
-        m.skeleton = True
+        skeleton = w.butch_skeleton(m)
+        if skeleton:
+            m.skeleton = True
         # 原版 TakeBagItems（ObjBase.pas:17491）：动物死亡不散落物品，MonItems
         # 掉落表留在「尸体背包」，挖空后一次性全给玩家；背包空才是
         # 「未发现任何物品！！！」（SysMsg sYouFoundNothing，红色）。
         # 食人花叶 1/1、食人花果实 1/5、毒蜘蛛牙齿 1/3 都走这条链。
-        loot = w.roll_butch_loot(m, p)
+        loot: list[dict] = []
+        if not m.bag_looted:
+            m.bag_looted = True                  # 背包已清空，再挖只剩空手
+            loot = w.roll_butch_loot(m, p)
+            if not loot and skeleton:
+                # 无掉落表的动物（鹿等）原版由类直接给肉：鸡 → 鸡肉（index 57），
+                # 狼/羊 → 肉（index 3）。
+                name = "鸡肉" if "鸡" in (m.name or "") else "肉"
+                t = w.item_template_by_name(name)
+                if t is not None:
+                    loot = [w.new_item_instance(t, max(1, t.duraMax))]
         if not loot:
-            # 无掉落表的动物（鹿等）原版由类直接给肉：鸡 → 鸡肉（index 57），
-            # 狼/羊 → 肉（index 3）。
-            name = "鸡肉" if "鸡" in (m.name or "") else "肉"
-            t = w.item_template_by_name(name)
-            if t is not None:
-                loot = [w.new_item_instance(t, max(1, t.duraMax))]
-        if not loot:
-            w.send_system(p, "未发现任何物品。", "#ff0000")
+            w.send_system(p, "未发现任何物品！！！", "#ff0000")
         else:
-            # 原版 ApplyMeatQuality（ObjBase.pas:20517-20535）：把尸体背包里
-            # 全部 StdMode 40 物品的耐久设为 m_nMeatQuality —— 这就是
-            # 「肉品质」的载体，卖价随品质变化（GetUserItemPrice StdMode 40）。
-            for it in loot:
-                it_t = w.item_templates.get(int(it.get("index", 0)))
-                if it_t is not None and it_t.stdMode == 40:
-                    it["durability"] = m.meat_quality
+            # 原版 ApplyMeatQuality（ObjBase.pas:20517-20535）只在变骷髅的分支里
+            # 调用：把尸体背包里全部 StdMode 40 物品的耐久设为 m_nMeatQuality
+            # —— 这就是「肉品质」的载体，卖价随品质变化（GetUserItemPrice StdMode 40）。
+            if skeleton:
+                for it in loot:
+                    it_t = w.item_templates.get(int(it.get("index", 0)))
+                    if it_t is not None and it_t.stdMode == 40:
+                        it["durability"] = m.meat_quality
             for it in loot:
                 if len(p.bag) < BAG_SIZE:
                     p.bag.append(it)
@@ -646,7 +655,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                     w.drop_instance(p, it)
                     w.send_system(p, f"背包已满，{it.get('name', '物品')}掉在地上。")
             self.send_bag_update(p)
-        w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": True,
+        # meat=True → 客户端把尸体改画成骷髅（原版 RM_SKELETON）；race ≥ 80
+        # 的蜘蛛/食人花挖空后尸体保持原样，只播挖尸动作。
+        w.broadcast_around(m.map, {"type": "butch", "id": m.id, "meat": skeleton,
                                    "actorId": p.id, "dir": p.dir,
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
 

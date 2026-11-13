@@ -22,7 +22,8 @@ from .gamedata import (
 )
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
-    AGGRO_RANGE, DOOR_OPEN_MS, GUARD_RACES, HSET_SHAPES,
+    AGGRO_RANGE, CHICKEN_DEER_RUN, CHICKEN_DEER_VIEW, DOOR_OPEN_MS, GUARD_RACES,
+    HSET_SHAPES,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, REGEN_INTERVAL_MS, SHAPE_MANA_TO_HP,
@@ -644,6 +645,10 @@ class Monster(Actor):
     corpse_until: int = 0
     butch_count: int = 0
     skeleton: bool = False
+    # 原版 TakeBagItems 会把尸体背包清空（ObjBase.pas:20537-20556）：race ≥ 80
+    # 的蜘蛛/食人花/洞蛆挖空后**不变骷髅**，尸体仍可再挖，但背包已空
+    # （第二次起只报「未发现任何物品」），所以要用标记防重复掷骰。
+    bag_looted: bool = False
     # 挖肉磨损（原版 m_nBodyLeathery，初值 50，每次挖 Random(16)+5）
     body_leathery: int = BODY_LEATHERY
     # 原版 m_nMeatQuality（ObjBase.pas:185）：肉品质，挖肉出肉时写进肉耐久
@@ -661,6 +666,9 @@ class Monster(Actor):
     # 原版 TStickMonster.m_boFixedHideMode（ObjMon2.pas:164）：食人花潜地隐藏，
     # 目标靠近 abs<4 出土，目标离开 abs>4 潜回。隐藏时不进视野快照。
     hidden: bool = False
+    # 原版 TChickenDeer（ObjMon.pas:531，race 52 鹿/羊 1/30 变种）：
+    # 视野 5、见人就跑，永不攻击（UsrEngn.pas:1844）。
+    chicken_deer: bool = False
 
     def roll_attack(self) -> int:
         """对齐 ``Monster.rollAttack``：DC ~ max(DC,MaxDC) 上加宠物等级加成。"""
@@ -1310,6 +1318,8 @@ class GameWorld(WorldExtra):
                         respawn_interval_ms=a.respawn_interval_ms)
             m.exp = t.exp
             init_meat_quality(m)
+            if t.race == 85:
+                m.hidden = True      # TStickMonster.m_boFixedHideMode，重生同样潜地
             self.add_actor(m, home)
             self.broadcast_entity_add(m)
 
@@ -1332,6 +1342,9 @@ class GameWorld(WorldExtra):
         attack_ms = max(300, t.attackSpeed or 1000)
         if t.race == 85:
             self._stick_ai(m, now, attack_ms)
+            return
+        if m.chicken_deer:
+            self._chicken_deer_ai(m, now, walk_ms)
             return
         target = self._resolve_target(m, now)
         m.target_id = target.id if target is not None else -1
@@ -1382,6 +1395,45 @@ class GameWorld(WorldExtra):
                 m.dir = int(random.random() * 8)
                 if self.try_move(m, m.dir):
                     self.broadcast_move(m)
+
+    def _chicken_deer_ai(self, m: Monster, now: int, walk_ms: int) -> None:
+        """原版 ``TChickenDeer``（ObjMon.pas:531-598，鹿/羊 1/30 变种）：
+
+        - ``Create`` 设 ``m_nViewRange := 5``（比普通鹿的默认视野更近）；
+        - ``Run`` 遍历 ``m_VisibleActors`` 找**最近**的合法目标，找到就
+          ``m_boRunAwayMode := True`` 并记为目标；``TMonster.Run`` 的逃跑分支
+          （ObjMon.pas:447）**跳过 AttackTarget**，所以这种鹿/羊永不攻击；
+        - 目标 ``abs <= 6`` 才起步逃跑，走位点由 ``GetNextPosition`` 取背离方向。
+        这里按「朝背离目标的方向走一格」实现，走不通就试相邻两个方向；目标
+        离开视野后恢复 ``Wondering``（原版同款随机乱走）。
+        """
+        nearest = None
+        nd = CHICKEN_DEER_VIEW + 1
+        for p in self.players():
+            if p.map is not m.map or not p.alive or p.hide_until > now:
+                continue
+            d = p.distance_to(m)
+            if d <= CHICKEN_DEER_VIEW and d < nd:
+                nearest, nd = p, d
+        if nearest is None:
+            m.target_id = -1
+            if now >= m.next_move_at:
+                m.next_move_at = now + walk_ms
+                if random.random() < 0.35:
+                    m.dir = int(random.random() * 8)
+                    if self.try_move(m, m.dir):
+                        self.broadcast_move(m)
+            return
+        m.target_id = nearest.id
+        if nd > CHICKEN_DEER_RUN or now < m.next_move_at:
+            return
+        m.next_move_at = now + walk_ms
+        away = direction_toward(nearest.x, nearest.y, m.x, m.y, m.dir)
+        for delta in (0, 1, -1, 2, -2):
+            d = (away + delta) & 7
+            if self.try_move(m, d):
+                self.broadcast_move(m)
+                return
 
     def _stick_ai(self, m: Monster, now: int, attack_ms: int) -> None:
         """原版 TStickMonster（ObjMon2.pas:154-297，race 85 食人花）：

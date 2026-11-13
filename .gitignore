@@ -5,6 +5,8 @@ dependency-reduced-pom.xml
 # --- runtime data ---
 data/
 gamedata/Mir200/Envir/GuildBase/
+# convert_gbk_to_utf8.py 的备份目录（转换前原文件，不入库）
+gamedata/.gbk-backup/
 
 # --- symlinked data (not versioned) ---
 resources

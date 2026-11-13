@@ -35,6 +35,31 @@ BODY_LEATHERY = 50
 BUTCH_WEAR_MIN = 5
 BUTCH_WEAR_MAX = 20
 
+# 可挖尸体 = 原版 ``m_boAnimal`` 为 True 的怪物类（``UsrEngn.pas:1835-1864``
+# + 各怪物类构造函数）。原版**不是**按 race 段判定，而是逐类赋值：
+#   51 鸡   TMonster        m_boAnimal := True  UsrEngn.pas:1838（磨损 50）
+#   52 鹿   TMonster        m_boAnimal := True  UsrEngn.pas:1853（磨损 150）
+#      └ 1/30 变 TChickenDeer                   UsrEngn.pas:1846（磨损 150）
+#   53 狼   TATMonster      m_boAnimal := True  UsrEngn.pas:1861（磨损 150）
+#   82 毒蜘蛛 TSpitSpider   m_boAnimal := True  ObjMon.pas:664
+#   84 蝎子   TScorpion     m_boAnimal := True  ObjMon.pas:650
+#   85 食人花 TStickMonster m_boAnimal := True  ObjMon2.pas:166
+#   90 洞蛆   TGasAttackMonster m_boAnimal := True ObjMon.pas:865
+# 118 天狼蜘蛛/工蚁（THighRiskSpider, ObjMon.pas:752）、
+# 119 花吻蜘蛛（TBigPoisionSpider, ObjMon.pas:849）显式 :='False'，不可挖。
+ANIMAL_RACES = frozenset({51, 52, 53, 82, 84, 85, 90})
+
+# ``m_nBodyLeathery`` 初值：鸡 50（UsrEngn.pas:1840），鹿/狼 150
+# （UsrEngn.pas:1849/1855/1863），其余走 TBaseObject.Create 里的默认 50
+# （ObjBase.pas:1286）。磨损大 → 鹿/狼要挖 ~15 刀才出肉。
+ANIMAL_LEATHERY = {51: 50, 52: 150, 53: 150}
+
+# ``RC_ANIMAL=50 / RC_MONSTER=80``（MirClient/Grobal2.pas:1092-1096）：
+# 只有 race ∈ [50,80) 的「动物」挖空后才变骷髅并 ApplyMeatQuality；
+# race ≥ 80 的蜘蛛/食人花/洞蛆挖空只清尸体背包，尸体原样保留（可再挖，但已空）。
+SKELETON_RACE_MIN = 50
+SKELETON_RACE_MAX = 80
+
 # 挖肉/转身间隔：``M2Share.pas:2121`` dwTurnIntervalTime = 600ms，
 # ``ObjBase.pas:17466`` 里间隔不足直接 Exit（连点无效）。
 BUTCH_INTERVAL_MS = 600
@@ -252,7 +277,9 @@ def load_drop_tables(envir: Path) -> dict[str, list[DropEntry]]:
                 entries.append(DropEntry(n - 1, m, tokens[1],
                                          _num(tokens[2], 1) if len(tokens) > 2 else 1))
         if entries:
-            out[path.stem] = entries
+            # 数据里有「洞蛆1 .txt」「蜜蜂 .txt」这类文件名带尾随空格的文件
+            # （原版 Mir200 的 MonItems 就这样），不去空格永远匹配不上怪物名。
+            out[path.stem.strip()] = entries
     return out
 
 
@@ -652,26 +679,48 @@ class WorldExtra:
 
     @staticmethod
     def butchable(m) -> bool:
-        """原版 ``m_boAnimal``（各怪物类构造函数里的赋值）。
+        """原版 ``m_boAnimal``（各怪物类构造函数里的赋值，见 ``ANIMAL_RACES``）。
 
         ```pascal
-        TSpitSpider.Create:    m_boAnimal := True;   // race 82（ObjMon.pas:664）
-        TStickMonster.Create:  m_boAnimal := True;   // race 85（ObjMon2.pas:166）
+        TScorpion.Create:      m_boAnimal := True;   // race 84 蝎子（ObjMon.pas:650）
+        TSpitSpider.Create:    m_boAnimal := True;   // race 82 毒蜘蛛（ObjMon.pas:664）
+        TStickMonster.Create:  m_boAnimal := True;   // race 85 食人花（ObjMon2.pas:166）
+        TGasAttackMonster:     m_boAnimal := True;   // race 90 洞蛆（ObjMon.pas:865）
         TBigPoisionSpider:     m_boAnimal := False;  // race 119
         THighRiskSpider:       m_boAnimal := False;  // race 118
         ```
-        race 51/52/53 是鸡/鹿/羊类动物，但本仓库 Monster.csv 里 race 52 还含
-        「护卫」(appr 71) 之类非动物，用动物 appr 白名单（羊 43 / 狼 70 /
-        鸡 160 / 鹿 161）排除。食人花死亡不散落物品、尸体靠 Alt+左键挖出
-        （食人花叶 1/1、食人花果实 1/5，见 MonItems/食人花.txt）。
+        鸡/鹿/羊/狼（51/52/53）由 ``UsrEngn.pas`` 的 ANIMAL_CHICKEN/DEER/WOLF
+        分支赋值。本仓库 Monster.csv 里 race 52 还含「护卫」(appr 71) 这类
+        非动物模板，用动物 appr 白名单（羊 43 / 狼 70 / 鸡 160 / 鹿 161）排除。
+        食人花/毒蜘蛛/蝎子/洞蛆死亡不散落物品，尸体靠 Alt+左键挖出
+        （MonItems/食人花.txt 等），这与原版 TakeBagItems 一致。
         """
+        race = WorldExtra.butch_race(m)
+        return race != 0
+
+    @staticmethod
+    def butch_race(m) -> int:
+        """可挖则返回 race（51/52/53/82/84/85/90），否则 0。"""
         t = getattr(m, "template", None)
         if t is None:
-            return False
+            return 0
         race = int(t.race)
-        if race in (51, 52, 53):
-            return int(t.appr) in (43, 70, 160, 161)
-        return race in (82, 85)
+        if race not in ANIMAL_RACES:
+            return 0
+        if race in (51, 52, 53) and int(t.appr) not in (43, 70, 160, 161):
+            return 0
+        return race
+
+    @staticmethod
+    def butch_skeleton(m) -> bool:
+        """挖空后是否变骷髅（原版 ``ObjBase.pas:17485``：race ∈ [50,80)）。"""
+        race = WorldExtra.butch_race(m)
+        return SKELETON_RACE_MIN <= race < SKELETON_RACE_MAX
+
+    @staticmethod
+    def base_leathery(m) -> int:
+        """``m_nBodyLeathery`` 初值（鸡 50 / 鹿・狼 150 / 其余 50）。"""
+        return ANIMAL_LEATHERY.get(WorldExtra.butch_race(m), BODY_LEATHERY)
 
     def kill_monster(self, m, now: int, killer=None) -> None:
         m.alive = False
@@ -686,7 +735,10 @@ class WorldExtra:
         m.corpse_until = now + CORPSE_MS
         m.butch_count = 0
         m.skeleton = False
-        m.body_leathery = BODY_LEATHERY
+        # 原版 m_nBodyLeathery 在构造时按类赋值（鸡 50 / 鹿・狼 150），死亡时
+        # **不**重置；未挖过就一直是最初的满磨损值。
+        m.body_leathery = self.base_leathery(m)
+        m.bag_looted = False
         if not animal:
             self.drop_loot(m)
         if killer is not None:

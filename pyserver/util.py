@@ -36,6 +36,10 @@ NEUTRAL_RACES = frozenset({51, 52, 80})
 RANGED_ATTACK_RANGE = 7
 RANGED_KEEP_AWAY = 4
 RANGED_CHASE_RANGE = 11
+# 原版 TChickenDeer.Create：``m_nViewRange := 5``（ObjMon.pas:534）；
+# Run 里 abs(target)<=6 才起步逃跑（ObjMon.pas:589）。
+CHICKEN_DEER_VIEW = 5
+CHICKEN_DEER_RUN = 6
 
 # 装备特殊 Shape（对齐 Java Player 常量 / ObjBase.pas）
 SHAPE_PARALYSIS_WEAPON = 23
@@ -116,17 +120,27 @@ def init_meat_quality(m) -> None:
     """原版 UsrEngn.pas:1835-1864：动物生成时初始化 m_nMeatQuality（肉品质）。
 
     - ANIMAL_CHICKEN(51 鸡)：``Random(3500) + 3000`` → 3000~6500
-    - ANIMAL_DEER(52 鹿)：``Random(8000) + 8000`` → 8000~16000
-      （原版 1/30 概率是 TChickenDeer 变种 ``Random(20000)+10000``，m_nBodyLeathery 同 150）
+    - ANIMAL_DEER(52 鹿)：``Random(8000) + 8000`` → 8000~16000；
+      但有 ``Random(30) = 0`` 的 1/30 概率换成 ``TChickenDeer`` 变种
+      （ObjMon.pas:531，视野 5 + 见人就跑），品质 ``Random(20000) + 10000``
+      → 10000~30000，肉能卖更贵。
     - ANIMAL_WOLF(53 狼)：``Random(8000) + 8000`` → 8000~16000
-    其余怪物品质为 0（不可挖的怪没有品质语义）。挖肉（ClientGetButchItem）/
-    受击（Struck -Random(300)）/ 绿毒（每跳 -1000）/ 魔法伤害（-nDamage*1000）
-    都会降低品质，出肉时 ApplyMeatQuality 把品质写进肉的耐久 → 卖价随之变化。
+    其余怪物品质为 0（可挖但不出肉的蜘蛛/蝎子/食人花/洞蛆没有品质语义）。
+    挖肉（ClientGetButchItem）/ 受击（Struck -Random(300)）/ 绿毒（每跳 -1000）/
+    魔法伤害（-nDamage*1000）都会降低品质，出肉时 ApplyMeatQuality 把品质写进
+    肉的耐久 → 卖价随之变化。
     """
     race = getattr(m, "race", 0)
     if race == 51:
         m.meat_quality = random.randrange(3500) + 3000
-    elif race in (52, 53):
+    elif race == 52:
+        if random.randrange(30) == 0:            # TChickenDeer 变种
+            m.meat_quality = random.randrange(20000) + 10000
+            # ObjMon.pas:531-598：TChickenDeer 视野 5、见人就跑（不攻击）。
+            m.chicken_deer = True
+        else:
+            m.meat_quality = random.randrange(8000) + 8000
+    elif race == 53:
         m.meat_quality = random.randrange(8000) + 8000
 
 

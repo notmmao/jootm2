@@ -1,29 +1,53 @@
-"""游戏数据解析：GBK 文本配置、老式 ``.map`` 栅格、``resources.json`` 索引。
+"""游戏数据解析：GBK/UTF-8 文本配置、老式 ``.map`` 栅格、``resources.json`` 索引。
 
 与 Java 侧 ``WorldData`` / ``MapFileReader`` / ``ResourcesIndexGenerator`` 对齐；
-区别只在两处有意为之：
+区别只在三处有意为之：
 1. ``.map`` 的 tile 步进按文件长度自适应 12/14 字节（修掉 Java 侧写死 12 的错格隐患）；
-2. 索引只收 WIL/WIX，遇到 WZL/WZX 明确报错（修掉「索引生成成功但画面全空」的假兼容）。
+2. 索引只收 WIL/WIX，遇到 WZL/WZX 明确报错（修掉「索引生成成功但画面全空」的假兼容）；
+3. 配置文本按内容自动识别编码（UTF-8 优先、回落 GBK），见 ``decode_text``。
 """
 from __future__ import annotations
 
+import codecs
 import json
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
 GBK = "gbk"
+UTF8 = "utf-8"
 
 # Java 用 ``getShort() & 0xFFFF``，三个图层号都是无符号 16 位。
 _TILE_12 = struct.Struct("<HHHB5x")   # 6 + 1 + 5 = 12 字节
 _TILE_14 = struct.Struct("<HHHB7x")   # 14 字节变体（多 bngFileIdx/midFileIdx）
 
 
-def read_lines(path: Path, encoding: str = GBK) -> list[str]:
+def decode_text(raw: bytes, encoding: str | None = None) -> str:
+    """按内容自动识别编码：UTF-8（含 BOM）优先，非法序列回落 GBK。
+
+    老版本 Mir200 配置（``Envir/*.txt``、NPC 脚本、``MonItems``）是 GBK，
+    新写的文件可能是 UTF-8。GBK 的中文字节序列几乎不可能同时是合法 UTF-8，
+    所以「先严格试 UTF-8、失败再 GBK」是安全的判别方式（纯 ASCII 两者等价）。
+    ``encoding`` 显式给出时强制使用（测试/特殊文件用）。
+    """
+    if encoding:
+        return raw.decode(encoding, errors="ignore")
+    if raw.startswith(codecs.BOM_UTF8):
+        return raw[len(codecs.BOM_UTF8):].decode("utf-8", errors="ignore")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return raw.decode("utf-16", errors="ignore")
+    return raw.decode(GBK, errors="ignore")
+
+
+def read_lines(path: Path, encoding: str | None = None) -> list[str]:
     if not path.is_file():
         return []
     try:
-        return path.read_bytes().decode(encoding, errors="ignore").splitlines()
+        return decode_text(path.read_bytes(), encoding).splitlines()
     except OSError as e:
         print(f"[data] cannot read {path}: {e}")
         return []

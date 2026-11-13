@@ -456,6 +456,129 @@ _damage_weapon/_pile_stones/_make_mine``）。前端：点击**相邻**不可走
 
 ---
 
+## 42. 可挖尸种族全量 / 配置文本 UTF-8 / 「厚血同模型怪」机制核查（用户第 17 轮）
+
+### 42.1 哪些怪能挖尸体：原版是逐类赋 ``m_boAnimal``，不是按 race 段 ✅
+
+依据 ``UsrEngn.pas:1831-1938`` 的 ``case nMonRace`` 分发 + 各怪物类构造函数
+（``ObjMon.pas`` / ``ObjMon2.pas``）。**判定条件**（``ObjBase.pas:17476``）：
+
+```pascal
+if BaseObject.m_boDeath and (not BaseObject.m_boSkeleton) and BaseObject.m_boAnimal then
+```
+
+| race | 类 | ``m_boAnimal`` | 出处 | 磨损初值 | 肉品质 |
+|---|---|---|---|---|---|
+| 51 鸡 | TMonster | True | UsrEngn.pas:1838 | 50 | 3000~6499 |
+| 52 鹿/羊 | TMonster（1/30 → TChickenDeer） | True | UsrEngn.pas:1846/1853 | 150 | 8000~15999 / 10000~29999 |
+| 53 狼 | TATMonster | True | UsrEngn.pas:1861 | 150 | 8000~15999 |
+| 82 毒蜘蛛/沙虫/毒蚁/腐尸 | TSpitSpider | True | ObjMon.pas:664 | 50（默认） | 0 |
+| 84 蝎子 | TScorpion | True | ObjMon.pas:650 | 50 | 0 |
+| 85 食人花 | TStickMonster | True | ObjMon2.pas:166 | 50 | 0 |
+| 90 洞蛆 | TGasAttackMonster | True | ObjMon.pas:865 | 50 | 0 |
+| 118 天狼蜘蛛/工蚁 | THighRiskSpider | **False** | ObjMon.pas:752 | — | — |
+| 119 花吻蜘蛛 | TBigPoisionSpider | **False** | ObjMon.pas:849 | — | — |
+
+本轮补齐：**84 蝎子**、**90 洞蛆** 之前漏了；``ANIMAL_RACES`` 常量 +
+``WorldExtra.butch_race / butch_skeleton / base_leathery`` 三个小函数统一口径。
+race 52 里的「护卫」(appr 71) 仍按动物 appr 白名单排除（数据混用，非原版行为）。
+
+挖空（``m_nBodyLeathery <= 0``）后的分支也按原版分了两种（``ObjBase.pas:17485``）：
+
+- ``50 <= race < 80``（``RC_ANIMAL..RC_MONSTER``）→ ``m_boSkeleton := True`` +
+  ``ApplyMeatQuality``（把品质写进 StdMode 40 肉的耐久）+ ``RM_SKELETON``；
+- ``race >= 80``（蜘蛛/蝎子/食人花/洞蛆）→ **不变骷髅**，只 ``TakeBagItems``
+  清空尸体背包，尸体原样留着（再挖只有「未发现任何物品！！！」）；
+- 两种都把 ``m_nBodyLeathery`` 重置为 **50**（不是回到 150）。
+
+死亡时的磨损初值改为按 race 取（``ANIMAL_LEATHERY``）：鸡 50 / 鹿・狼 150，
+所以鹿要挖十几刀才出肉，而以前统一 50（3~10 刀）。尸体背包清空用
+``Monster.bag_looted`` 标记（原版 ``TakeBagItems`` 清 ``m_ItemList`` 的等价物），
+避免 race≥80 反复挖同一条尸体重复掷骰。
+
+**顺带修的真 bug**：``MonItems`` 里有 5 个文件名带尾随空格
+（``洞蛆1 .txt`` / ``蜈蚣1 .txt`` / ``山洞蝙蝠1 .txt`` / ``巨型蠕虫1 .txt`` /
+``蜜蜂 .txt``），``path.stem`` 带空格永远匹配不上怪物名 → 这 5 个变种怪此前
+**完全没有掉落**。``load_drop_tables`` 已 ``.strip()``。
+
+### 42.2 配置文本兼容 UTF-8 + 一键转换脚本 ✅
+
+``gamedata.read_lines`` 不再写死 GBK，改走 ``decode_text``：BOM UTF-8 →
+精确 UTF-8 → UTF-16 BOM → GBK。GBK 的中文双字节序列几乎不可能是合法 UTF-8，
+所以「先严格 UTF-8、失败回落 GBK」不会误判；纯 ASCII 两者等价。
+服务端所有文本入口（MapInfo / MonGen / MerChant / Npcs / StartPoint / MiniMap /
+MapQuest / MonItems / Npc_Def / Market_Def / Notice / Sabuk / UnbindList）都走这一个
+函数，改一处即可全兼容；``read_lines(path, encoding=...)`` 仍可强制指定。
+
+一键转换（默认预览，不动文件）：
+
+```bash
+D:/Python310/python.exe scripts/convert_gbk_to_utf8.py            # 统计 + 预览
+D:/Python310/python.exe scripts/convert_gbk_to_utf8.py --apply     # 转换（自动备份）
+D:/Python310/python.exe scripts/convert_gbk_to_utf8.py --check     # CI：有 GBK 退出 1
+```
+
+- 只做「GBK 字节 → UTF-8 字节」，换行（``\\r\\n``）与内容一字不改；
+- 幂等：已是 UTF-8 / UTF-8 BOM 的文件跳过；两种都解不出的（疑似二进制）跳过并告警；
+- ``--apply`` 先把原文件拷到 ``gamedata/.gbk-backup/<时间戳>/``（已在 .gitignore）；
+- 当前仓库统计：591 个文本文件里 **576 个 GBK、15 个 UTF-8**。没有整体转换
+  （避免 576 个文件的 diff 噪音），需要统一时跑一条命令即可。
+
+### 42.3 「刷出比模板厚很多血、同模型、掉落更好的怪」= 数据变体，不是运行时变异 ✅
+
+原版**没有**任何运行时加血 / 变异 / 精英化的刷怪逻辑，证据：
+
+- ``TUserEngine.MonInitialize``（UsrEngn.pas:2578-2617）按名字 ``CompareText``
+  精确查 ``Monster.DB``，HP/AC/DC 一律照抄，**没有** 任何 ``Random`` 放大；
+- ``TUserEngine.CreateMonster``（:1931-1938）只按 race 选类，加血的唯一特例是
+  沙巴克城门/城墙/守卫（``Castle.pas`` 读配置的固定 HP）；
+- 怪物名字颜色 ``m_btNameColor`` 在 ``TBaseObject.Create`` 里恒为 255（白），
+  只有玩家（PK/行会/攻城）、宝宝（``SlaveColor[slaveExpLevel]``）、
+  狂暴 ``$F9``、神圣 ``$7D`` 会变色（``ObjBase.pas:19197-19202``）。
+
+玩家记忆里那种「同模型、血厚一大截、名字看着不一样、掉落好很多」的怪，是
+**Monster.DB 里带数字后缀的独立模板** + ``MonGen.txt`` 直接刷它，掉落表也各自
+独立。本仓库数据实例（都在跑）：
+
+| 普通 | HP/掉落 | 变体 | HP/掉落 |
+|---|---|---|---|
+| 狼 | 48，只有肉 | 狼1 | 120，+战神油 1/1000、传送戒指 1/100 |
+| 稻草人 | 25，金币/小金创药 | 稻草人1 | 1000，神水・神秘腰带/戒指/头盔 各 1/6 |
+| 天狼蜘蛛 | 260 | 天狼蜘蛛3 | 390，+绿色/狂风/灵魂项链 1/4000~1/8000 |
+| 鹿 | 25 | 鹿1 / 鹿10~30 | 1200 / 25（练功用） |
+
+我们早就支持（``spawn_monsters`` 按 ``MonGen`` 的名字精确取模板，
+``filter_show_name`` 按原版 ``FilterShowName`` 砍掉数字后缀再下发显示名），
+本轮只是**验证 + 补上掉落表漏配**，没有新增非原版机制。
+
+唯一真实存在的「运行时随机变体」是**动物**：``UsrEngn.pas:1844`` 里 race 52
+（鹿/羊）有 ``Random(30) = 0`` 的 1/30 概率变成 ``TChickenDeer`` —— 视野 5
+（``ObjMon.pas:534``）、见人就跑、**永不攻击**（``Run`` 的逃跑分支跳过
+``AttackTarget``，ObjMon.pas:447；目标 ``abs<=6`` 起步，:589）。本轮把它补全：
+``Monster.chicken_deer`` + ``init_meat_quality`` 里同时掷这 1/30，
+``world._chicken_deer_ai`` 实现「朝背离目标的方向挪一格，走不通试相邻方向」。
+
+### 42.4 验证
+
+| 项目 | 结果 |
+|---|---|
+| test_pyserver（+6：GBK/UTF-8/BOM 三写一读、转换脚本转换/备份/幂等） | **95/0** |
+| test_tick_systems（+16：84/90 可挖、骷髅/非骷髅分支、磨损初值、MonItems 空格名、TChickenDeer 概率与行为、狼/狼1 掉落对比） | **139/0** |
+| test_all_messages / test_map_view / test_sfx_map | 37/0、34/0、84/0 |
+| 8080 重启 + live 冒烟 | PASS |
+
+### 42.5 遗留
+
+- ``MonGen.txt`` 有 10 个名字在 ``Monster.csv`` 里没有对应模板（``骷髅精灵`` /
+  ``骷髅精灵1`` / ``骷髅精灵9`` / ``骷髅战将`` / ``骷髅战将0`` / ``森林雪人1`` /
+  ``祖玛弓箭手100`` / ``血魔兽0`` / ``褐蚂蚱`` / ``巨毒蜘蛛``），这些刷怪行
+  目前**刷不出怪**（原版同样查不到就退化成零属性，属于数据缺失，不是代码问题）。
+  补数据需要权威 ``Monster.DB`` 数值，没依据不硬填。
+- 若希望「厚血变体」在画面上有辨识（名字染色/后缀），那是**非原版**行为，
+  等用户明确要求再做；现按原版保持同名同色。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

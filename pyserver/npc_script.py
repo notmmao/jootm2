@@ -2,7 +2,8 @@
 
 直译 Java ``NpcScript`` + ``NpcScriptEngine``：``[@label]`` 分段、
 ``#IF/#ACT/#SAY/#ELSEACT/#ELSESAY`` 状态机、条件与动作命令子集，
-以及 ``[goods]`` 商店货物表。脚本文件为 GBK。
+以及 ``[goods]`` 商店货物表。脚本文件老版是 GBK，现在由
+``gamedata.read_lines`` 按内容自动识别（UTF-8 优先、回落 GBK），两种都能读。
 """
 from __future__ import annotations
 

@@ -658,15 +658,39 @@ def test_spider_stick_gold(w, p):
         if flower.map is not None:
             flower.map.remove(flower.id)
 
-    # 4) butchable：82/85 可挖，118/81 不可挖
-    check("食人花(85) 可挖肉",
+    # 4) butchable：原版 m_boAnimal 白名单 = 51/52/53/82/84/85/90
+    check("食人花(85) 可挖尸",
           w.butchable(SimpleNamespace(template=SimpleNamespace(race=85, appr=10))))
-    check("毒蜘蛛(82) 可挖肉",
+    check("毒蜘蛛(82) 可挖尸",
           w.butchable(SimpleNamespace(template=SimpleNamespace(race=82, appr=163))))
+    check("蝎子(84) 可挖尸（TScorpion m_boAnimal=True）",
+          w.butchable(SimpleNamespace(template=SimpleNamespace(race=84, appr=83))))
+    check("洞蛆(90) 可挖尸（TGasAttackMonster m_boAnimal=True）",
+          w.butchable(SimpleNamespace(template=SimpleNamespace(race=90, appr=24))))
+    check("鸡(51)/鹿(52)/羊(52)/狼(53) 可挖尸",
+          all(w.butchable(SimpleNamespace(template=SimpleNamespace(race=r, appr=a)))
+              for r, a in ((51, 160), (52, 161), (52, 43), (53, 70))))
+    check("护卫(52/appr71) 不在动物 appr 白名单",
+          not w.butchable(SimpleNamespace(template=SimpleNamespace(race=52, appr=71))))
     check("天狼蜘蛛(118) 不可挖",
           not w.butchable(SimpleNamespace(template=SimpleNamespace(race=118, appr=119))))
+    check("花吻蜘蛛(119) 不可挖",
+          not w.butchable(SimpleNamespace(template=SimpleNamespace(race=119, appr=117))))
     check("黑锷蜘蛛(81) 不可挖",
           not w.butchable(SimpleNamespace(template=SimpleNamespace(race=81, appr=118))))
+    # race ∈ [50,80) 挖空变骷髅；race ≥ 80 只清背包，尸体原样
+    check("鸡/鹿/狼挖空变骷髅",
+          all(w.butch_skeleton(SimpleNamespace(template=SimpleNamespace(race=r, appr=161)))
+              for r in (51, 52, 53)))
+    check("蜘蛛/蝎子/食人花/洞蛆挖空不变骷髅",
+          all(not w.butch_skeleton(SimpleNamespace(template=SimpleNamespace(race=r, appr=1)))
+              for r in (82, 84, 85, 90)))
+    check("磨损初值：鸡 50 / 鹿 150 / 狼 150 / 蜘蛛 50",
+          [w.base_leathery(SimpleNamespace(template=SimpleNamespace(race=r, appr=161)))
+           for r in (51, 52, 53, 82)] == [50, 150, 150, 50])
+    check("MonItems 文件名尾随空格（洞蛆1 .txt）也能匹配",
+          "洞蛆1" in w.drop_tables and "蜈蚣1" in w.drop_tables,
+          str([k for k in w.drop_tables if k.endswith(" ")]))
 
     # 5) 挖肉产出走 MonItems：食人花叶 1/1 必得
     flower2 = Monster(id=w.new_id(), name="食人花", x=p.x + 3, y=p.y,
@@ -681,6 +705,54 @@ def test_spider_stick_gold(w, p):
               all(n in ("食人树叶", "食人花果实") for n in names), str(names))
     finally:
         w.actors.pop(flower2.id, None)
+
+    # 6) TChickenDeer：鹿/羊 1/30 变种（ObjMon.pas:531，UsrEngn.pas:1844）
+    from pyserver.util import init_meat_quality
+    rolls = 0
+    qualities = []
+    for _ in range(300):
+        mm = Monster(id=w.new_id(), name="羊", race=52,
+                     template=SimpleNamespace(name="羊", race=52, appr=43))
+        init_meat_quality(mm)
+        if mm.chicken_deer:
+            rolls += 1
+            qualities.append(mm.meat_quality)
+    check("羊(52) 1/30 概率是 TChickenDeer 变种", 2 <= rolls <= 30, f"{rolls}/300")
+    check("TChickenDeer 肉品质 10000~30000（比普通 8000~16000 高一档）",
+          all(10000 <= q < 30000 for q in qualities), str(qualities[:5]))
+
+    deer = Monster(id=w.new_id(), name="羊", x=p.x + 2, y=p.y,
+                   hp=20, max_hp=20, level=1, race=52,
+                   template=SimpleNamespace(name="羊", race=52, appr=43,
+                                            walkSpeed=800, attackSpeed=1000),
+                   spawn_x=p.x + 2, spawn_y=p.y)
+    deer.chicken_deer = True
+    w.add_actor(deer, gm)
+    try:
+        p.hp = p.max_hp
+        d0 = abs(deer.x - p.x) + abs(deer.y - p.y)
+        deer.next_move_at = 0
+        w._monster_ai(deer, now_ms())
+        d1 = abs(deer.x - p.x) + abs(deer.y - p.y)
+        check("TChickenDeer 见人就跑（距离不缩小）", d1 >= d0, f"{d0} -> {d1}")
+        check("TChickenDeer 永不攻击玩家", p.hp == p.max_hp, f"hp={p.hp}")
+        check("TChickenDeer 记录逃跑目标", deer.target_id == p.id)
+    finally:
+        w.actors.pop(deer.id, None)
+        if deer.map is not None:
+            deer.map.remove(deer.id)
+
+    # 7) 「同模型厚血怪」的真实机制：Monster.csv 的数字后缀模板 + 独立 MonItems
+    #    （原版 MonInitialize 按名字精确查表，没有运行时加血/变异）
+    wolf, wolf1 = w.monster_templates.get("狼"), w.monster_templates.get("狼1")
+    check("狼1 与狼同外观但血量更厚",
+          bool(wolf and wolf1) and wolf.appr == wolf1.appr and wolf1.hp > wolf.hp * 2,
+          f"狼 {getattr(wolf, 'hp', '?')} / 狼1 {getattr(wolf1, 'hp', '?')}")
+    loot0 = {e.item_name for e in w.drop_tables.get("狼", [])}
+    loot1 = {e.item_name for e in w.drop_tables.get("狼1", [])}
+    check("狼1 掉落表明显优于狼（传送戒指/战神油只在高血版）",
+          {"传送戒指", "战神油"} <= loot1 and not ({"传送戒指", "战神油"} & loot0),
+          f"狼={sorted(loot0)} 狼1={sorted(loot1)}")
 
 
 def test_full_tick(w, p):
