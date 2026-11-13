@@ -24,7 +24,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.gamedata import MapQuest, parse_map_quest  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
-from pyserver.world import Monster, Player, now_ms  # noqa: E402
+from pyserver.world import Monster, Player, direction_delta, now_ms  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -307,7 +307,17 @@ def test_ranged(w, p, sess):
           "death" in sess.types() and p.hp == 0 and p.dead
           and (p.map, p.x, p.y) == home_before,
           f"hp={p.hp} dead={p.dead}")
+    check("死亡同时清 alive（原版 m_boDeath）", p.alive is False)
+    # 原版 TBaseObject.Run:3884-3895 把 m_boDeath 目标置 nil、SearchTarget:22677
+    # 跳过尸体 —— 死了还站着被怪围着砍正是用户反馈 13。
+    m.target_id = p.id
+    check("死亡后不再被怪物锁定", w._resolve_target(m, now) is None)
+    check("尸体仍下发给视野（不能凭空消失）",
+          p.id in {a.id for a in w._sight_actors(p.map, p.x, p.y)})
+    check("尸体快照带 corpse 标记（客户端画倒地帧）",
+          p.brief_json().get("corpse") is True)
     p.dead = False
+    p.alive = True          # 原版 m_boDeath 一并清掉，后续用例还要当活靶
     p.hp, p.mp = p.max_hp, p.max_mp
 
 
@@ -419,11 +429,23 @@ def test_summon(w, p, sess):
     w.default_map.add(p)
     name = next((n for n in ("神兽", "变异骷髅") if n in w.monster_templates),
                 next(iter(w.monster_templates)))
+    # 落点对齐原版 GetFrontPosition（ObjBase.pas:7167）：主人正前方一格。
+    # 必须在召唤前判定，召唤物自己会占住那一格。
+    p.dir = 4
+    dx, dy = direction_delta(p.dir)
+    fx, fy = p.x + dx, p.y + dy
+    front_free = (p.map.can_walk(fx, fy) and not p.map.occupied(fx, fy))
     pet = w.spawn_summon(p, name)
     check("spawn_summon 生成宠物并注册 pets", pet is not None
           and pet.id in w.combat_state.get("pets", {}))
     if pet is None:
         return
+    if front_free:
+        check("召唤物出现在主人正前方一格", (pet.x, pet.y) == (fx, fy),
+              f"pet=({pet.x},{pet.y}) front=({fx},{fy})")
+    else:
+        check("召唤物落点在主人身边（正前方被占时兜底）",
+              pet.distance_to(p) <= 2, f"pet=({pet.x},{pet.y})")
     p.summon_id = pet.id
     pet.slave_make_level = 3
     pet.slave_exp = 10000
@@ -443,8 +465,42 @@ def test_summon(w, p, sess):
     sess.drain()
     w._summon_ai(pet, now_ms())
     check("summon_ai 执行不抛异常", True)
+
+    # 原版 TSlave.Run（ObjMon.pas:489-495）：主人换图 / 拉开 >20 格时
+    # SpaceMove(master.map, backX, backY, 1) 直接瞬移跟过去。
+    dst = next((n for n in w.map_titles if n != p.map.name), None)
+    dst_map = w.get_or_load_map(dst) if dst else None
+    spot = None
+    if dst_map is not None:
+        for yy in range(min(dst_map.height, 200)):
+            for xx in range(min(dst_map.width, 200)):
+                if dst_map.can_walk(xx, yy):
+                    spot = (xx, yy)
+                    break
+            if spot:
+                break
+    if dst_map is not None and spot is not None:
+        w.change_map(p, dst, spot[0], spot[1])
+        check("宝宝跟着主人换图", pet.map is dst_map)
+        check("宝宝落在主人身边", pet.distance_to(p) <= 1,
+              f"d={pet.distance_to(p)}")
+        far_x = min(p.map.width - 1, p.x + 30)
+        p.map.reposition(pet, far_x, p.y)
+        w._summon_ai(pet, now_ms())
+        check("宝宝拉开 >20 格瞬移回主人身边", pet.distance_to(p) <= 1,
+              f"d={pet.distance_to(p)}")
     w.remove_summon(pet)
     check("remove_summon 清空 owner.summon_id", p.summon_id == -1)
+
+    # 主人登出 = 原版 m_boGhost：宝宝 1 秒后 MakeGhost（ObjBase.pas:3986），
+    # 不清理会永久留在原地。
+    pet2 = w.spawn_summon(p, name)
+    if pet2 is not None:
+        p.summon_id = pet2.id
+        w.remove_player(p)
+        check("主人登出后宝宝被清理", pet2.id not in w.actors)
+        w.add_player(p)        # 后续用例还要用这个角色
+        p.summon_id = -1
 
 
 def test_map_quest(w, p, sess):

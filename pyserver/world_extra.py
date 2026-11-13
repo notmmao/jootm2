@@ -840,6 +840,17 @@ class WorldExtra:
             self.remove_summon(summon)
         p.hp, p.mp, p.dir = 0, 0, 4
         p.dead = True
+        # 原版 m_boDeath 是**独立于「还在不在图上」**的死亡标志，但所有目标搜索都
+        # 拿它过滤：`TAnimalObject.SearchTarget` 遍历视野时 `if not BaseObject.m_boDeath`
+        # （ObjBase.pas:22677），`TBaseObject.Run` 每轮还会把尸体目标清成 nil
+        # （ObjBase.pas:3884-3895）。本项目 `alive` 就是这套过滤用的旗标（怪物
+        # `_resolve_target` 只认 `p.alive`），以前只置 `dead` 不置 `alive`，
+        # 于是人死了怪物照旧围上来砍尸体——用户反馈 13。
+        # 注意：尸体仍要能被别人看见，靠 `World._sight_actors` 的「尸体可见」分支
+        # （`_corpse_visible` 对玩家也返回 True），与占位/目标筛选互不影响。
+        p.alive = False
+        p.poison_ticks = 0
+        p.inc_health = p.inc_spell = 0
         p.target_id = -1
         self.send_stats(p)
         self.send_system(p, "你被击败了。按 Esc →「返回角色选择」重新登录即可在出生点复活。")
@@ -874,10 +885,12 @@ class WorldExtra:
         t = self.monster_templates.get(monster_name)
         if t is None:
             return None
-        pos = self._free_near(owner.map, owner.x, owner.y, 2)
+        # 原版 TBaseObject.MakeSlave（ObjBase.pas:7167）：GetFrontPosition ——
+        # 召唤物出现在主人**正前方一格**（面朝方向），不是随机撒在半径 2 内。
+        pos = self._front_near(owner.map, owner.x, owner.y, owner.dir)
         if pos is None:
             return None
-        m = Monster(id=self.new_id(), name=t.name, x=pos[0], y=pos[1], dir=4,
+        m = Monster(id=self.new_id(), name=t.name, x=pos[0], y=pos[1], dir=owner.dir,
                     hp=t.hp, max_hp=t.hp, level=t.level, race=t.race,
                     race_img=t.raceImg, appr=t.appr, template=t,
                     spawn_x=pos[0], spawn_y=pos[1], master_id=owner.id)

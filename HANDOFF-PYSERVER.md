@@ -1235,6 +1235,80 @@ end;
 
 ---
 
+## 57. 骷髅召唤的动画/跟图 + 死后仍被怪物围砍（第 31 轮）
+
+用户反馈两条：`12. 骷髅召唤有没有动画? 召唤的骷髅会随着我一起切换地图么?`
+`13. 死亡后, 人物角色还站在那被怪物打.`
+
+### 12-a 召唤有没有「特效动画」——原版没有
+
+- 召唤魔法 17/30 在 Magic.DB 里是 `EffectType=4 / Effect=15(28)`。4 = `mtFireWind`，
+  客户端 `TPlayScene.NewMagic` 的 `mtFireWind:` 分支直接 `meff := nil`
+  （MirClient\PlayScn.pas:1679-1680）——**原版召唤不放任何魔法特效**。
+- 原版只有两件事：① 服务端 `SendRefMsg(RM_SPELL, Effect, tx, ty, MagicId)`
+  （M2Server\Magic.pas:270）→ 客户端播道士施法动作（`HA.ActSpell`）；
+  ② `MakeSlave` 把骷髅放到身前（见下）。本项目 `spellCast` 广播（magicId=17、
+  effect=15）已能让所有人看到施法动作，`MAGIC_VFX` 里**故意没有** 17/30 的条目，
+  与原版一致（别再加特效）。
+- 顺带修正落点：`spawn_summon` 原来是 `_free_near(owner, 半径 2)` 随机撒，
+  原版 `TBaseObject.MakeSlave`（ObjBase.pas:7167-7168）先 `GetFrontPosition`
+  再 `RegenMonsterByName`，**召唤物永远在主人面朝的正前方一格**。新增
+  `GameWorld._front_near`（正前方优先，被占/不可走才退回 `_free_near`）。
+
+### 12-b 骷髅跟不跟着换图——原版跟着，我们以前留在原地
+
+- 依据 `TSlave.Run`（ObjMon.pas:468-497）：每轮检查
+  `(m_PEnvir <> m_Master.m_PEnvir) or (abs(dx) > 20) or (abs(dy) > 20)`
+  → `SpaceMove(m_Master.m_PEnvir.sMapName, m_nTargetX, m_nTargetY, 1)`，
+  即**瞬移跟随**（`nInt=1` → `RM_SPACEMOVE_SHOW2`，magic 1600，10 帧×30ms；
+  离开时 `RM_SPACEMOVE_FIRE` → `SM_SPACEMOVE_HIDE2`，magic 1590）。
+- 旧实现 `_summon_ai` 开头 `master.map is not m.map → return`，主人一过门骷髅就
+  被丢在旧图（而且空图不跑 AI，永远追不回来，最终被 `_despawn_idle_maps` 清掉）。
+- 修复：
+  - `_summon_ai`：同图但拉开 >20 格、或主人换图 → `_slave_space_move`；
+  - 新增 `_slave_space_move`：旧位置广播 `spaceMoveHide{variant:1}`（换图再加
+    `entityRemove`），落点用 `_back_near`（原版 `GetBackPosition` 背后一格，
+    被占则按 1→8 环逐圈找可走空格），新位置 `entityAdd` + `spaceMoveShow{variant:1}`；
+  - `change_map` 末尾调用新增的 `_follow_summons(p)`：主人过门/回城卷/瞬息移动后
+    宝宝立刻跟过去（原版是等下一次 `TSlave.Run`，但本项目空图不跑 AI）；
+  - `remove_player` 顺手清宝宝（原版主人 `m_boGhost` 1 秒后 `MakeGhost`，
+    ObjBase.pas:3986）：以前登出后骷髅永久留在原地。
+
+### 13 死了还站着被怪砍——`alive` 没跟着 `dead` 一起清
+
+- 原版是**两套东西**：`m_boDeath`（死亡标志，目标筛选全用它）与对象是否还在
+  地图上无关。`TAnimalObject.SearchTarget` 遍历视野时 `if not BaseObject.m_boDeath`
+  （ObjBase.pas:22677），`TBaseObject.Run` 每轮把尸体目标置 nil（3884-3895）。
+- 本项目 `alive` 才是目标筛选用的旗标（`_resolve_target` 只认 `p.alive`、
+  `nearby()` 只返回 `alive`），而 `kill_player` 以前只置 `p.dead = True`，
+  `alive` 保持 True → 怪物继续把尸体当活目标，围上来一刀刀砍。
+- 修复：
+  - `kill_player` 置 `p.alive = False`（同时清毒/回血池）；
+  - `_apply_hit_to_player` 开头 `if not target.alive: return`（延迟飞矢落地时兜底）；
+  - 尸体可见性补到 `_corpse_visible`：玩家死亡**不倒计时**（原版只有重登才回
+    出生点），`_sight_actors` 继续把尸体下发给视野，避免「死的一瞬间人消失」；
+  - `Player.brief_json` 增加 `alive` / `corpse`：别人后进视野也能按 `corpse`
+    画 ActDie 末帧（以前缺这个字段，后进视野的玩家会看到一具**站着**的尸体）；
+  - 登录复活（`service.py`，`UsrEngn.pas:576-600` 的 HP=14 分支）同时复位
+    `p.alive = True`，否则复活后永远不能被选为目标。
+
+**回归**
+
+- `test_tick_systems` 166/0（+9：死亡同时清 alive / 死后不再被锁定 / 尸体仍在
+  视野 / brief_json corpse 标记 / 召唤落点正前方 / 宝宝跟主人换图 / 拉开 >20 格
+  瞬移 / 主人登出清理宝宝；另修了夹具「上一步死亡状态没复位」的连带失败）；
+  `test_all_messages` 91/0、`test_pyserver` 95/0、`test_map_view` 34/0。
+- live WS（8080，40 级道士带 17 级满级召唤）：`castMagic {magicId:17}` →
+  收到 `spellCast{casterId, magicId:17, effect:15}` 与
+  `entityAdd{name:"变异骷髅", x, y}`，落点与主人 `dir=4` 的正前方
+  (289,619) 完全一致，随后 `systemMessage「召唤了 变异骷髅。」`。
+
+**给后续**：宝宝「休息/攻击」切换（`m_boSlaveRelax`，`CmdChangeSalveStatus`）
+本项目还没做，`_summon_ai` 里没有 relax 分支；召唤走位仍是最简跟随，
+原版 `TSlave.Run` 的 `GetBackPosition` 目标点 + `GotoTargetXY` 只做了瞬移部分。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

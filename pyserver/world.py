@@ -434,6 +434,10 @@ class Player(Actor):
                  dress=self.dress_looks(self.world_ref),
                  weapon=self.weapon_shape(self.world_ref),
                  light=self.light_level(), dead=self.dead)
+        # 死亡玩家留在原地当尸体（原版 m_boDeath）：别人后进视野时靠这两个字段
+        # 画 ActDie 末帧，否则会按「站立」帧画出一具站着的尸体。
+        o["alive"] = self.alive
+        o["corpse"] = self.dead
         return o
 
     def _template(self, world: "GameWorld | None", item: dict | None) -> ItemTemplate | None:
@@ -949,6 +953,11 @@ class GameWorld(WorldExtra):
             p.map.add(p)
 
     def remove_player(self, p: Player) -> None:
+        # 主人登出 = 原版 m_boGhost：宝宝 1 秒后 MakeGhost（ObjBase.pas:3986），
+        # 不清理的话骷髅会永远留在原地，主人下次上线还带着旧的 summon_id。
+        summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
+        if isinstance(summon, Monster) and summon.alive:
+            self.remove_summon(summon)
         self.actors.pop(p.id, None)
         self.players_by_name.pop(p.name, None)
         if p.map is not None:
@@ -973,6 +982,44 @@ class GameWorld(WorldExtra):
             if game_map.can_walk(x, y) and not game_map.occupied(x, y):
                 return x, y
         return (cx, cy) if game_map.can_walk(cx, cy) else None
+
+    def _front_near(self, game_map: GameMap, cx: int, cy: int,
+                    direction: int) -> tuple[int, int] | None:
+        """正前方一格（原版 ``GetFrontPosition``，ObjBase.pas:4298）。
+
+        召唤物落点用它：``TBaseObject.MakeSlave`` 先 ``GetFrontPosition`` 再
+        ``RegenMonsterByName``（7167-7168），所以骷髅总是出现在主人面朝的那一格，
+        不是随机撒在周围。正前方被占/不可走时退回 ``_free_near`` 兜底。
+        """
+        dx, dy = direction_delta(direction)
+        fx, fy = cx + dx, cy + dy
+        if (game_map.inside(fx, fy) and game_map.can_walk(fx, fy)
+                and not game_map.occupied(fx, fy)):
+            return fx, fy
+        return self._free_near(game_map, cx, cy, 2)
+
+    def _back_near(self, game_map: GameMap, cx: int, cy: int,
+                   direction: int) -> tuple[int, int] | None:
+        """背后一格（原版 ``GetBackPosition``，ObjBase.pas:22583）：宝宝瞬移落点。
+
+        背后被墙/被占时逐步扩大搜索（原版 ``SpaceMove`` 的 ``GetRandXY`` 也是
+        找不到可走点就继续挪，直到 201 次），保证宝宝真能跟过来而不是留在原地。
+        """
+        dx, dy = direction_delta((direction + 4) & 7)
+        bx, by = cx + dx, cy + dy
+        if (game_map.inside(bx, by) and game_map.can_walk(bx, by)
+                and not game_map.occupied(bx, by)):
+            return bx, by
+        for radius in (1, 2, 3, 4, 6, 8):
+            for ddx in range(-radius, radius + 1):
+                for ddy in range(-radius, radius + 1):
+                    if max(abs(ddx), abs(ddy)) != radius:
+                        continue
+                    x, y = cx + ddx, cy + ddy
+                    if (game_map.inside(x, y) and game_map.can_walk(x, y)
+                            and not game_map.occupied(x, y)):
+                        return x, y
+        return None
 
     def spawn_monsters(self, game_map: GameMap) -> int:
         spawned = 0
@@ -1029,6 +1076,7 @@ class GameWorld(WorldExtra):
             p.map.remove(p.id)
         p.x, p.y = x, y
         target.add(p)
+        self._follow_summons(p)
         self.player_entered(p)
         # 原版 SM_CHANGEMAP 后客户端 CancelAction 停住动作；这里用短锁拦下
         # 换图消息到达前已在网络中的 move，否则会落在新地图继续走，
@@ -1185,7 +1233,13 @@ class GameWorld(WorldExtra):
     @staticmethod
     def _corpse_visible(a: Actor) -> bool:
         """未到 makeGhost 时间的尸体：原版所有死亡对象都留 3 分钟（可挖肉的动物
-        只是额外允许 Alt+左键挖）。"""
+        只是额外允许 Alt+左键挖）。
+
+        玩家死亡不倒计时：原版 m_boDeath 的角色一直留在地图上（`m_boGhost`
+        才是登出），只有重新登录才回到出生点，所以尸体要一直可见。
+        """
+        if isinstance(a, Player):
+            return not a.alive and a.dead
         return (isinstance(a, Monster) and not a.alive
                 and a.corpse_until > now_ms())
 
@@ -1906,7 +1960,13 @@ class GameWorld(WorldExtra):
     def _summon_ai(self, m: Monster, now: int) -> None:
         """宠物跟随 / 协助攻击 / 神兽变身 / 升级（``GameWorld.summonAi``）。"""
         master = self.actor(m.master_id)
-        if not isinstance(master, Player) or not master.alive or master.map is not m.map:
+        if not isinstance(master, Player) or not master.alive:
+            return
+        # 原版 TSlave.Run（ObjMon.pas:489-495）：主人换图、或拉开超过 20 格时
+        # ``SpaceMove(master.map, backX, backY, 1)`` 直接瞬移跟过去（不是留在原地）。
+        if (master.map is not m.map
+                or abs(master.x - m.x) > 20 or abs(master.y - m.y) > 20):
+            self._slave_space_move(m, master)
             return
         hit_interval = max(500, 3000 - m.slave_make_level * 600)
         walk_interval = max(200, 1200 - m.slave_make_level * 250)
@@ -1968,6 +2028,46 @@ class GameWorld(WorldExtra):
             m.next_move_at = now + walk_interval
             if self._walk_toward(m, master.x, master.y):
                 self.broadcast_move(m)
+
+    def _slave_space_move(self, m: Monster, master: Player) -> None:
+        """宝宝瞬移跟随（原版 ``TBaseObject.SpaceMove(..., 1)``，ObjMon.pas:494）。
+
+        原版 ``nInt=1`` → ``RM_SPACEMOVE_SHOW2``（magic 1600，10 帧×30ms），
+        离开时还有 ``RM_SPACEMOVE_FIRE`` → ``SM_SPACEMOVE_HIDE2``（magic 1590）。
+        本项目沿用玩家传送的两段消息（``spaceMoveHide``/``spaceMoveShow`` +
+        ``variant=1``），旧地图先移除实体、新地图重新下发快照。
+        """
+        if master.map is None:
+            return
+        pos = self._back_near(master.map, master.x, master.y, master.dir)
+        if pos is None:
+            return
+        old_map, ox, oy = m.map, m.x, m.y
+        self.broadcast_around(old_map, {"type": "spaceMoveHide", "x": ox, "y": oy,
+                                        "variant": 1}, ox, oy, SIGHT_RANGE)
+        moved_map = old_map is not master.map
+        if moved_map:
+            if old_map is not None:
+                old_map.remove(m.id)
+            self.broadcast_around(old_map, {"type": "entityRemove", "id": m.id},
+                                  ox, oy, SIGHT_RANGE)
+        m.x, m.y = pos
+        m.dir = master.dir
+        if moved_map:
+            master.map.add(m)
+            self.broadcast_entity_add(m)
+        else:
+            master.map.reposition(m, pos[0], pos[1])
+        self.broadcast_around(m.map, {"type": "spaceMoveShow", "x": m.x, "y": m.y,
+                                      "variant": 1}, m.x, m.y, SIGHT_RANGE)
+
+    def _follow_summons(self, p: Player) -> None:
+        """主人过门/传送后，宝宝立刻跟过去（原版下一次 TSlave.Run 才动，
+        但本项目空图不跑 AI，必须在这里主动搬）。"""
+        for a in list(self.actors.values()):
+            if (isinstance(a, Monster) and a.alive and a.master_id == p.id
+                    and a.map is not p.map):
+                self._slave_space_move(a, p)
 
     def _nearest_enemy(self, master: Player, self_m: Monster) -> Monster | None:
         if master.map is None:
@@ -2091,6 +2191,8 @@ class GameWorld(WorldExtra):
 
     def _apply_hit_to_player(self, m: Monster, target: Player, dmg: int) -> None:
         """魔法盾 / 绿毒 / 护身减伤后扣血，死亡走 ``killPlayer``。"""
+        if not target.alive:
+            return                      # 尸体不再挨打（原版 m_boDeath 目标清空）
         now = now_ms()
         if target.shield_until > now:
             dmg = java_div(dmg * 7, 10)

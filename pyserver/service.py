@@ -384,6 +384,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # 正常登录则沿用存档 HP/MP（原版 HP 是持久化的），只钳到上限。
         if p.hp <= 0:
             p.dead = False
+            p.alive = True          # 与 m_boDeath 一并复位，否则复活后仍是「目标不可选」
             home = world.get_or_load_map(p.home_map) or world.default_map
             p.map = home
             p.x = max(0, min(home.width - 1, p.home_x - 2 + random.randint(0, 4)))
