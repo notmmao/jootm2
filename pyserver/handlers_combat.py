@@ -215,7 +215,10 @@ class CombatHandlers:
            不是平分。
         """
         w = self.world
-        exp = m.template.exp if m.template else 0
+        # 经验取**怪物实例**值（原版 m_dwFightExp）：race 96 复活僵尸每次原地
+        # 复活会 ``m_dwFightExp := m_dwFightExp div 2``（ObjMon.pas:1305），
+        # 读模板值会让复活过的僵尸仍按原始经验结算。
+        exp = m.exp
         mon_level = m.template.level if m.template else 1
         exp = calc_get_exp(p.level, mon_level, exp)
         party = w.party_of(p.id)

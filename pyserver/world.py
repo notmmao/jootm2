@@ -750,6 +750,14 @@ class Monster(Actor):
     zil_revives: int = 0
     zil_revive_at: int = 0
 
+    def __post_init__(self) -> None:
+        # 原版 ``m_dwFightExp`` 是**实例**字段（MonInitialize 取 Monster.DB.Exp，
+        # UsrEngn.pas:2612 一带），不是模板值：race 96 复活僵尸每次原地复活都会
+        # ``m_dwFightExp := m_dwFightExp div 2``（ObjMon.pas:1305）。因此杀怪结算
+        # 必须读 ``m.exp``；这里在所有构造点统一初始化，避免漏赋值结算成 0。
+        if self.template is not None and self.exp <= 0:
+            self.exp = int(getattr(self.template, "exp", 0) or 0)
+
     def roll_attack(self) -> int:
         """对齐 ``Monster.rollAttack``：DC ~ max(DC,MaxDC) 上加宠物等级加成。"""
         t = self.template
@@ -1504,10 +1512,10 @@ class GameWorld(WorldExtra):
                     self.kill_monster(a, now, owner)
                     if isinstance(owner, Player):
                         t = a.template
-                        # 原版火墙/宝宝击杀同样走主人的 CalcGetExp（ObjBase.pas:20848）
+                        # 原版火墙/宝宝击杀同样走主人的 CalcGetExp（ObjBase.pas:20848）；
+                        # 经验取怪物实例值（复活僵尸会 div 2）
                         self.add_exp(owner, calc_get_exp(
-                            owner.level, t.level if t else 1,
-                            t.exp if t else 0))
+                            owner.level, t.level if t else 1, a.exp))
         self.combat_state["fire_walls"] = keep
 
     def _tick_pending_ranged_hits(self, now: int) -> None:
@@ -1626,8 +1634,7 @@ class GameWorld(WorldExtra):
                 continue    # m_VisibleActors.Count = 0：附近没有观察者，下轮再试
             m.zil_revive_at = 0
             m.max_hp = max(1, m.max_hp // 2)      # MaxHP shr 1
-            if m.exp:
-                m.exp = m.exp // 2                # m_dwFightExp div 2
+            m.exp = m.exp // 2                    # m_dwFightExp div 2（实例值，见 __post_init__）
             m.hp = m.max_hp
             m.alive = True
             m.pending_respawn = False             # 原地复活，不再补新怪
@@ -1938,10 +1945,10 @@ class GameWorld(WorldExtra):
                     if enemy.hp <= 0:
                         self.kill_monster(enemy, now, master)
                         t = enemy.template
-                        # 宝宝击杀：主人按 CalcGetExp（ObjBase.pas:20845-20852）
+                        # 宝宝击杀：主人按 CalcGetExp（ObjBase.pas:20845-20852），
+                        # 经验取怪物实例值（复活僵尸会 div 2）
                         self.add_exp(master, calc_get_exp(
-                            master.level, t.level if t else 1,
-                            t.exp if t else 0))
+                            master.level, t.level if t else 1, enemy.exp))
                         self._gain_slave_exp(m, enemy)
             elif now >= m.next_move_at:
                 m.next_move_at = now + walk_interval

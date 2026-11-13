@@ -672,6 +672,31 @@ def run_success_paths() -> int:
                   p.exp == exp0 + calc_get_exp(p.level, 10, 100), results)
         finally:
             w.remove_actor(victim.id)
+        # 实例经验（原版 m_dwFightExp）：出生从模板写入实例，杀怪结算读实例值。
+        # race 96 复活僵尸每复活一次 ``m_dwFightExp div 2``（ObjMon.pas:1305），
+        # 读模板值会让复活过的僵尸仍按原始经验给——这里覆盖这个回归。
+        fresh = Monster(name="经验测试", hp=1, max_hp=1,
+                        template=SimpleNamespace(exp=77))
+        check("怪物出生即把模板 Exp 写入实例（m_dwFightExp）",
+              fresh.exp == 77, results)
+        zilx = Monster(id=w.new_id(), name="僵尸4", x=p.x + 1, y=p.y,
+                       hp=400, max_hp=400, level=10, race=96,
+                       template=SimpleNamespace(name="僵尸4", race=96, appr=51,
+                                                walkSpeed=800, attackSpeed=1000,
+                                                level=10, exp=200, ac=0, dc=1, maxDc=2),
+                       spawn_x=p.x + 1, spawn_y=p.y)
+        zilx.max_hp //= 2            # 模拟一次复活后的状态
+        zilx.exp //= 2
+        zilx.hp = 0
+        w.add_actor(zilx, p.map)
+        try:
+            lv, e0 = p.level, p.exp
+            service._grant_exp(p, zilx)
+            check("复活僵尸击杀经验取实例值（200→100，非模板 200）",
+                  zilx.exp == 100
+                  and p.exp - e0 == calc_get_exp(lv, 10, 100), results)
+        finally:
+            w.remove_actor(zilx.id)
         # 组队：2 人同图 ≤12 格，经验 ×1.3 后按等级比例分（ObjBase.pas:15564/15594）
         mate = Player(id=w.new_id(), name="队友", x=p.x + 2, y=p.y,
                       hp=50, max_hp=50, map=p.map)

@@ -1074,6 +1074,41 @@ world.py`）；客户端只发 `attack { targetId }` 意图、播挥击动画、
 
 ---
 
+## 54. 复活僵尸击杀经验仍按原始值（m_dwFightExp 读错来源）
+
+**现象**：race 96 复活僵尸复活后血量确实减半，但杀掉拿到的经验还是原始值。
+
+**原版依据（ObjMon.pas:1296-1313 `TZilKinZombi.Run`）**
+
+```pascal
+m_Abil.MaxHP := m_Abil.MaxHP shr 1;
+m_dwFightExp := m_dwFightExp div 2;   // 经验也减半，且是**实例**字段
+m_Abil.HP := m_Abil.MaxHP;
+ReAlive();
+```
+
+`m_dwFightExp` 在 MonInitialize 时从 `Monster.DB.Exp` 拷进**怪物实例**，之后只有
+复活僵尸会改它；杀怪结算 `CalcGetExp` 拿的也是这个实例值。
+
+**根因**：复活逻辑里 `m.exp = m.exp // 2` 自己做对了，但三处经验结算读的是
+`m.template.exp`（模板值），于是减半结果从来没人读。
+
+**修复**
+
+- `Monster.__post_init__`：出生把 `template.exp` 写进实例 `exp`（与原版
+  MonInitialize 一致），所有构造点统一生效，不会再出现漏赋值结算成 0。
+- 经验结算改读实例值：`handlers_combat._grant_exp`（玩家击杀）、火墙击杀
+  （world.py `_tick_fire_walls`）、宝宝击杀（`_summon_ai`）。
+- 复活时无条件 `m.exp //= 2`（与原版一致，0 也照样除）。
+
+**验证**
+
+`test_all_messages` 80/0（+2：「出生即把模板 Exp 写入实例」「复活僵尸击杀经验取
+实例值 200→100 而非模板 200」）；`test_tick_systems` 157/0；`test_pyserver` 95/0；
+`test_map_view` 34/0。8080 已重启（旧连接会被断开，需重新登录）。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
