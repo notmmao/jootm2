@@ -1,4 +1,4 @@
-;╠╬еДжцнд╪Ч╡╩╢Фтз╨Сце   нр╠╬Ёад╛╟Ф╠╬яИж╓
+;Ф°╛И┘█Г╫╝Ф√┤Д╩╤Д╦█Е╜≤Е°╗Е░▌И≈╗   Ф┬▒Ф°╛Ф╡┴И╩≤Г┴┬Ф°╛И╙▄Х╞│
 [@main]
 #IF
 equal d4 5
@@ -51,69 +51,69 @@ goto @main-0
 #ACT
 #SAY
 
-╩╤с╜!<$USERNAME> оК╡╩оКсКнрр╩фПмФмФжюВ╩вс╣дсно╥?\ \
-<©╙й╪╫ЬппжюВ╩вс╣длТу╫/@main-1>\
-<╡И©╢сп╧ь╧ФтРк╣цВ/@held5>\
-<╡И©╢сп╧ьим╫Пк╣цВ/@held6>\
-<╬э╬ЬлТу╫/@exit>
+Ф╛╒Х©▌!<$USERNAME> Ф┐ЁД╦█Ф┐ЁД╦▌Ф┬▒Д╦─Х╣╥Г▌╘Г▌╘Ф▌╥И╙╟Е╜░Г └Ф╦╦Ф┬▐?\ \
+<Е╪─Е╖▀Х©⌡Х║▄Ф▌╥И╙╟Е╜░Г └Ф▄▒Ф┬≤/@main-1>\
+<Ф÷╔Г°▀Ф°┴Е┘ЁХ╖└Е┬≥Х╞╢Ф≤▌/@held5>\
+<Ф÷╔Г°▀Ф°┴Е┘ЁХ╣▐И┤▒Х╞╢Ф≤▌/@held6>\
+<Ф▀▓Г╩²Ф▄▒Ф┬≤/@exit>
 
 
 [@held5]
 #IF
 #SAY
-фДй╣ <$USERNAME> уБж╩йг╦Ж╦Ы╬щм╤жюкд╦ЖВ╩вс╧Ж╤╞ЁЖю╢╣д\
-╢Сп║ефпн╥жй╓╟э╣дсно╥. \
-В╩вс╣д╥жюЮ:\
-2╦ЖоЮм╛В╩вс╪РЁф ╣ьяш\
-2╦ЖоЮм╛йёоб2╦Жр╡оЮм╛╪РЁф к╚╣ьяш\
-3╦ЖоЮм╛В╩вс╪РЁф лЛяш\
-4╦ЖоЮм╛В╩вс╪РЁф ╠╙вс ефпн.\ \
-<обр╩рЁ/@main-0-01>\
+Е┘╤Е╝· <$USERNAME> Х©≥Е▐╙Ф≤╞Д╦╙Ф═╧Ф█╝Ф┼∙Ф▌╥Е⌡⌡Д╦╙И╙╟Е╜░Ф╩ Е┼╗Е┤╨Ф²╔Г └\
+Е╓╖Е╟▐Г┴▄Е╫╒Е┬├Х┐°Х╢╔Г └Ф╦╦Ф┬▐. \
+И╙╟Е╜░Г └Е┬├Г╠╩:\
+2Д╦╙Г⌡╦Е░▄И╙╟Е╜░Г╝─Г╖╟ Е°╟Г°╪\
+2Д╦╙Г⌡╦Е░▄Е┴╘Д╦▀2Д╦╙Д╧÷Г⌡╦Е░▄Г╝─Г╖╟ Е▐▄Е°╟Г°╪\
+3Д╦╙Г⌡╦Е░▄И╙╟Е╜░Г╝─Г╖╟ Е╓╘Г°╪\
+4Д╦╙Г⌡╦Е░▄И╙╟Е╜░Г╝─Г╖╟ Х╠╧Е╜░ Г┴▄Е╫╒.\ \
+<Д╦▀Д╦─И║╣/@main-0-01>\
 
 [@main-0-01]
-╣ьяш╠хк╚╣ьяшп║,к╚╣ьяш╠хлЛяшп║,лЛяш╠х╠╙всп║.╫╠юЬ╤╪╦В\
-╡╩оЮм╛.жюЁЖм╛яЫ╣дефпн╣ЦйЩ╢С╣дй╓. сЖ╣╫ефпн╣ЦйЩх╚╡©р╩\
-яЫвЖн╙ф╫╬жкЦ╫╚обв╒╣д╫П╤Н╣др╩╟К╥╢╩╧╦ЬмФ╪р.\ \ \
-<обр╩рЁ/@main-0-1>\
+Е°╟Г°╪Ф╞■Е▐▄Е°╟Г°╪Е╟▐,Е▐▄Е°╟Г°╪Ф╞■Е╓╘Г°╪Е╟▐,Е╓╘Г°╪Ф╞■Х╠╧Е╜░Е╟▐.Е╔√Е┼╠И┐╫Е░└\
+Д╦█Г⌡╦Е░▄.Ф▌╥Е┤╨Е░▄Ф═╥Г └Г┴▄Е╫╒Г┌╧Ф∙╟Е╓╖Г └Х┐°. И│┤Е┬╟Г┴▄Е╫╒Г┌╧Ф∙╟Е┘╗И┐╗Д╦─\
+Ф═╥Е│ Д╦╨Е╧ЁЕ╠─Г╝≈Е╟├Д╦▀ФЁ╗Г └И┤▒И╒²Г └Д╦─Е█┼Е▐█Х©≤Г╩≥Г▌╘Е╝╤.\ \ \
+<Д╦▀Д╦─И║╣/@main-0-1>\
 
 [@main-0-1]
-<$USERNAME>╨мнртзжюЁЖнчхн╨нефпн--р╡╬мйгфум╗ефпнй╠р╡\
-╟╢ф╫╬жкЦ╫╚╟яобв╒╣д╫П╤Н╣др╩╟К╥╢╩╧╦Ь╤т╥╫.\
-хГ╧Ш<$USERNAME>с╝акнр<$USERNAME>дЗ╫╚╣ц╣╫им╫П,\
-<$USERNAME>йДак╣д╩╟<$USERNAME>дЗ╣добв╒╫П╩Руъ╡©╥жя╨╫П╫╚╠╩©шЁЩ.\
-сЖ╣╫сжсКнр╬╨уЫ╣дй╠╨Ртзм╬жп╥ефЗ╣д╩╟©ирт╢см╥©╙й╪,╣╚йг4мР╫П╠ря╨╫П\
-╠ьпКжьпбж╖╦╤.нроЮпедЗ╡╩╩АрРн╙тз╩╧ц╩сп╥жЁЖй╓╦╨ж╝г╟╬млсеэак╟и!\ \
-<╥╣  ╩ь/@main-0>\
+<$USERNAME>Е▓▄Ф┬▒Е°╗Ф▌╥Е┤╨Ф≈═Д╩╩Д╫∙Г┴▄Е╫╒--Д╧÷Е╟╠Ф≤╞Ф≥╝И─ Г┴▄Е╫╒Ф≈╤Д╧÷\
+Ф▄┴Е╧ЁЕ╠─Г╝≈Е╟├Ф┼┼Д╦▀ФЁ╗Г └И┤▒И╒²Г └Д╦─Е█┼Е▐█Х©≤Г╩≥Е╞╧Ф√╧.\
+Е╕┌Ф·°<$USERNAME>Х╣╒Д╨├Ф┬▒<$USERNAME>Ф┌╗Е╟├Е╬≈Е┬╟Х╣▐И┤▒,\
+<$USERNAME>Х╬⌠Д╨├Г └Х╞²<$USERNAME>Ф┌╗Г └Д╦▀ФЁ╗И┤▒Ф┬√Х─┘И┐╗Е┬├Ф┼╪И┤▒Е╟├Х╒╚Ф┴ёИ≥╓.\
+И│┤Е┬╟Е▐┬Д╦▌Ф┬▒Г╚·Д╨┴Г └Ф≈╤Е─≥Е°╗И─■Д╦╜Ф■╬Е╪┐Г └Х╞²Е▐╞Д╩╔Д╩▌Е╓╢Е╪─Е╖▀,Д╫├Ф≤╞4Д╦┤И┤▒Е╦│Ф┼╪И┤▒\
+Е©┘И║╩И┤█Ф√╟Ф■╞Д╩≤.Ф┬▒Г⌡╦Д©║Ф┌╗Д╦█Д╪ Е⌡═Д╦╨Е°╗Х©≤Ф╡║Ф°┴Е┬├Е┤╨Х┐°Х╢÷Д╧▀Е┴█Е╟╠И─┐Х╥▒Д╨├Е░╖!\ \
+<Х©■  Е⌡·/@main-0>\
 
 [@held6]
 #IF
 #SAY
-╦Ы╬щ╧ФтРхГ╧Ш<$USERNAME>дЗс╝акнр╩РуъйД╦Ьнр╤╪╟╢обцФ\
-╤Южж╤ЮяЫ╣д╠╤бй╫ЬппеБ╦╨.\ \
-й╓╦╨еБбй ╣ьяш еБ╦╤уЩЁёобв╒╫П╤Н╣д 2╠╤\
-й╓╦╨еБбй к╚╣ьяш еБ╦╤уЩЁёобв╒╫П╤Н╣д 4╠╤\
-й╓╦╨еБбй лЛяш еБ╦╤уЩЁёобв╒╫П╤Н╣д 8╠╤\
-й╓╦╨еБбй ╠╙вс еБ╦╤уЩЁёобв╒╫П╤Н╣д 40╠╤ рт╢к╠Йв╪.\
-<обр╩рЁ/@main-0-2>\
+Ф═╧Ф█╝Х╖└Е┬≥Е╕┌Ф·°<$USERNAME>Ф┌╗Х╣╒Д╨├Ф┬▒Ф┬√Х─┘Х╬⌠Г╩≥Ф┬▒И┐╫Ф▄┴Д╦▀И²╒\
+Е╓ Г╖█Е╓ Ф═╥Г └Е─█Г▌┤Х©⌡Х║▄Х╣■Х╢÷.\ \
+Х┐°Х╢÷Х╣■Г▌┤ Е°╟Г°╪ Х╣■Д╩≤Ф╜ёЕ╦╦Д╦▀ФЁ╗И┤▒И╒²Г └ 2Е─█\
+Х┐°Х╢÷Х╣■Г▌┤ Е▐▄Е°╟Г°╪ Х╣■Д╩≤Ф╜ёЕ╦╦Д╦▀ФЁ╗И┤▒И╒²Г └ 4Е─█\
+Х┐°Х╢÷Х╣■Г▌┤ Е╓╘Г°╪ Х╣■Д╩≤Ф╜ёЕ╦╦Д╦▀ФЁ╗И┤▒И╒²Г └ 8Е─█\
+Х┐°Х╢÷Х╣■Г▌┤ Х╠╧Е╜░ Х╣■Д╩≤Ф╜ёЕ╦╦Д╦▀ФЁ╗И┤▒И╒²Г └ 40Е─█ Д╩╔Ф╜╓Ф═┤Е┤├.\
+<Д╦▀Д╦─И║╣/@main-0-2>\
 
 [@main-0-2]
-нрсК<$USERNAME>дЗтзлТу╫жп╤╪╫╚вЯя╜иоцФ╧ФтР╫Ьппсно╥,\
-с╝╪р©иа╒╪╢йу╣╫╧ФтРжп╠╤бй╣д╫П╤Н.\
-хГ╧ШсЖ╣╫ф╫╬жж╩дэ╧╩╥╢╩╧обв╒╣д╫П╤Н╣др╩╟К.\
-хГ╧ШсжсКнр╬╨уЫ╣дй╠╨Рм╬жп╥ефЗ,дЗ╣д4мР╫П╠ря╨╫П╫╚╠╩х╚╡©©шЁЩ,\
-нроК╡╩╩АрРн╙нрцг╩╧ц╩спеп╤╗й╓╦╨дЗ╬млсеэак╟и.\ \
-гКиВжьобв╒╫сйэлТу╫.\ \
-<╥╣  ╩ь/@main-0>\
+Ф┬▒Д╦▌<$USERNAME>Ф┌╗Е°╗Ф▄▒Ф┬≤Д╦╜И┐╫Е╟├И│╣Е╬╙Д╦┼И²╒Х╖└Е┬≥Х©⌡Х║▄Ф╦╦Ф┬▐,\
+Х╣╒Е╝╤Е▐╞Г╚▀Е█ЁФ■╤Е┬╟Х╖└Е┬≥Д╦╜Е─█Г▌┤Г └И┤▒И╒².\
+Е╕┌Ф·°И│┤Е┬╟Е╧ЁЕ╠─Е▐╙Х┐╫Е╓÷Е▐█Х©≤Д╦▀ФЁ╗Г └И┤▒И╒²Г └Д╦─Е█┼.\
+Е╕┌Ф·°Е▐┬Д╦▌Ф┬▒Г╚·Д╨┴Г └Ф≈╤Е─≥И─■Д╦╜Ф■╬Е╪┐,Ф┌╗Г └4Д╦┤И┤▒Е╦│Ф┼╪И┤▒Е╟├Х╒╚Е┘╗И┐╗Ф┴ёИ≥╓,\
+Ф┬▒Ф┐ЁД╦█Д╪ Е⌡═Д╦╨Ф┬▒Д╩╛Х©≤Ф╡║Ф°┴Е┬╓Е╝ Х┐°Х╢÷Ф┌╗Е╟╠И─┐Х╥▒Д╨├Е░╖.\ \
+Х╞╥Ф┘▌И┤█Д╦▀ФЁ╗Ф▌╔Е▐≈Ф▄▒Ф┬≤.\ \
+<Х©■  Е⌡·/@main-0>\
 
 
 [@main-1]
 #IF
 check [545] 1
 #SAY
-<$USERNAME>дЗсКнр╫ла©╥гЁё©иеббП? н╙й╡ц╢дЦ<$USERNAME>╡╩╤ЮсКнр╤Ю╬╨уЫр╩об.\
-хГ╧Ш╪лпЬ:гК╟╢╧ФтРж╖╦╤я╨╫П╪лпЬлТу╫.\
-<╫╩ди4мРя╨╫П/@main-1_0>\
-<кюпдак/@exit>
+<$USERNAME>Ф┌╗Д╦▌Ф┬▒Ф∙≥И┤▐И²·Е╦╦Е▐╞Ф─∙Е░≈? Д╦╨Д╩─Д╧┬Д╫═<$USERNAME>Д╦█Е╓ Д╦▌Ф┬▒Е╓ Г╚·Д╨┴Д╦─Д╦▀.\
+Е╕┌Ф·°Г╩╖Г╩╜:Х╞╥Ф▄┴Х╖└Е┬≥Ф■╞Д╩≤Ф┼╪И┤▒Г╩╖Г╩╜Ф▄▒Ф┬≤.\
+<Д╨╓Г╨Ё4Д╦┤Ф┼╪И┤▒/@main-1_0>\
+<Ф╜╩Е©┐Д╨├/@exit>
 #ELSEACT
 goto @main-1_1
 
@@ -121,15 +121,15 @@ goto @main-1_1
 #IF
 checkgold 40000
 #ACT
-take ╫П╠р 40000
+take И┤▒Е╦│ 40000
 set [545] 0
 #SAY
 
-я╨╫П╨э╨ц╣дйу╣╫ак,ожтздЗ©и╫ЬхКсно╥©╙й╪лТу╫.\ \ 
-<©╙й╪жюВ╩вс./@main-1_1>\
+Ф┼╪И┤▒Е╬┬Е╔╫Г └Ф■╤Е┬╟Д╨├,Г▌╟Е°╗Ф┌╗Е▐╞Х©⌡Е┘╔Ф╦╦Ф┬▐Е╪─Е╖▀Ф▄▒Ф┬≤.\ \ 
+<Е╪─Е╖▀Ф▌╥И╙╟Е╜░./@main-1_1>\
 #ELSESAY
-<$USERNAME>дЗЁжсп╣д╫П╠р╡╩╧╩. ╠ьпКсп4мР╫П╠рсцю╢ж╖╦╤я╨╫П.\ \
-<мк ЁЖ/@exit>
+<$USERNAME>Ф┌╗Ф▄│Ф°┴Г └И┤▒Е╦│Д╦█Е╓÷. Е©┘И║╩Ф°┴4Д╦┤И┤▒Е╦│Г■╗Ф²╔Ф■╞Д╩≤Ф┼╪И┤▒.\ \
+<И── Е┤╨/@exit>
 
 [@main-1_1]
 #IF
@@ -143,45 +143,45 @@ mov d5 0
 mov d6 0
 mov d7 0
 mov d8 0
-;		ЁУфз╩╞
+;		Е┬²Ф°÷Е▄√
 #SAY
 
-©╙й╪обв╒:<$USERNAME>дЗобв╒╤Юиыё©
-<я║тЯ500╫П╠робв╒/@main-1_2>\
-<я║тЯ1000╫П╠робв╒/@main-1_3>\
-<╥╣  ╩ь/@main-0>\
+Е╪─Е╖▀Д╦▀ФЁ╗:<$USERNAME>Ф┌╗Д╦▀ФЁ╗Е╓ Е╟▒О╪÷
+<И─┴Ф▀╘500И┤▒Е╦│Д╦▀ФЁ╗/@main-1_2>\
+<И─┴Ф▀╘1000И┤▒Е╦│Д╦▀ФЁ╗/@main-1_3>\
+<Х©■  Е⌡·/@main-0>\
 #ELSESAY
-<$USERNAME>дЗЁжсп╣д╫П╠р╡╩╧╩ак.ЁЩ╠ьпК╣д4мР╫П╠рсцю╢\
-ж╖╦╤я╨╫ПмБ╩╧╠ьпКспсцю╢обв╒╣д╫П╠р...\ \
-<мк ЁЖ/@exit>
+<$USERNAME>Ф┌╗Ф▄│Ф°┴Г └И┤▒Е╦│Д╦█Е╓÷Д╨├.И≥╓Е©┘И║╩Г └4Д╦┤И┤▒Е╦│Г■╗Ф²╔\
+Ф■╞Д╩≤Ф┼╪И┤▒Е╓√Х©≤Е©┘И║╩Ф°┴Г■╗Ф²╔Д╦▀ФЁ╗Г └И┤▒Е╦│...\ \
+<И── Е┤╨/@exit>
 
 
 [@main-1_2]
 #IF
 checkgold 40000
 #ACT
-take ╫П╠р 500
+take И┤▒Е╦│ 500
 set [545] 1
 set [572] 1
 mov d4 1
 goto @main-2
 #ELSESAY
-<$USERNAME>дЗЁжсп╣д╫П╠р╡╩╧╩обв╒ак.гКв╪╠╦╨цг╝тыю╢.\ \
-<мк ЁЖ/@exit>
+<$USERNAME>Ф┌╗Ф▄│Ф°┴Г └И┤▒Е╦│Д╦█Е╓÷Д╦▀ФЁ╗Д╨├.Х╞╥Е┤├Е╓┤Е╔╫И▓╠Е├█Ф²╔.\ \
+<И── Е┤╨/@exit>
 
 
 [@main-1_3]
 #IF
 checkgold 40000
 #ACT
-take ╫П╠р 1000
+take И┤▒Е╦│ 1000
 set [545] 1
 set [573] 1
 mov d4 1
 goto @main-2
 #ELSESAY
-<$USERNAME>дЗЁжсп╣д╫П╠р╡╩╧╩обв╒ак.гКв╪╠╦╨цг╝тыю╢.\ \
-<мк ЁЖ/@exit>
+<$USERNAME>Ф┌╗Ф▄│Ф°┴Г └И┤▒Е╦│Д╦█Е╓÷Д╦▀ФЁ╗Д╨├.Х╞╥Е┤├Е╓┤Е╔╫И▓╠Е├█Ф²╔.\ \
+<И── Е┤╨/@exit>
 
 
 
@@ -189,11 +189,11 @@ goto @main-2
 #IF
 check [572] 1
 #SAY
-<$USERNAME>дЗобв╒н╙: 500╫П╠р.дгц╢гКвЖ╨цв╪╠╦©╙й╪жюВ╩всак.\ \
-<жюВ╩вс/@dicestart>\
+<$USERNAME>Ф┌╗Д╦▀ФЁ╗Д╦╨: 500И┤▒Е╦│.И┌ёД╧┬Х╞╥Е│ Е╔╫Е┤├Е╓┤Е╪─Е╖▀Ф▌╥И╙╟Е╜░Д╨├.\ \
+<Ф▌╥И╙╟Е╜░/@dicestart>\
 #ELSESAY
-<$USERNAME>дЗобв╒н╙:1000╫П╠р. дгц╢гКвЖ╨цв╪╠╦©╙й╪жюВ╩всак.\ \
-<жюВ╩вс/@dicestart>\
+<$USERNAME>Ф┌╗Д╦▀ФЁ╗Д╦╨:1000И┤▒Е╦│. И┌ёД╧┬Х╞╥Е│ Е╔╫Е┤├Е╓┤Е╪─Е╖▀Ф▌╥И╙╟Е╜░Д╨├.\ \
+<Ф▌╥И╙╟Е╜░/@dicestart>\
 
 [@dicestart]
 #IF
@@ -210,8 +210,8 @@ inc d3 1
 playdice 4 @checkdice
 #SAY
 
-В╩всуЩтзв╙╤╞... \ \
-<мк  ЁЖ/@next>
+И╙╟Е╜░Ф╜ёЕ°╗Х╫╛Е┼╗... \ \
+<И──  Е┤╨/@next>
 #ELSEACT
 goto @main-2
 
@@ -616,7 +616,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -625,7 +625,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -634,13 +634,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -698,7 +698,7 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -707,14 +707,14 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -726,7 +726,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -735,7 +735,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -744,14 +744,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -763,7 +763,7 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -772,14 +772,14 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -791,7 +791,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -800,7 +800,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -809,13 +809,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -827,7 +827,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -836,7 +836,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -845,13 +845,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -864,7 +864,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -873,7 +873,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -882,13 +882,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -945,7 +945,7 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -954,14 +954,14 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -973,7 +973,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -982,7 +982,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -991,13 +991,13 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1009,7 +1009,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1018,7 +1018,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1027,14 +1027,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1046,7 +1046,7 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -1055,14 +1055,14 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1074,7 +1074,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1083,7 +1083,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1092,13 +1092,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1111,7 +1111,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1120,7 +1120,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1129,13 +1129,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -1193,7 +1193,7 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -1202,14 +1202,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1221,7 +1221,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1230,7 +1230,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1239,14 +1239,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1258,7 +1258,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1267,7 +1267,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1276,14 +1276,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1295,7 +1295,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1304,7 +1304,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1313,13 +1313,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1332,7 +1332,7 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -1341,14 +1341,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1361,7 +1361,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1370,7 +1370,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1379,13 +1379,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -1444,7 +1444,7 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -1453,14 +1453,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1472,7 +1472,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1481,7 +1481,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1490,14 +1490,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1509,7 +1509,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1518,7 +1518,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1527,14 +1527,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1546,7 +1546,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1555,7 +1555,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1564,13 +1564,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1582,7 +1582,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1591,7 +1591,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1600,13 +1600,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -1618,7 +1618,7 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -1627,14 +1627,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1698,12 +1698,12 @@ equal d3 2
 #ACT
 mov d5 4
 mov d6 2
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-3
 #ELSEACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 
 ;----------
@@ -1714,7 +1714,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 #ELSEACT
 goto @dice22x-1
@@ -1762,12 +1762,12 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1777,12 +1777,12 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1792,12 +1792,12 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1807,12 +1807,12 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1822,12 +1822,12 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;-----------------------
@@ -1884,7 +1884,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -1893,14 +1893,14 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1912,7 +1912,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -1921,14 +1921,14 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -1940,7 +1940,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1949,7 +1949,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1958,13 +1958,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -1976,7 +1976,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1985,7 +1985,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -1994,13 +1994,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2012,7 +2012,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2021,7 +2021,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2030,13 +2030,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2049,7 +2049,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2058,7 +2058,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2067,13 +2067,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -2131,7 +2131,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2140,7 +2140,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2149,14 +2149,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2168,7 +2168,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -2177,14 +2177,14 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2196,7 +2196,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -2205,14 +2205,14 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2224,7 +2224,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2233,7 +2233,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2242,13 +2242,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2260,7 +2260,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2269,7 +2269,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2278,13 +2278,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2297,7 +2297,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2306,7 +2306,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2315,13 +2315,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -2378,7 +2378,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2387,7 +2387,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2396,13 +2396,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2414,7 +2414,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -2423,14 +2423,14 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2442,7 +2442,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2451,7 +2451,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2460,14 +2460,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2479,7 +2479,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -2488,14 +2488,14 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2507,7 +2507,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2516,7 +2516,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2525,13 +2525,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2544,7 +2544,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2553,7 +2553,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2562,13 +2562,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -2627,7 +2627,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2636,7 +2636,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2645,13 +2645,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2663,7 +2663,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -2672,14 +2672,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2691,7 +2691,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2700,7 +2700,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2709,14 +2709,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2728,7 +2728,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2737,7 +2737,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2746,13 +2746,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2765,7 +2765,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -2774,14 +2774,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2794,7 +2794,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2803,7 +2803,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2812,13 +2812,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -2877,7 +2877,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2886,7 +2886,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2895,14 +2895,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2915,7 +2915,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -2924,14 +2924,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -2943,7 +2943,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2952,7 +2952,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2961,14 +2961,14 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -2980,7 +2980,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2989,7 +2989,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -2998,13 +2998,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3016,7 +3016,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3025,7 +3025,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3034,13 +3034,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -3052,7 +3052,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -3061,14 +3061,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3079,7 +3079,7 @@ goto @main-3
 
 
 
-;------------------- 1╩ь╨о 3╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 3Е╠─---------------------
 
 [@dice3]
 #IF
@@ -3141,12 +3141,12 @@ equal d3 3
 #ACT
 mov d5 4
 mov d6 3
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-3
 #ELSEACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 
 ;----------
@@ -3157,7 +3157,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 #ELSEACT
 goto @dice33x-1
@@ -3205,12 +3205,12 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3220,12 +3220,12 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3235,12 +3235,12 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3250,12 +3250,12 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3265,12 +3265,12 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;-----------------------
@@ -3327,7 +3327,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -3336,14 +3336,14 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3355,7 +3355,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3364,7 +3364,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3373,13 +3373,13 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3391,7 +3391,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -3400,14 +3400,14 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3419,7 +3419,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3428,7 +3428,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3437,13 +3437,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3455,7 +3455,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3464,7 +3464,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3473,13 +3473,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3492,7 +3492,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3501,7 +3501,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3510,13 +3510,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -3574,7 +3574,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3583,7 +3583,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3592,14 +3592,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3611,7 +3611,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -3620,14 +3620,14 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3639,7 +3639,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -3648,14 +3648,14 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3667,7 +3667,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3676,7 +3676,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3685,13 +3685,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3703,7 +3703,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3712,7 +3712,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3721,13 +3721,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3740,7 +3740,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3749,7 +3749,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3758,13 +3758,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -3821,7 +3821,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3830,7 +3830,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3839,13 +3839,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3858,7 +3858,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3867,7 +3867,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3876,14 +3876,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3895,7 +3895,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -3904,14 +3904,14 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3923,7 +3923,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -3932,14 +3932,14 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -3951,7 +3951,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3960,7 +3960,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3969,13 +3969,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -3987,7 +3987,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -3996,7 +3996,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4005,13 +4005,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -4070,7 +4070,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4079,7 +4079,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4088,13 +4088,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4106,7 +4106,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -4115,7 +4115,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4124,14 +4124,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4143,7 +4143,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -4152,14 +4152,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4171,7 +4171,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4180,7 +4180,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4189,13 +4189,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4208,7 +4208,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -4217,14 +4217,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4237,7 +4237,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4246,7 +4246,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4255,13 +4255,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -4320,7 +4320,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4329,7 +4329,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4338,14 +4338,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4358,7 +4358,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4367,7 +4367,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4376,14 +4376,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4395,7 +4395,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -4404,14 +4404,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;--------
@@ -4422,7 +4422,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4431,7 +4431,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4440,13 +4440,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4458,7 +4458,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4467,7 +4467,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4476,13 +4476,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -4494,7 +4494,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -4503,14 +4503,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4521,7 +4521,7 @@ goto @main-3
 
 
 
-;------------------- 1╩ь╨о 4╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 4Е╠─---------------------
 
 [@dice4]
 #IF
@@ -4583,12 +4583,12 @@ equal d3 4
 #ACT
 mov d5 4
 mov d6 4
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-3
 #ELSEACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 
 ;----------
@@ -4599,7 +4599,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 #ELSEACT
 goto @dice44x-1
@@ -4647,12 +4647,12 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4662,12 +4662,12 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4677,12 +4677,12 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4692,12 +4692,12 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4707,12 +4707,12 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;-----------------------
@@ -4769,7 +4769,7 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -4778,14 +4778,14 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4797,7 +4797,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4806,7 +4806,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4815,13 +4815,13 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4833,7 +4833,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4842,7 +4842,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4851,13 +4851,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4870,7 +4870,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -4879,14 +4879,14 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -4898,7 +4898,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4907,7 +4907,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4916,13 +4916,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -4935,7 +4935,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4944,7 +4944,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -4953,13 +4953,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -5017,7 +5017,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5026,7 +5026,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5035,14 +5035,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5054,7 +5054,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -5063,14 +5063,14 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5082,7 +5082,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5091,7 +5091,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5100,13 +5100,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5118,7 +5118,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -5127,14 +5127,14 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;--------
@@ -5145,7 +5145,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5154,7 +5154,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5163,13 +5163,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5182,7 +5182,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5191,7 +5191,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5200,13 +5200,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -5263,7 +5263,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5272,7 +5272,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5281,13 +5281,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5300,7 +5300,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5309,7 +5309,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5318,14 +5318,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5337,7 +5337,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -5346,14 +5346,14 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5365,7 +5365,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -5374,14 +5374,14 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5393,7 +5393,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5402,7 +5402,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5411,13 +5411,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5429,7 +5429,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5438,7 +5438,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5447,13 +5447,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -5512,7 +5512,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5521,7 +5521,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5530,13 +5530,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5548,7 +5548,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -5557,7 +5557,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5566,14 +5566,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5585,7 +5585,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5594,7 +5594,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5603,13 +5603,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5622,7 +5622,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -5631,14 +5631,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5651,7 +5651,7 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -5660,14 +5660,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5680,7 +5680,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5689,7 +5689,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5698,13 +5698,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -5763,7 +5763,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5772,7 +5772,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5781,14 +5781,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5801,7 +5801,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5810,7 +5810,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5819,14 +5819,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5839,7 +5839,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5848,7 +5848,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5857,13 +5857,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -5875,7 +5875,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -5884,14 +5884,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;--------
@@ -5902,7 +5902,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5911,7 +5911,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -5920,13 +5920,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -5938,7 +5938,7 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -5947,14 +5947,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -5964,7 +5964,7 @@ goto @main-3
 ;--------------------------------------------------------------
 
 
-;------------------- 1╩ь╨о 5╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 5Е╠─---------------------
 
 [@dice5]
 #IF
@@ -6026,12 +6026,12 @@ equal d3 5
 #ACT
 mov d5 4
 mov d6 5
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-3
 #ELSEACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 
 ;----------
@@ -6042,7 +6042,7 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 #ELSEACT
 goto @dice55x-1
@@ -6090,12 +6090,12 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6105,12 +6105,12 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6120,12 +6120,12 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6135,12 +6135,12 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6150,12 +6150,12 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;-----------------------
@@ -6212,7 +6212,7 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -6221,14 +6221,14 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6240,7 +6240,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6249,7 +6249,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6258,13 +6258,13 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6276,7 +6276,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6285,7 +6285,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6294,13 +6294,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6312,7 +6312,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6321,7 +6321,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6330,13 +6330,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -6347,7 +6347,7 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -6356,14 +6356,14 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6375,7 +6375,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6384,7 +6384,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6393,13 +6393,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -6457,7 +6457,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6466,7 +6466,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6475,14 +6475,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6494,7 +6494,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -6503,14 +6503,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6522,7 +6522,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6531,7 +6531,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6540,13 +6540,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6559,7 +6559,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6568,7 +6568,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6577,13 +6577,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6595,7 +6595,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -6604,14 +6604,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6623,7 +6623,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6632,7 +6632,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6641,13 +6641,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -6704,7 +6704,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6713,7 +6713,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6722,13 +6722,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6741,7 +6741,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6750,7 +6750,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6759,14 +6759,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6778,7 +6778,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -6787,14 +6787,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6806,7 +6806,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6815,7 +6815,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6824,13 +6824,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6842,7 +6842,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -6851,14 +6851,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -6870,7 +6870,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6879,7 +6879,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6888,13 +6888,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -6953,7 +6953,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6962,7 +6962,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -6971,13 +6971,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -6989,7 +6989,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -6998,7 +6998,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7007,14 +7007,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7026,7 +7026,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7035,7 +7035,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7044,13 +7044,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7063,7 +7063,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -7072,14 +7072,14 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7092,7 +7092,7 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -7101,14 +7101,14 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7121,7 +7121,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7130,7 +7130,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7139,13 +7139,13 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;-----------------------
@@ -7204,7 +7204,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7213,7 +7213,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7222,14 +7222,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7242,7 +7242,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7251,7 +7251,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7260,14 +7260,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7280,7 +7280,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7289,7 +7289,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7298,13 +7298,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7316,7 +7316,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7325,7 +7325,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7334,13 +7334,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7352,7 +7352,7 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -7361,14 +7361,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7381,7 +7381,7 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -7390,14 +7390,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7407,7 +7407,7 @@ goto @main-3
 ;--------------------------------------------------------------
 
 
-;------------------- 1╩ь╨о 6╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 6Е╠─---------------------
 
 [@dice6]
 #IF
@@ -7469,12 +7469,12 @@ equal d3 6
 #ACT
 mov d5 4
 mov d6 6
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-3
 #ELSEACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 
 ;----------
@@ -7485,7 +7485,7 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 #ELSEACT
 goto @dice66x-1
@@ -7533,12 +7533,12 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7548,12 +7548,12 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7563,12 +7563,12 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7578,12 +7578,12 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7593,12 +7593,12 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 ;-----------------------
@@ -7655,7 +7655,7 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -7664,14 +7664,14 @@ equal d3 1
 #ACT
 mov d5 3
 mov d6 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7683,7 +7683,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7692,7 +7692,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7701,13 +7701,13 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7719,7 +7719,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7728,7 +7728,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7737,13 +7737,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7755,7 +7755,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7764,7 +7764,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7773,13 +7773,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -7790,7 +7790,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7799,7 +7799,7 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7808,13 +7808,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -7825,7 +7825,7 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -7834,14 +7834,14 @@ equal d3 1
 #ACT
 mov d5 2
 mov d6 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7900,7 +7900,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7909,7 +7909,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7918,14 +7918,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -7937,7 +7937,7 @@ equal d3 2
 #ACT
 mov d5 3
 mov d6 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -7946,14 +7946,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -7965,7 +7965,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7974,7 +7974,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -7983,13 +7983,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8002,7 +8002,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8011,7 +8011,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8020,13 +8020,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -8037,7 +8037,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8046,7 +8046,7 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8055,13 +8055,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 ;--------
@@ -8072,7 +8072,7 @@ equal d3 2
 #ACT
 mov d5 2
 mov d6 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -8081,14 +8081,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8146,7 +8146,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8155,7 +8155,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8164,13 +8164,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8183,7 +8183,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8192,7 +8192,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8201,14 +8201,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8220,7 +8220,7 @@ equal d3 3
 #ACT
 mov d5 3
 mov d6 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -8229,14 +8229,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8248,7 +8248,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8257,7 +8257,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8266,13 +8266,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8284,7 +8284,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8293,7 +8293,7 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8302,13 +8302,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8320,7 +8320,7 @@ equal d3 3
 #ACT
 mov d5 2
 mov d6 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -8329,14 +8329,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8396,7 +8396,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8405,7 +8405,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8414,13 +8414,13 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8432,7 +8432,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -8441,7 +8441,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8450,14 +8450,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8469,7 +8469,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8478,7 +8478,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8487,13 +8487,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8506,7 +8506,7 @@ equal d3 4
 #ACT
 mov d5 3
 mov d6 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -8515,14 +8515,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8534,7 +8534,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8543,7 +8543,7 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8552,13 +8552,13 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8569,7 +8569,7 @@ equal d3 4
 #ACT
 mov d5 2
 mov d6 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -8578,14 +8578,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8645,7 +8645,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8654,7 +8654,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8663,14 +8663,14 @@ equal d3 1
 #ACT
 mov d5 1
 mov d6 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8683,7 +8683,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8692,7 +8692,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8701,14 +8701,14 @@ equal d3 2
 #ACT
 mov d5 1
 mov d6 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8721,7 +8721,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8730,7 +8730,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8739,13 +8739,13 @@ equal d3 3
 #ACT
 mov d5 1
 mov d6 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8757,7 +8757,7 @@ equal d3 6
 #ACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8766,7 +8766,7 @@ equal d3 5
 #ACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
@@ -8775,13 +8775,13 @@ equal d3 4
 #ACT
 mov d5 1
 mov d6 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-3
 
 
@@ -8793,7 +8793,7 @@ equal d3 5
 #ACT
 mov d5 3
 mov d6 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
@@ -8802,14 +8802,14 @@ equal d3 6
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8822,7 +8822,7 @@ equal d3 5
 #ACT
 mov d5 2
 mov d6 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-3
 break
 
@@ -8831,14 +8831,14 @@ equal d3 6
 #ACT
 mov d5 3
 mov d6 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-3
 break
 
 #ELSEACT
 mov d5 1
 mov d6 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-3
 
 
@@ -8888,14 +8888,14 @@ break
 goto @main-3
 
 ;-----------------
-;d5 5 -> ©╙й╪
-;d5 1 -> ╣ьяш
-;d5 2 -> к╚╣ьяш
-;d5 3 -> лЛяш
-;d5 4 -> ╠╙вс
-;		еф х╝н╙╨╞╪Ж
-;d6 1  -> 1╥н юл╥Г╬НаЬ ╣ьяш,лЛяш,╠╙вс
-;d6 12 -> 1,2╥н юл╥Г╬НаЬ к╚╣ьяш
+;d5 5 -> Е╪─Е╖▀
+;d5 1 -> Е°╟Г°╪
+;d5 2 -> Е▐▄Е°╟Г°╪
+;d5 3 -> Е╓╘Г°╪
+;d5 4 -> Х╠╧Е╜░
+;		Г┴▄ Г┼╛Д╦╨Е┤╫Х█░
+;d6 1  -> 1Х┌╨ Ф█·Иё▌Г╩╒Ф÷Ё Е°╟Г°╪,Е╓╘Г°╪,Х╠╧Е╜░
+;d6 12 -> 1,2Х┌╨ Ф█·Иё▌Г╩╒Ф÷Ё Е▐▄Е°╟Г°╪
 ;-----------------
 
 
@@ -8905,13 +8905,13 @@ goto @main-3
 checkgold 39000
 #SAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . йжфЬ╡╩йг╨э╨це╤..\
-ожтз©╙й╪жюобр╩╟я..\ \
-<╪лпЬжю/@npcdicestart>\
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Ф┴▀Ф╟■Д╦█Ф≤╞Е╬┬Е╔╫Е⌠╕..\
+Г▌╟Е°╗Е╪─Е╖▀Ф▌╥Д╦▀Д╦─Ф┼┼..\ \
+<Г╩╖Г╩╜Ф▌╥/@npcdicestart>\
 #ELSESAY
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . йжфЬ╡╩йг╨э╨це╤..\
-<$USERNAME>ё╛дЗйёоб╣дг╝╡╩╧╩обв╒ак. ╟╢уусно╥╣д╧ФтРдЗ╠ьпКбМиомкЁЖ...\ \
-<мк  ЁЖ/@exit>
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Ф┴▀Ф╟■Д╦█Ф≤╞Е╬┬Е╔╫Е⌠╕..\
+<$USERNAME>О╪▄Ф┌╗Е┴╘Д╦▀Г └И▓╠Д╦█Е╓÷Д╦▀ФЁ╗Д╨├. Ф▄┴Г┘╖Ф╦╦Ф┬▐Г └Х╖└Е┬≥Ф┌╗Е©┘И║╩И╘╛Д╦┼И──Е┤╨...\ \
+<И──  Е┤╨/@exit>
 
 
 [@main-3_1]
@@ -8919,14 +8919,14 @@ checkgold 39000
 checkgold 39000
 #SAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяш╥Ш╨о.\
-ожтз©╙й╪жюобр╩╟я..\ \
-<╪лпЬжю/@npcdicestart>\
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Г╛╕Е░┬.\
+Г▌╟Е°╗Е╪─Е╖▀Ф▌╥Д╦▀Д╦─Ф┼┼..\ \
+<Г╩╖Г╩╜Ф▌╥/@npcdicestart>\
 #ELSESAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяш╥Ш╨о.\
-<$USERNAME>ё╛дЗйёоб╣дг╝╡╩╧╩обв╒ак. ╟╢уусно╥╣д╧ФтРдЗ╠ьпКбМиомкЁЖ...\ \
-<мк ЁЖ/@exit>
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Г╛╕Е░┬.\
+<$USERNAME>О╪▄Ф┌╗Е┴╘Д╦▀Г └И▓╠Д╦█Е╓÷Д╦▀ФЁ╗Д╨├. Ф▄┴Г┘╖Ф╦╦Ф┬▐Г └Х╖└Е┬≥Ф┌╗Е©┘И║╩И╘╛Д╦┼И──Е┤╨...\ \
+<И── Е┤╨/@exit>
 
 
 [@main-3_2]
@@ -8934,14 +8934,14 @@ checkgold 39000
 checkgold 39000
 #SAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяш╥Ш╨о.\
-ожтз©╙й╪жюобр╩╟я..\ \
-<╪лпЬжю/@npcdicestart>\
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Г╛╕Е░┬.\
+Г▌╟Е°╗Е╪─Е╖▀Ф▌╥Д╦▀Д╦─Ф┼┼..\ \
+<Г╩╖Г╩╜Ф▌╥/@npcdicestart>\
 #ELSESAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяш╥Ш╨о.\
-<$USERNAME>ё╛дЗйёоб╣дг╝╡╩╧╩обв╒ак. ╟╢уусно╥╣д╧ФтРдЗ╠ьпКбМиомкЁЖ...\ \
-<мк ЁЖ/@exit>
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Г╛╕Е░┬.\
+<$USERNAME>О╪▄Ф┌╗Е┴╘Д╦▀Г └И▓╠Д╦█Е╓÷Д╦▀ФЁ╗Д╨├. Ф▄┴Г┘╖Ф╦╦Ф┬▐Г └Х╖└Е┬≥Ф┌╗Е©┘И║╩И╘╛Д╦┼И──Е┤╨...\ \
+<И── Е┤╨/@exit>
 
 
 [@main-3_3]
@@ -8949,14 +8949,14 @@ checkgold 39000
 checkgold 39000
 #SAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяш╥Ш╨о.\
-ожтз©╙й╪жюобр╩╟я..\ \
-<╪лпЬжю/@npcdicestart>\
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Г╛╕Е░┬.\
+Г▌╟Е°╗Е╪─Е╖▀Ф▌╥Д╦▀Д╦─Ф┼┼..\ \
+<Г╩╖Г╩╜Ф▌╥/@npcdicestart>\
 #ELSESAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяш╥Ш╨о.\
-<$USERNAME>ё╛дЗйёоб╣дг╝╡╩╧╩обв╒ак. ╟╢уусно╥╣д╧ФтРдЗ╠ьпКбМиомкЁЖ...\ \
-<мк ЁЖ/@exit>
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Г╛╕Е░┬.\
+<$USERNAME>О╪▄Ф┌╗Е┴╘Д╦▀Г └И▓╠Д╦█Е╓÷Д╦▀ФЁ╗Д╨├. Ф▄┴Г┘╖Ф╦╦Ф┬▐Г └Х╖└Е┬≥Ф┌╗Е©┘И║╩И╘╛Д╦┼И──Е┤╨...\ \
+<И── Е┤╨/@exit>
 
 
 [@main-3_4]
@@ -8964,18 +8964,18 @@ checkgold 39000
 checkgold 39000
 #SAY
 
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вс╥Ш╨о.\
-ожтз©╙й╪жюобр╩╟я..\ \
-<╪лпЬжю/@npcdicestart>\
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Г╛╕Е░┬.\
+Г▌╟Е°╗Е╪─Е╖▀Ф▌╥Д╦▀Д╦─Ф┼┼..\ \
+<Г╩╖Г╩╜Ф▌╥/@npcdicestart>\
 #ELSESAY
-дЗефпн╣дВ╩всйг:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вс╥Ш╨о.\
-<$USERNAME>ё╛дЗйёоб╣дг╝╡╩╧╩обв╒ак. ╟╢уусно╥╣д╧ФтРдЗ╠ьпКбМиомкЁЖ...\ \
-<мк ЁЖ/@exit>
+Ф┌╗Г┴▄Е╫╒Г └И╙╟Е╜░Ф≤╞:<$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Г╛╕Е░┬.\
+<$USERNAME>О╪▄Ф┌╗Е┴╘Д╦▀Г └И▓╠Д╦█Е╓÷Д╦▀ФЁ╗Д╨├. Ф▄┴Г┘╖Ф╦╦Ф┬▐Г └Х╖└Е┬≥Ф┌╗Е©┘И║╩И╘╛Д╦┼И──Е┤╨...\ \
+<И── Е┤╨/@exit>
 
 
 
 ;-----------------------------------------------------------------------------
-;-------------------------------npc аж╩Гю╖╨н╨п--------------------------------
+;-------------------------------npc Ф·≈Х█╓Е⌡╟Д╫∙Г⌡▓--------------------------------
 ;-----------------------------------------------------------------------------
 
 [@npcdicestart]
@@ -8993,13 +8993,13 @@ inc d3 1
 playdice 4 @checknpcdice
 #SAY
 
-В╩всуЩтзв╙╤╞... \ \
-<мк  ЁЖ/@next>
+И╙╟Е╜░Ф╜ёЕ°╗Х╫╛Е┼╗... \ \
+<И──  Е┤╨/@next>
 #ELSEACT
 goto @main-3
 
 
-;------------------ еф х╝н╙-----------------------
+;------------------ Г┴▄ Г┼╛Д╦╨-----------------------
 
 [@checknpcdice]
 #IF
@@ -9042,17 +9042,17 @@ break
 goto @checknpcdice
 
 ;-----------------
-;d7 5 -> ©╙й╪
-;d7 1 -> ╣ьяш
-;d7 2 -> к╚╣ьяш
-;d7 3 -> лЛяш
-;d7 4 -> ╠╙вс
-;		еф х╝н╙╨╞╪Ж
-;d8 1  -> 1╥н юл╥Г╬НаЬ ╣ьяш,лЛяш,╠╙вс
-;d8 12 -> 1,2╥н юл╥Г╬НаЬ к╚╣ьяш
+;d7 5 -> Е╪─Е╖▀
+;d7 1 -> Е°╟Г°╪
+;d7 2 -> Е▐▄Е°╟Г°╪
+;d7 3 -> Е╓╘Г°╪
+;d7 4 -> Х╠╧Е╜░
+;		Г┴▄ Г┼╛Д╦╨Е┤╫Х█░
+;d8 1  -> 1Х┌╨ Ф█·Иё▌Г╩╒Ф÷Ё Е°╟Г°╪,Е╓╘Г°╪,Х╠╧Е╜░
+;d8 12 -> 1,2Х┌╨ Ф█·Иё▌Г╩╒Ф÷Ё Е▐▄Е°╟Г°╪
 ;
 ;
-;------------------- 1╩ь╨о 1╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 1Е╠─---------------------
 
 [@npcdice1]
 #IF
@@ -9114,12 +9114,12 @@ equal d3 1
 #ACT
 mov d7 4
 mov d8 1
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;---
@@ -9130,7 +9130,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice11x-1
@@ -9178,12 +9178,12 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9193,12 +9193,12 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9208,12 +9208,12 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9223,12 +9223,12 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9238,12 +9238,12 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -9300,7 +9300,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -9309,14 +9309,14 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9328,7 +9328,7 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -9337,14 +9337,14 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9356,7 +9356,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9365,7 +9365,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9374,13 +9374,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9392,7 +9392,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9401,7 +9401,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9410,13 +9410,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9428,7 +9428,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9437,7 +9437,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9446,13 +9446,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9465,7 +9465,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9474,7 +9474,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9483,13 +9483,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -9547,7 +9547,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -9556,14 +9556,14 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9575,7 +9575,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9584,7 +9584,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9593,14 +9593,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9612,7 +9612,7 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -9621,14 +9621,14 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9640,7 +9640,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9649,7 +9649,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9658,13 +9658,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9676,7 +9676,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9685,7 +9685,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9694,13 +9694,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9713,7 +9713,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9722,7 +9722,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9731,13 +9731,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -9794,7 +9794,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -9803,14 +9803,14 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9822,7 +9822,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9831,7 +9831,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9840,13 +9840,13 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9858,7 +9858,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9867,7 +9867,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9876,14 +9876,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9895,7 +9895,7 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -9904,14 +9904,14 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -9923,7 +9923,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9932,7 +9932,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9941,13 +9941,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -9960,7 +9960,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9969,7 +9969,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -9978,13 +9978,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -10042,7 +10042,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -10051,14 +10051,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10070,7 +10070,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10079,7 +10079,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10088,14 +10088,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10107,7 +10107,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10116,7 +10116,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10125,14 +10125,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10144,7 +10144,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10153,7 +10153,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10162,13 +10162,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10181,7 +10181,7 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -10190,14 +10190,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10210,7 +10210,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10219,7 +10219,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10228,13 +10228,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -10293,7 +10293,7 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -10302,14 +10302,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10321,7 +10321,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10330,7 +10330,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10339,14 +10339,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10358,7 +10358,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10367,7 +10367,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10376,14 +10376,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10395,7 +10395,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10404,7 +10404,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10413,13 +10413,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10431,7 +10431,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10440,7 +10440,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10449,13 +10449,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -10467,7 +10467,7 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -10476,14 +10476,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10492,7 +10492,7 @@ goto @main-4
 
 ;--------------------------------------------------------------
 
-;------------------- 1╩ь╨о 2╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 2Е╠─---------------------
 
 [@npcdice2]
 #IF
@@ -10554,12 +10554,12 @@ equal d3 2
 #ACT
 mov d7 4
 mov d8 2
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;----------
@@ -10570,7 +10570,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice22x-1
@@ -10618,12 +10618,12 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10633,12 +10633,12 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10648,12 +10648,12 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10663,12 +10663,12 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10678,12 +10678,12 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -10740,7 +10740,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -10749,14 +10749,14 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10768,7 +10768,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -10777,14 +10777,14 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 12
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -10796,7 +10796,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10805,7 +10805,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10814,13 +10814,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10832,7 +10832,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10841,7 +10841,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10850,13 +10850,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10868,7 +10868,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10877,7 +10877,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10886,13 +10886,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -10905,7 +10905,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10914,7 +10914,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10923,13 +10923,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -10987,7 +10987,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -10996,7 +10996,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11005,14 +11005,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11024,7 +11024,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -11033,14 +11033,14 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11052,7 +11052,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -11061,14 +11061,14 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11080,7 +11080,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11089,7 +11089,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11098,13 +11098,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11116,7 +11116,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11125,7 +11125,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11134,13 +11134,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11153,7 +11153,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11162,7 +11162,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11171,13 +11171,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -11234,7 +11234,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11243,7 +11243,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11252,13 +11252,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11270,7 +11270,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -11279,14 +11279,14 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11298,7 +11298,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11307,7 +11307,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11316,14 +11316,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11335,7 +11335,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -11344,14 +11344,14 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11363,7 +11363,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11372,7 +11372,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11381,13 +11381,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11400,7 +11400,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11409,7 +11409,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11418,13 +11418,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -11483,7 +11483,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11492,7 +11492,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11501,13 +11501,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11519,7 +11519,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -11528,14 +11528,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11547,7 +11547,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11556,7 +11556,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11565,14 +11565,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11584,7 +11584,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11593,7 +11593,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11602,13 +11602,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11621,7 +11621,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -11630,14 +11630,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11650,7 +11650,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11659,7 +11659,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11668,13 +11668,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -11733,7 +11733,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11742,7 +11742,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11751,14 +11751,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11771,7 +11771,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -11780,14 +11780,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11799,7 +11799,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11808,7 +11808,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11817,14 +11817,14 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11836,7 +11836,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11845,7 +11845,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11854,13 +11854,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -11872,7 +11872,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11881,7 +11881,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -11890,13 +11890,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -11908,7 +11908,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -11917,14 +11917,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -11935,7 +11935,7 @@ goto @main-4
 
 
 
-;------------------- 1╩ь╨о 3╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 3Е╠─---------------------
 
 [@npcdice3]
 #IF
@@ -11997,12 +11997,12 @@ equal d3 3
 #ACT
 mov d7 4
 mov d8 3
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;----------
@@ -12013,7 +12013,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice33x-1
@@ -12061,12 +12061,12 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12076,12 +12076,12 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12091,12 +12091,12 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12106,12 +12106,12 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12121,12 +12121,12 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -12183,7 +12183,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -12192,14 +12192,14 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12211,7 +12211,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12220,7 +12220,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12229,13 +12229,13 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12247,7 +12247,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -12256,14 +12256,14 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 13
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12275,7 +12275,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12284,7 +12284,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12293,13 +12293,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12311,7 +12311,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12320,7 +12320,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12329,13 +12329,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12348,7 +12348,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12357,7 +12357,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12366,13 +12366,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -12430,7 +12430,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12439,7 +12439,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12448,14 +12448,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12467,7 +12467,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -12476,14 +12476,14 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12495,7 +12495,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 23
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -12504,14 +12504,14 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12523,7 +12523,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12532,7 +12532,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12541,13 +12541,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12559,7 +12559,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12568,7 +12568,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12577,13 +12577,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12596,7 +12596,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12605,7 +12605,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12614,13 +12614,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -12677,7 +12677,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12686,7 +12686,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12695,13 +12695,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12714,7 +12714,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12723,7 +12723,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12732,14 +12732,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12751,7 +12751,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -12760,14 +12760,14 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12779,7 +12779,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -12788,14 +12788,14 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -12807,7 +12807,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12816,7 +12816,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12825,13 +12825,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12843,7 +12843,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12852,7 +12852,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12861,13 +12861,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -12926,7 +12926,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12935,7 +12935,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12944,13 +12944,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12962,7 +12962,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -12971,7 +12971,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -12980,14 +12980,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -12999,7 +12999,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -13008,14 +13008,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13027,7 +13027,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13036,7 +13036,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13045,13 +13045,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13064,7 +13064,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -13073,14 +13073,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13093,7 +13093,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13102,7 +13102,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13111,13 +13111,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -13176,7 +13176,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13185,7 +13185,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13194,14 +13194,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13214,7 +13214,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13223,7 +13223,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13232,14 +13232,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13251,7 +13251,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -13260,14 +13260,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;--------
@@ -13278,7 +13278,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13287,7 +13287,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13296,13 +13296,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13314,7 +13314,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13323,7 +13323,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13332,13 +13332,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -13350,7 +13350,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -13359,14 +13359,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13377,7 +13377,7 @@ goto @main-4
 
 
 
-;------------------- 1╩ь╨о 4╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 4Е╠─---------------------
 
 [@npcdice4]
 #IF
@@ -13439,12 +13439,12 @@ equal d3 4
 #ACT
 mov d7 4
 mov d8 4
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;----------
@@ -13455,7 +13455,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice44x-1
@@ -13503,12 +13503,12 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13518,12 +13518,12 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13533,12 +13533,12 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13548,12 +13548,12 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13563,12 +13563,12 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -13625,7 +13625,7 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -13634,14 +13634,14 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13653,7 +13653,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13662,7 +13662,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13671,13 +13671,13 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13689,7 +13689,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13698,7 +13698,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13707,13 +13707,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13726,7 +13726,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -13735,14 +13735,14 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 14
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13754,7 +13754,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13763,7 +13763,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13772,13 +13772,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13791,7 +13791,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13800,7 +13800,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13809,13 +13809,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -13873,7 +13873,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13882,7 +13882,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13891,14 +13891,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13910,7 +13910,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -13919,14 +13919,14 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -13938,7 +13938,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13947,7 +13947,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -13956,13 +13956,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -13974,7 +13974,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 24
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -13983,14 +13983,14 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;--------
@@ -14001,7 +14001,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14010,7 +14010,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14019,13 +14019,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14038,7 +14038,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14047,7 +14047,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14056,13 +14056,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -14119,7 +14119,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14128,7 +14128,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14137,13 +14137,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14156,7 +14156,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14165,7 +14165,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14174,14 +14174,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14193,7 +14193,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -14202,14 +14202,14 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14221,7 +14221,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 34
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -14230,14 +14230,14 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14249,7 +14249,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14258,7 +14258,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14267,13 +14267,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14285,7 +14285,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14294,7 +14294,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14303,13 +14303,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -14368,7 +14368,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14377,7 +14377,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14386,13 +14386,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14404,7 +14404,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -14413,7 +14413,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14422,14 +14422,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14441,7 +14441,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14450,7 +14450,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14459,13 +14459,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14478,7 +14478,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -14487,14 +14487,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14507,7 +14507,7 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -14516,14 +14516,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14536,7 +14536,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14545,7 +14545,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14554,13 +14554,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -14619,7 +14619,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14628,7 +14628,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14637,14 +14637,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14657,7 +14657,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14666,7 +14666,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14675,14 +14675,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14695,7 +14695,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14704,7 +14704,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14713,13 +14713,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -14731,7 +14731,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -14740,14 +14740,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;--------
@@ -14758,7 +14758,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14767,7 +14767,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -14776,13 +14776,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -14794,7 +14794,7 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -14803,14 +14803,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14820,7 +14820,7 @@ goto @main-4
 ;--------------------------------------------------------------
 
 
-;------------------- 1╩ь╨о 5╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 5Е╠─---------------------
 
 [@npcdice5]
 #IF
@@ -14882,12 +14882,12 @@ equal d3 5
 #ACT
 mov d7 4
 mov d8 5
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;----------
@@ -14898,7 +14898,7 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice55x-1
@@ -14946,12 +14946,12 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14961,12 +14961,12 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14976,12 +14976,12 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -14991,12 +14991,12 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15006,12 +15006,12 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -15068,7 +15068,7 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -15077,14 +15077,14 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15096,7 +15096,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15105,7 +15105,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15114,13 +15114,13 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15132,7 +15132,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15141,7 +15141,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15150,13 +15150,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15168,7 +15168,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15177,7 +15177,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15186,13 +15186,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -15203,7 +15203,7 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -15212,14 +15212,14 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 15
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15231,7 +15231,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15240,7 +15240,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15249,13 +15249,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -15313,7 +15313,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15322,7 +15322,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15331,14 +15331,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15350,7 +15350,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -15359,14 +15359,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15378,7 +15378,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15387,7 +15387,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15396,13 +15396,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15415,7 +15415,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15424,7 +15424,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15433,13 +15433,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15451,7 +15451,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 25
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -15460,14 +15460,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15479,7 +15479,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15488,7 +15488,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15497,13 +15497,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -15560,7 +15560,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15569,7 +15569,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15578,13 +15578,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15597,7 +15597,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15606,7 +15606,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15615,14 +15615,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15634,7 +15634,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -15643,14 +15643,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15662,7 +15662,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15671,7 +15671,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15680,13 +15680,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15698,7 +15698,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 35
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -15707,14 +15707,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15726,7 +15726,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15735,7 +15735,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15744,13 +15744,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -15809,7 +15809,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15818,7 +15818,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15827,13 +15827,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15845,7 +15845,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -15854,7 +15854,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15863,14 +15863,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15882,7 +15882,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15891,7 +15891,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15900,13 +15900,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -15919,7 +15919,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -15928,14 +15928,14 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15948,7 +15948,7 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 45
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -15957,14 +15957,14 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -15977,7 +15977,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15986,7 +15986,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -15995,13 +15995,13 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;-----------------------
@@ -16060,7 +16060,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16069,7 +16069,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16078,14 +16078,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16098,7 +16098,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16107,7 +16107,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16116,14 +16116,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16136,7 +16136,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16145,7 +16145,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16154,13 +16154,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16172,7 +16172,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16181,7 +16181,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16190,13 +16190,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16208,7 +16208,7 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -16217,14 +16217,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16237,7 +16237,7 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -16246,14 +16246,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16263,7 +16263,7 @@ goto @main-4
 ;--------------------------------------------------------------
 
 
-;------------------- 1╩ь╨о 6╬ж---------------------
+;------------------- 1Е⌡·Е░┬ 6Е╠─---------------------
 
 [@npcdice6]
 #IF
@@ -16325,12 +16325,12 @@ equal d3 6
 #ACT
 mov d7 4
 mov d8 6
-;		╠╙вс
+;		Х╠╧Е╜░
 goto @main-4
 #ELSEACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 
 ;----------
@@ -16341,7 +16341,7 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 #ELSEACT
 goto @npcdice66x-1
@@ -16389,12 +16389,12 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16404,12 +16404,12 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16419,12 +16419,12 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16434,12 +16434,12 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16449,12 +16449,12 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 ;-----------------------
@@ -16511,7 +16511,7 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -16520,14 +16520,14 @@ equal d3 1
 #ACT
 mov d7 3
 mov d8 1
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16539,7 +16539,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16548,7 +16548,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16557,13 +16557,13 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16575,7 +16575,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16584,7 +16584,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16593,13 +16593,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16611,7 +16611,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16620,7 +16620,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16629,13 +16629,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -16646,7 +16646,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16655,7 +16655,7 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16664,13 +16664,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -16681,7 +16681,7 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -16690,14 +16690,14 @@ equal d3 1
 #ACT
 mov d7 2
 mov d8 16
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16756,7 +16756,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16765,7 +16765,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16774,14 +16774,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16793,7 +16793,7 @@ equal d3 2
 #ACT
 mov d7 3
 mov d8 2
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -16802,14 +16802,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -16821,7 +16821,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16830,7 +16830,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16839,13 +16839,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -16858,7 +16858,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16867,7 +16867,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16876,13 +16876,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -16893,7 +16893,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16902,7 +16902,7 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -16911,13 +16911,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 ;--------
@@ -16928,7 +16928,7 @@ equal d3 2
 #ACT
 mov d7 2
 mov d8 26
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -16937,14 +16937,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17002,7 +17002,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17011,7 +17011,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17020,13 +17020,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17039,7 +17039,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17048,7 +17048,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17057,14 +17057,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17076,7 +17076,7 @@ equal d3 3
 #ACT
 mov d7 3
 mov d8 3
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -17085,14 +17085,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17104,7 +17104,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17113,7 +17113,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17122,13 +17122,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17140,7 +17140,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17149,7 +17149,7 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17158,13 +17158,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17176,7 +17176,7 @@ equal d3 3
 #ACT
 mov d7 2
 mov d8 36
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -17185,14 +17185,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17252,7 +17252,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17261,7 +17261,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17270,13 +17270,13 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17288,7 +17288,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -17297,7 +17297,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17306,14 +17306,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17325,7 +17325,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17334,7 +17334,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17343,13 +17343,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17362,7 +17362,7 @@ equal d3 4
 #ACT
 mov d7 3
 mov d8 4
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -17371,14 +17371,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17390,7 +17390,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17399,7 +17399,7 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17408,13 +17408,13 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17427,7 +17427,7 @@ equal d3 4
 #ACT
 mov d7 2
 mov d8 46
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -17436,14 +17436,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17503,7 +17503,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17512,7 +17512,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17521,14 +17521,14 @@ equal d3 1
 #ACT
 mov d7 1
 mov d8 1
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17541,7 +17541,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17550,7 +17550,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17559,14 +17559,14 @@ equal d3 2
 #ACT
 mov d7 1
 mov d8 2
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17579,7 +17579,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17588,7 +17588,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17597,13 +17597,13 @@ equal d3 3
 #ACT
 mov d7 1
 mov d8 3
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17615,7 +17615,7 @@ equal d3 6
 #ACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17624,7 +17624,7 @@ equal d3 5
 #ACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
@@ -17633,13 +17633,13 @@ equal d3 4
 #ACT
 mov d7 1
 mov d8 4
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 5
-;		©╙й╪
+;		Е╪─Е╖▀
 goto @main-4
 
 
@@ -17651,7 +17651,7 @@ equal d3 5
 #ACT
 mov d7 3
 mov d8 5
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
@@ -17660,14 +17660,14 @@ equal d3 6
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 5
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17680,7 +17680,7 @@ equal d3 5
 #ACT
 mov d7 2
 mov d8 56
-;		к╚╣ьяш
+;		Е▐▄Е°╟Г°╪
 goto @main-4
 break
 
@@ -17689,14 +17689,14 @@ equal d3 6
 #ACT
 mov d7 3
 mov d8 6
-;		лЛяш
+;		Е╓╘Г°╪
 goto @main-4
 break
 
 #ELSEACT
 mov d7 1
 mov d8 6
-;		╣ьяш
+;		Е°╟Г°╪
 goto @main-4
 
 
@@ -17745,10 +17745,10 @@ goto @main-4
 
 
 [@main-4-5]
-;		м╪(d5 - d7)╡©╥ж
-;		хГ╧Шй╓ак7,╦╨ак8ё╛ф╫╬жак9
-;		╡ывВт╠╠х╫о6,мФ╪р╠х╫о5
-;		ЁЖож╠х╡╩ЁЖю╢╣дгИ©ЖнчлУ╪Ч╟╢ф╫╬ж╢╕юМ
+;		Е⌡╬(d5 - d7)И┐╗Е┬├
+;		Е╕┌Ф·°Х┐°Д╨├7,Х╢÷Д╨├8О╪▄Е╧ЁЕ╠─Д╨├9
+;		Ф⌠█Д╫°Е▒≤Ф╞■Х╬┐6,Г▌╘Е╝╤Ф╞■Х╬┐5
+;		Е┤╨Г▌╟Ф╞■Д╦█Е┤╨Ф²╔Г └Ф┐┘Е├╣Ф≈═Ф²║Д╩╤Ф▄┴Е╧ЁЕ╠─Е╓└Г░├
 #IF
 equal d5 5
 #ACT
@@ -17765,7 +17765,7 @@ goto @main-7-5
 
 
 [@main-4-1]
-;		м╪(d5 - d7)╡©╥ж
+;		Е⌡╬(d5 - d7)И┐╗Е┬├
 #IF
 equal d5 4
 #ACT
@@ -17798,7 +17798,7 @@ goto @main-8-1
 ;---------------------------
 
 [@main-5-1]
-;		сц(d6 - d8)╤т╠х
+;		Г■╗(d6 - d8)Е╞╧Ф╞■
 #IF
 equal d8 6
 #ACT
@@ -17842,7 +17842,7 @@ goto @main-5-1
 ;------------
 
 [@main-5-1-1]
-;		d8 1 ефпн
+;		d8 1 Г┴▄Е╫╒
 #IF
 equal d6 1
 #ACT
@@ -17856,7 +17856,7 @@ goto @main-7-1
 ;------------
 
 [@main-5-1-2]
-;		d8 2 ефпн
+;		d8 2 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -17895,7 +17895,7 @@ goto @main-8-1
 ;------------
 
 [@main-5-1-3]
-;		d8 3 ефпн
+;		d8 3 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -17928,7 +17928,7 @@ goto @main-8-1
 ;------------
 
 [@main-5-1-4]
-;		d8 4 ефпн
+;		d8 4 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -17955,7 +17955,7 @@ goto @main-8-1
 ;------------
 
 [@main-5-1-5]
-;		d8 5 ефпн
+;		d8 5 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -17975,7 +17975,7 @@ goto @main-8-1
 ;------------
 
 [@main-5-1-6]
-;		d8 6 ефпн
+;		d8 6 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -17994,7 +17994,7 @@ goto @main-8-1
 
 
 [@main-4-2]
-;		еф(d5 - d7)╠х╫о
+;		Г┴▄(d5 - d7)Ф╞■Х╬┐
 #IF
 equal d5 4
 #ACT
@@ -18111,7 +18111,7 @@ goto @main-6-2
 ;------------
 
 [@main-6-2-1]
-;		d8 12 ефпн
+;		d8 12 Г┴▄Е╫╒
 #IF
 equal d6 12
 #ACT
@@ -18125,7 +18125,7 @@ goto @main-7-2
 ;------------
 
 [@main-6-2-2]
-;		d8 13 ефпн
+;		d8 13 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18212,7 +18212,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-3]
-;		d8 14,23 ефпн
+;		d8 14,23 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18292,7 +18292,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-4]
-;		d8 15,24 ефпн
+;		d8 15,24 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18361,7 +18361,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-5]
-;		d8 16,25, 34 ефпн
+;		d8 16,25, 34 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18419,7 +18419,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-6]
-;		d8 26,35 ефпн
+;		d8 26,35 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18462,7 +18462,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-7]
-;		d8 36,45 ефпн
+;		d8 36,45 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18493,7 +18493,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-8]
-;		d8 46 ефпн
+;		d8 46 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18513,7 +18513,7 @@ goto @main-8-2
 ;------------
 
 [@main-6-2-9]
-;		d8 56 ефпн
+;		d8 56 Г┴▄Е╫╒
 #IF
 equal d6 56
 #ACT
@@ -18532,7 +18532,7 @@ goto @main-8-2
 
 
 [@main-4-3]
-;		еф(d5 - d7)╠х╫о
+;		Г┴▄(d5 - d7)Ф╞■Х╬┐
 #IF
 equal d5 4
 #ACT
@@ -18553,7 +18553,7 @@ goto @main-8-3
 ;---------------------------
 
 [@main-5-3]
-;		сц(d6 - d8)╤т╠х
+;		Г■╗(d6 - d8)Е╞╧Ф╞■
 #IF
 equal d8 6
 #ACT
@@ -18597,7 +18597,7 @@ goto @main-5-3
 ;------------
 
 [@main-5-3-1]
-;		d8 1 ефпн
+;		d8 1 Г┴▄Е╫╒
 #IF
 equal d6 1
 #ACT
@@ -18611,7 +18611,7 @@ goto @main-7-3
 ;------------
 
 [@main-5-3-2]
-;		d8 2 ефпн
+;		d8 2 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18650,7 +18650,7 @@ goto @main-8-3
 ;------------
 
 [@main-5-3-3]
-;		d8 3 ефпн
+;		d8 3 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18683,7 +18683,7 @@ goto @main-8-3
 ;------------
 
 [@main-5-3-4]
-;		d8 4 ефпн
+;		d8 4 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18710,7 +18710,7 @@ goto @main-8-3
 ;------------
 
 [@main-5-3-5]
-;		d8 5 ефпн
+;		d8 5 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18730,7 +18730,7 @@ goto @main-8-3
 ;------------
 
 [@main-5-3-6]
-;		d8 6 ефпн
+;		d8 6 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18750,7 +18750,7 @@ goto @main-8-3
 
 
 [@main-4-4]
-;		еф(d5 - d7)╠х╫о
+;		Г┴▄(d5 - d7)Ф╞■Х╬┐
 #IF
 equal d5 4
 #ACT
@@ -18765,7 +18765,7 @@ goto @main-8-4
 ;---------------------------
 
 [@main-5-4]
-;		сц(d6 - d8)╤т╠х
+;		Г■╗(d6 - d8)Е╞╧Ф╞■
 #IF
 equal d8 6
 #ACT
@@ -18809,7 +18809,7 @@ goto @main-5-4
 ;------------
 
 [@main-5-4-1]
-;		d8 1 ефпн
+;		d8 1 Г┴▄Е╫╒
 #IF
 equal d6 1
 #ACT
@@ -18823,7 +18823,7 @@ goto @main-7-4
 ;------------
 
 [@main-5-4-2]
-;		d8 2 ефпн
+;		d8 2 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18862,7 +18862,7 @@ goto @main-8-4
 ;------------
 
 [@main-5-4-3]
-;		d8 3 ефпн
+;		d8 3 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18895,7 +18895,7 @@ goto @main-8-4
 ;------------
 
 [@main-5-4-4]
-;		d8 4 ефпн
+;		d8 4 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18922,7 +18922,7 @@ goto @main-8-4
 ;------------
 
 [@main-5-4-5]
-;		d8 5 ефпн
+;		d8 5 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18942,7 +18942,7 @@ goto @main-8-4
 ;------------
 
 [@main-5-4-6]
-;		d8 6 ефпн
+;		d8 6 Г┴▄Е╫╒
 #IF
 equal d6 6
 #ACT
@@ -18992,7 +18992,7 @@ goto @main-7-5
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 20000
+give И┤▒Е╦│ 20000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19002,12 +19002,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П500╫П╠реБ╦╤40╠╤н╙20000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨20000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 40000
+give И┤▒Е╦│ 40000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19016,17 +19016,17 @@ mov d8 0
 set [545] 0
 set [573] 0
 #ELSESAY
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П1000╫П╠реБ╦╤40╠╤н╙40000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨40000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 [@main-7-5_3]
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19036,12 +19036,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн...\
- обв╒╫П500╫П╠реБ╦╤8╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 8000
+give И┤▒Е╦│ 8000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19051,10 +19051,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤8╠╤н╙8000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨8000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19062,7 +19062,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 2000
+give И┤▒Е╦│ 2000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19072,12 +19072,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш ефпн...\
- обв╒╫П500╫П╠реБ╦╤4╠╤н╙2000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨2000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19087,10 +19087,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш ефпн...\
- обв╒╫П1000╫П╠реБ╦╤4╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19098,7 +19098,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 1000
+give И┤▒Е╦│ 1000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19108,12 +19108,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: ╣ьяш ефпн... \
-обв╒╫П500╫П╠реБ╦╤2╠╤н╙1000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤2Е─█Д╦╨1000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 2000
+give И┤▒Е╦│ 2000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19123,10 +19123,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-нрйДак. <$USERNAME>дЗ: ╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤2╠╤н╙2000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤2Е─█Д╦╨2000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 ;----------------------------------
 
@@ -19171,7 +19171,7 @@ goto @main-7-1
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 20000
+give И┤▒Е╦│ 20000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19180,12 +19180,12 @@ mov d8 0
 set [545] 0
 set [572] 0
 #SAY
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн...\
- обв╒╫П500╫П╠реБ╦╤40╠╤н╙20000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨20000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 40000
+give И┤▒Е╦│ 40000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19194,17 +19194,17 @@ mov d8 0
 set [545] 0
 set [573] 0
 #ELSESAY
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн...\
- обв╒╫П1000╫П╠реБ╦╤40╠╤н╙40000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨40000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 [@main-7-1_3]
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19214,12 +19214,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн...\
- обв╒╫П500╫П╠реБ╦╤8╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 8000
+give И┤▒Е╦│ 8000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19229,10 +19229,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤8╠╤н╙8000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨8000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19240,7 +19240,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 2000
+give И┤▒Е╦│ 2000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19250,12 +19250,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш ефпн... \
-обв╒╫П500╫П╠реБ╦╤4╠╤н╙2000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨2000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19265,10 +19265,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤4╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19276,7 +19276,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 1000
+give И┤▒Е╦│ 1000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19286,12 +19286,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╣ьяш оЮм╛.. ╟╢╧ФтРнрйДак. \
-обв╒╫П500╫П╠реБ╦╤2╠╤н╙1000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г⌡╦Е░▄.. Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤2Е─█Д╦╨1000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 2000
+give И┤▒Е╦│ 2000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19300,10 +19300,10 @@ mov d8 0
 set [545] 0
 set [573] 0
 #ELSESAY
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╣ьяш оЮм╛.. ╟╢╧ФтРнрйДак.\
- обв╒╫П1000╫П╠реБ╦╤2╠╤н╙2000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г⌡╦Е░▄.. Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├.\
+ Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤2Е─█Д╦╨2000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19335,7 +19335,7 @@ goto @main-7-2
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 20000
+give И┤▒Е╦│ 20000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19345,12 +19345,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П500╫П╠реБ╦╤40╠╤н╙20000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨20000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 40000
+give И┤▒Е╦│ 40000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19360,17 +19360,17 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П1000╫П╠реБ╦╤40╠╤н╙40000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨40000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 [@main-7-2_3]
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19380,12 +19380,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн...\
- обв╒╫П500╫П╠реБ╦╤8╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 8000
+give И┤▒Е╦│ 8000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19395,10 +19395,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤9╠╤н╙8000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤9Е─█Д╦╨8000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19406,7 +19406,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 2000
+give И┤▒Е╦│ 2000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19416,12 +19416,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш оЮм╛.. \
-╟╢╧ФтРнрйДак. обв╒╫П500╫П╠реБ╦╤4╠╤н╙2000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г⌡╦Е░▄.. \
+Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨2000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19431,10 +19431,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: к╚╣ьяш оЮм╛.. ╟╢╧ФтРнрйДак. \
-обв╒╫П1000╫П╠реБ╦╤4╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г⌡╦Е░▄.. Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 [@main-7-3]
 #IF
@@ -19460,7 +19460,7 @@ goto @main-7-3
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 20000
+give И┤▒Е╦│ 20000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19470,12 +19470,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П500╫П╠реБ╦╤20╠╤н╙20000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤20Е─█Д╦╨20000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 40000
+give И┤▒Е╦│ 40000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19485,17 +19485,17 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс ефпн... \
-обв╒╫П1000╫П╠реБ╦╤20╠╤н╙40000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤20Е─█Д╦╨40000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 [@main-7-3_3]
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 4000
+give И┤▒Е╦│ 4000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19505,12 +19505,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш оЮм╛.. ╟╢╧ФтРнрйДак. \
-обв╒╫П500╫П╠реБ╦╤8╠╤н╙4000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г⌡╦Е░▄.. Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨4000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 8000
+give И┤▒Е╦│ 8000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19520,10 +19520,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: лЛяш оЮм╛.. \
-╟╢╧ФтРнрйДак. обв╒╫П1000╫П╠реБ╦╤8╠╤н╙8000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г⌡╦Е░▄.. \
+Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Д╦╨8000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19531,7 +19531,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 20000
+give И┤▒Е╦│ 20000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19541,13 +19541,13 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс оЮм╛..\
- ╟╢╧ФтРнрйДак. обв╒╫П500╫П╠реБ╦╤40╠╤н╙20000╫П╠р\
-гКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г⌡╦Е░▄..\
+ Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨20000И┤▒Е╦│\
+Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 40000
+give И┤▒Е╦│ 40000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19557,10 +19557,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрйДак. <$USERNAME>дЗ: ╠╙вс оЮм╛..\
- ╟╢╧ФтРнрйДак. обв╒╫П1000╫П╠реБ╦╤40╠╤н╙40000╫П╠ргКйуобнр╣деБ╦╤╫П╠р.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╬⌠Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г⌡╦Е░▄..\
+ Ф▄┴Х╖└Е┬≥Ф┬▒Х╬⌠Д╨├. Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Д╦╨40000И┤▒Е╦│Х╞╥Ф■╤Д╦▀Ф┬▒Г └Х╣■Д╩≤И┤▒Е╦│.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19587,7 +19587,7 @@ goto @main-8-1
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 500
+take И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19597,13 +19597,13 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш оЮм╛..\
- ╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. обв╒╫П500╫П╠реБ╦╤2╠╤я╨╫П.. \
-500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г⌡╦Е░▄..\
+ Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤2Е─█Ф┼╪И┤▒.. \
+500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 1000
+take И┤▒Е╦│ 1000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19613,11 +19613,11 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш оЮм╛.. \
-╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. \
-обв╒╫П1000╫П╠реБ╦╤2╠╤я╨╫П.. 1000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г⌡╦Е░▄.. \
+Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤2Е─█Ф┼╪И┤▒.. 1000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;-------------------
@@ -19626,7 +19626,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 500
+take И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19636,12 +19636,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн...\
- обв╒╫П500╫П╠реБ╦╤2╠╤я╨╫П.. 500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤2Е─█Ф┼╪И┤▒.. 500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 1000
+take И┤▒Е╦│ 1000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19651,10 +19651,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... \
-обв╒╫П1000╫П╠реБ╦╤2╠╤я╨╫П.. 1000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤2Е─█Ф┼╪И┤▒.. 1000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 -
 
 [@main-8-2]
@@ -19687,7 +19687,7 @@ goto @main-8-2
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 1500
+take И┤▒Е╦│ 1500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19697,12 +19697,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш оЮм╛.. ╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. \
-обв╒╫П500╫П╠реБ╦╤4╠╤я╨╫П.. 1500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г⌡╦Е░▄.. Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 1500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 3000
+take И┤▒Е╦│ 3000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19712,10 +19712,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш оЮм╛.. \
-╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. обв╒╫П1000╫П╠реБ╦╤4╠╤я╨╫П.. 3000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г⌡╦Е░▄.. \
+Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 3000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -19723,7 +19723,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 1500
+take И┤▒Е╦│ 1500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19733,12 +19733,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн...\
- обв╒╫П500╫П╠реБ╦╤4╠╤я╨╫П.. 1500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 1500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 3000
+take И┤▒Е╦│ 3000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19748,10 +19748,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤4╠╤я╨╫П.. 3000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 3000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -19759,7 +19759,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 1500
+take И┤▒Е╦│ 1500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19769,12 +19769,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... \
-обв╒╫П500╫П╠реБ╦╤4╠╤я╨╫П.. 1500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 1500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 3000
+take И┤▒Е╦│ 3000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19784,10 +19784,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... \
-обв╒╫П1000╫П╠реБ╦╤4╠╤я╨╫П.. 3000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤4Е─█Ф┼╪И┤▒.. 3000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -19834,7 +19834,7 @@ goto @main-8-3
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 3500
+take И┤▒Е╦│ 3500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19844,13 +19844,13 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: лЛяш оЮм╛..\
- ╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. обв╒╫П500╫П╠реБ╦╤8╠╤я╨╫П..\
- 3500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г⌡╦Е░▄..\
+ Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒..\
+ 3500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 7000
+take И┤▒Е╦│ 7000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19860,11 +19860,11 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: лЛяш оЮм╛.. 
-╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. обв╒╫П1000╫П╠реБ╦╤8╠╤я╨╫П..\
- 7000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г⌡╦Е░▄.. 
+Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒..\
+ 7000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -19872,7 +19872,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 3500
+take И┤▒Е╦│ 3500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19882,11 +19882,11 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш ефпн... обв╒╫П500╫П╠реБ╦╤8╠╤я╨╫П.. 3500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 3500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 7000
+take И┤▒Е╦│ 7000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19896,10 +19896,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤8╠╤я╨╫П.. 7000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 7000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -19907,7 +19907,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 3500
+take И┤▒Е╦│ 3500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19917,11 +19917,11 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн... обв╒╫П500╫П╠реБ╦╤8╠╤я╨╫П.. 3500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 3500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 7000
+take И┤▒Е╦│ 7000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19931,9 +19931,9 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн... обв╒╫П1000╫П╠реБ╦╤8╠╤я╨╫П.. 7000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 7000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;-------------------
@@ -19942,7 +19942,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 3500
+take И┤▒Е╦│ 3500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19952,12 +19952,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... \
-обв╒╫П500╫П╠реБ╦╤8╠╤я╨╫П.. 3500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 3500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 7000
+take И┤▒Е╦│ 7000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -19967,9 +19967,9 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... обв╒╫П1000╫П╠реБ╦╤8╠╤я╨╫П.. 7000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤8Е─█Ф┼╪И┤▒.. 7000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;----------------------------------
@@ -20020,7 +20020,7 @@ goto @main-8-4
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 19500
+take И┤▒Е╦│ 19500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20030,13 +20030,13 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╠╙вс оЮм╛.. \
-╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак. обв╒╫П500╫П╠реБ╦╤40╠╤я╨╫П..\
- 19500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г⌡╦Е░▄.. \
+Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├. Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒..\
+ 19500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 39000
+take И┤▒Е╦│ 39000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20046,16 +20046,16 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╠╙вс оЮм╛..\
- ╟╢ууйёсЮ╣ЦйЩ╧ФтРнрс╝ак.обв╒╫П1000╫П╠реБ╦╤40╠╤я╨╫П..39000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Х╠╧Е╜░ Г⌡╦Е░▄..\
+ Ф▄┴Г┘╖Е┴╘Д╫≥Г┌╧Ф∙╟Х╖└Е┬≥Ф┬▒Х╣╒Д╨├.Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒..39000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 [@main-8-4_3]
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 19500
+take И┤▒Е╦│ 19500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20065,12 +20065,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: лЛяш ефпн... \
-обв╒╫П500╫П╠реБ╦╤40╠╤я╨╫П.. 19500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 19500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 39000
+take И┤▒Е╦│ 39000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20080,10 +20080,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: лЛяш ефпн...\
- обв╒╫П1000╫П╠реБ╦╤40╠╤я╨╫П.. 39000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е╓╘Г°╪ Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 39000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -20091,7 +20091,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 19500
+take И┤▒Е╦│ 19500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20101,12 +20101,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш ефпн... \
-обв╒╫П500╫П╠реБ╦╤40╠╤я╨╫П.. 19500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 19500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 39000
+take И┤▒Е╦│ 39000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20116,10 +20116,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: к╚╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤40╠╤я╨╫П.. 39000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 39000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 ;-------------------
 
@@ -20127,7 +20127,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 19500
+take И┤▒Е╦│ 19500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20137,12 +20137,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн... \
-обв╒╫П500╫П╠реБ╦╤40╠╤я╨╫П.. 19500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 19500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 39000
+take И┤▒Е╦│ 39000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20152,10 +20152,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ: ╣ьяш ефпн... \
-обв╒╫П1000╫П╠реБ╦╤40╠╤я╨╫П.. 39000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗: Е°╟Г°╪ Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 39000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;-------------------
@@ -20164,7 +20164,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-take ╫П╠р 19500
+take И┤▒Е╦│ 19500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20174,12 +20174,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн...\
- обв╒╫П500╫П╠реБ╦╤40╠╤я╨╫П.. 19500╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒...\
+ Д╦▀ФЁ╗И┤▒500И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 19500И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-take ╫П╠р 39000
+take И┤▒Е╦│ 39000
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20189,10 +20189,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-нрс╝ак. <$USERNAME>дЗ:  нчхн╨нль╠Пефпн... \
-обв╒╫П1000╫П╠реБ╦╤40╠╤я╨╫П.. 39000╫П╠р╠╩©шЁЩ.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Ф┬▒Х╣╒Д╨├. <$USERNAME>Ф┌╗:  Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒... \
+Д╦▀ФЁ╗И┤▒1000И┤▒Е╦│Х╣■Д╩≤40Е─█Ф┼╪И┤▒.. 39000И┤▒Е╦│Х╒╚Ф┴ёИ≥╓.\
+<Г╕╩  Е╪─/@exit>
 
 
 
@@ -20200,7 +20200,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 250
+give И┤▒Е╦│ 250
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20210,12 +20210,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-ф╫╬ж. <$USERNAME>дЗ: нчхн╨нль╠Пефпн. \
-кЫм╤╣ЦйЩх╚╡©оЮм╛еБ╦╤╥╢╩╧╫П250╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Ф≈═Д╩╩Д╫∙Г┴╧Е┬╚Г┴▄Е╫╒. \
+Ф┴─Ф┼∙Г┌╧Ф∙╟Е┘╗И┐╗Г⌡╦Е░▄Х╣■Д╩≤Е▐█Х©≤И┤▒250И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 500
+give И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20225,10 +20225,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .ц╩спль╠П╣дефпн.\
-ф╫╬ж. <$USERNAME>дЗ: ефпнакм╛яЫ╣ЦйЩ. \
-кЫм╤╣ЦйЩх╚╡©оЮм╛еБ╦╤╥╢╩╧╫П500╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> .Ф╡║Ф°┴Г┴╧Е┬╚Г └Г┴▄Е╫╒.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Г┴▄Е╫╒Д╨├Е░▄Ф═╥Г┌╧Ф∙╟. \
+Ф┴─Ф┼∙Г┌╧Ф∙╟Е┘╗И┐╗Г⌡╦Е░▄Х╣■Д╩≤Е▐█Х©≤И┤▒500И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 
 ;----------------------------------
 
@@ -20240,7 +20240,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 250
+give И┤▒Е╦│ 250
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20250,11 +20250,11 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: ╣ьяш ╤╪р╩яЫ...╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П250╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е°╟Г°╪ И┐╫Д╦─Ф═╥...Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒250И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 500
+give И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20264,10 +20264,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╣ьяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: ╣ьяш ╤╪р╩яЫ...\
-╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П500╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е°╟Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е°╟Г°╪ И┐╫Д╦─Ф═╥...\
+Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒500И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 
 ;----------------------------------
 
@@ -20279,7 +20279,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 250
+give И┤▒Е╦│ 250
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20289,12 +20289,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: к╚╣ьяш ╤╪р╩яЫ...\
-╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П250╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ И┐╫Д╦─Ф═╥...\
+Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒250И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 500
+give И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20304,10 +20304,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . к╚╣ьяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: к╚╣ьяш ╤╪р╩яЫ...\
-╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П500╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е▐▄Е°╟Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е▐▄Е°╟Г°╪ И┐╫Д╦─Ф═╥...\
+Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒500И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;----------------------------------
@@ -20320,7 +20320,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 250
+give И┤▒Е╦│ 250
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20330,12 +20330,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: лЛяш ╤╪р╩яЫ...\
-╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П250╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е╓╘Г°╪ И┐╫Д╦─Ф═╥...\
+Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒250И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 500
+give И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20345,10 +20345,10 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . лЛяшр╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: лЛяш ╤╪р╩яЫ...\
-╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П500╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Е╓╘Г°╪Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Е╓╘Г°╪ И┐╫Д╦─Ф═╥...\
+Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒500И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 
 
 ;----------------------------------
@@ -20361,7 +20361,7 @@ set [573] 0
 #IF
 check [572] 1
 #ACT
-give ╫П╠р 250
+give И┤▒Е╦│ 250
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20371,12 +20371,12 @@ set [545] 0
 set [572] 0
 #SAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: ╠╙вс ╤╪р╩яЫ..\
-.╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П250╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Х╠╧Е╜░ И┐╫Д╦─Ф═╥..\
+.Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒250И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 #ELSEACT
-give ╫П╠р 500
+give И┤▒Е╦│ 500
 mov d4 0
 mov d5 0
 mov d6 0
@@ -20386,9 +20386,9 @@ set [545] 0
 set [573] 0
 #ELSESAY
 
-уБйгнр╣дефпн: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . ╠╙вср╩╦Ж.\
-ф╫╬ж. <$USERNAME>дЗ: ╠╙вс ╤╪р╩яЫ...╦Ы╬щсно╥╧ФтР. дЗ╣д╥╢╩╧╫П500╫П╠р╥╢╩╧дЗ╣д╫П╠ргКйуоб.\
-<юК  ©╙/@exit>
+Х©≥Ф≤╞Ф┬▒Г └Г┴▄Е╫╒: <$STR(D0)>   <$STR(D1)>   <$STR(D2)>   <$STR(D3)> . Х╠╧Е╜░Д╦─Д╦╙.\
+Е╧ЁЕ╠─. <$USERNAME>Ф┌╗: Х╠╧Е╜░ И┐╫Д╦─Ф═╥...Ф═╧Ф█╝Ф╦╦Ф┬▐Х╖└Е┬≥. Ф┌╗Г └Е▐█Х©≤И┤▒500И┤▒Е╦│Е▐█Х©≤Ф┌╗Г └И┤▒Е╦│Х╞╥Ф■╤Д╦▀.\
+<Г╕╩  Е╪─/@exit>
 
 ;----------------------------------
 

@@ -11,9 +11,9 @@ break
 
 #IF
 check [404] 1
-checkitem 命运水晶 1 
+checkitem 鍛借繍姘存櫠 1 
 #ACT
-take 命运水晶 40
+take 鍛借繍姘存櫠 40
 SET [405] 1
 #ELSESAY
-(这么恐怖的地方，你来这里做什么？)
+(杩欎箞鎭愭�栫殑鍦版柟锛屼綘鏉ヨ繖閲屽仛浠�涔堬紵)

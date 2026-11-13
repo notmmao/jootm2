@@ -15,7 +15,7 @@ random 5
 check [403] 1
 #ACT
 SET [404] 1
-give ÃüÔËË®¾§ 1
+give å‘½è¿æ°´æ™¶ 1
 #SAY
 Hmmm.... This is the JadeCrystal \
 REv.taoist Perry was talking about.\

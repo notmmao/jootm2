@@ -1,34 +1,34 @@
-;´«ÆæÊÀ½çËùÓÐ³¡Ëù/µØÍ¼×ù±êÅäÖÃÎÄ¼þ
-[0	±ÈÆæÊ¡]
-[0122	»Ê¹¬]	FIGHT
-[0110	ÑÐ¾¿Ôº]	FIGHT
-[0111	ÑÐ¾¿Ôº]	FIGHT
-[0112	ÑÐ¾¿Ôº]	FIGHT
-[0102	Èâµê]	SAFE
-[0108	Ò©µê]	SAFE
-[0109	Á¶Ò©·¿]	SAFE
-[0104	¼¼ÄÜÊéµê]	SAFE
-[0107	ÃÀÀö¾Æµê]	SAFE
-[0125	¶«·½¿ÍÕ»]	SAFE
-[0126	¶«·½¿ÍÕ»¶þ²ã ]	SAFE
-[0103	ÌúÆ÷µê	]	SAFE
-[0105	ÔÓ»õµê	]	SAFE
-[0106	ÒÂ·þµê	]	SAFE
-[0101	¿ÍÕ»	]	SAFE
-[0100	³ø·¿	]	SAFE
-[0128	·¿ÎÝ]	FIGHT
-[0129	·¿ÎÝ]	FIGHT
-[0123	·¿ÎÝ]	FIGHT
-[0124	·¿ÎÝ]	FIGHT
-[0114	¸ß¼¶ÎäÊ¿Ö®¼Ò]	FIGHT
-[01141	¸ß¼¶ÎäÊ¿Ö®¼Ò]	NORECALL	NORECONNECT(0)
-[01142	ÈÎÎñµØÍ¼]	NORECALL	FIGHT	NORECONNECT(0114)
-[0115	¸ß¼¶Ä§·¨Ê¦Ö®¼Ò]	FIGHT
-[01152	ÈÎÎñµØÍ¼]	NORECALL	FIGHT	NORECONNECT(0115)
-[0113	¸ß¼¶µÀÊ¿Ö®¼Ò]	FIGHT
-[01132	ÈÎÎñµØÍ¼]	NORECALL	FIGHT	NORECONNECT(0113)
-[0137	¾º¼¼³¡]	FIGHT	
-[0139	¾º¼¼³¡´óÌü]	FIGHT	
+;ä¼ å¥‡ä¸–ç•Œæ‰€æœ‰åœºæ‰€/åœ°å›¾åº§æ ‡é…ç½®æ–‡ä»¶
+[0	æ¯”å¥‡çœ]
+[0122	çš‡å®«]	FIGHT
+[0110	ç ”ç©¶é™¢]	FIGHT
+[0111	ç ”ç©¶é™¢]	FIGHT
+[0112	ç ”ç©¶é™¢]	FIGHT
+[0102	è‚‰åº—]	SAFE
+[0108	è¯åº—]	SAFE
+[0109	ç‚¼è¯æˆ¿]	SAFE
+[0104	æŠ€èƒ½ä¹¦åº—]	SAFE
+[0107	ç¾Žä¸½é…’åº—]	SAFE
+[0125	ä¸œæ–¹å®¢æ ˆ]	SAFE
+[0126	ä¸œæ–¹å®¢æ ˆäºŒå±‚ ]	SAFE
+[0103	é“å™¨åº—	]	SAFE
+[0105	æ‚è´§åº—	]	SAFE
+[0106	è¡£æœåº—	]	SAFE
+[0101	å®¢æ ˆ	]	SAFE
+[0100	åŽ¨æˆ¿	]	SAFE
+[0128	æˆ¿å±‹]	FIGHT
+[0129	æˆ¿å±‹]	FIGHT
+[0123	æˆ¿å±‹]	FIGHT
+[0124	æˆ¿å±‹]	FIGHT
+[0114	é«˜çº§æ­¦å£«ä¹‹å®¶]	FIGHT
+[01141	é«˜çº§æ­¦å£«ä¹‹å®¶]	NORECALL	NORECONNECT(0)
+[01142	ä»»åŠ¡åœ°å›¾]	NORECALL	FIGHT	NORECONNECT(0114)
+[0115	é«˜çº§é­”æ³•å¸ˆä¹‹å®¶]	FIGHT
+[01152	ä»»åŠ¡åœ°å›¾]	NORECALL	FIGHT	NORECONNECT(0115)
+[0113	é«˜çº§é“å£«ä¹‹å®¶]	FIGHT
+[01132	ä»»åŠ¡åœ°å›¾]	NORECALL	FIGHT	NORECONNECT(0113)
+[0137	ç«žæŠ€åœº]	FIGHT	
+[0139	ç«žæŠ€åœºå¤§åŽ…]	FIGHT	
 
 0          346,186              ->         0122       11,41
 0          347,186              ->         0122       12,42
@@ -141,11 +141,11 @@
 0139       17,20                ->         0137       13,15
 0139       16,21                ->         0137       12,16
 
-[0135	·¿ÎÝ]	FIGHT
-[0134	·¿ÎÝ]	FIGHT
-[0133	·¿ÎÝ]	FIGHT
-[0119	ÒøÐÓ´åÒ©µê]	SAFE
-[0118	·¿ÎÝ]	FIGHT
+[0135	æˆ¿å±‹]	FIGHT
+[0134	æˆ¿å±‹]	FIGHT
+[0133	æˆ¿å±‹]	FIGHT
+[0119	é“¶ææ‘è¯åº—]	SAFE
+[0118	æˆ¿å±‹]	FIGHT
 0          625,620              ->         0135       9,9
 0135       9,10                 ->         0          625,621
 0          622,639              ->         0134       6,12
@@ -159,15 +159,15 @@
 0          650,616              ->         0118       3,13
 0118       2,14                 ->         0          649,617
 
-[0121	·¿ÎÝ]	FIGHT
-[0127	¼àÓü]	FIGHT
-[0130	·¿ÎÝ]	FIGHT
-[0131	·¿ÎÝ]	FIGHT
-[0136	·¿ÎÝ]	FIGHT
-[0132	·¿ÎÝ]	FIGHT
-[0138	·¿ÎÝ]	FIGHT
-[0141	ÔÓ»õµê]	SAFE
-[0140	²Ö¿â]	SAFE
+[0121	æˆ¿å±‹]	FIGHT
+[0127	ç›‘ç‹±]	FIGHT
+[0130	æˆ¿å±‹]	FIGHT
+[0131	æˆ¿å±‹]	FIGHT
+[0136	æˆ¿å±‹]	FIGHT
+[0132	æˆ¿å±‹]	FIGHT
+[0138	æˆ¿å±‹]	FIGHT
+[0141	æ‚è´§åº—]	SAFE
+[0140	ä»“åº“]	SAFE
 
 0          309,613              ->         0121       3,16
 0121       2,16                 ->         0          308,615
@@ -199,11 +199,11 @@
 0          307,627              ->         0140       2,10
 0140       2,11                 ->         0          306,628
 
-[D001	°ëÊÞ¹ÅÄ¹Ò»²ã]
-[D002	°ëÊÞ¹ÅÄ¹¶þ²ã]
-[DM001	ÉÌµê]	FIGHT
-[DM002	¹úÍõÁêÄ¹]
-[D003	°ëÊÞ¹ÅÄ¹Èý²ã]
+[D001	åŠå…½å¤å¢“ä¸€å±‚]
+[D002	åŠå…½å¤å¢“äºŒå±‚]
+[DM001	å•†åº—]	FIGHT
+[DM002	å›½çŽ‹é™µå¢“]
+[D003	åŠå…½å¤å¢“ä¸‰å±‚]
 
 0          147,33               ->         D001       151,362
 D001       149,364              ->         0          147,34
@@ -223,9 +223,9 @@ DM002      7,28                 ->         D002       225,176
 D002       117,95               ->         D003       106,83
 D003       106,82               ->         D002       117,96
 
-[D011	ÌìÈ»¶´Ñ¨Ò»²ã]
-[D012	ÌìÈ»¶´Ñ¨¶þ²ã]
-[DM011	ÉÌµê]	FIGHT
+[D011	å¤©ç„¶æ´žç©´ä¸€å±‚]
+[D012	å¤©ç„¶æ´žç©´äºŒå±‚]
+[DM011	å•†åº—]	FIGHT
 
 0          41,108               ->         D011       154,367
 0          41,109               ->         D011       154,366
@@ -240,7 +240,7 @@ D012       77,197               ->         D011       127,202
 D012       189,144              ->         DM011      5,10
 DM011      6,10                 ->         D012       189,145
 
-[1	ÎÖÂêÉ­ÁÖ]
+[1	æ²ƒçŽ›æ£®æž—]
 0          324,34               ->         1          559,553
 0          325,34               ->         1          560,553
 0          325,35               ->         1          560,554
@@ -290,17 +290,17 @@ DM011      6,10                 ->         D012       189,145
 4          448,190              ->         1          49,167
 4          449,189              ->         1          50,166
 4          450,188              ->         1          51,165
-;ÎÖÂêËÂÃí
-[D021	ÎÖÂêËÂÃíÈë¿Ú]
-[D022	ÎÖÂêËÂÃíÒ»²ã]
-[D032	ÎÖÂêËÂÃíÒ»²ã]
-[D042	ÎÖÂêËÂÃíÒ»²ã]
-[D052	ÎÖÂêËÂÃíÒ»²ã]
-[D023	ÎÖÂêËÂÃí¶þ²ã]
-[D033	ÎÖÂêËÂÃí¶þ²ã]
-[D043	ÎÖÂêËÂÃí¶þ²ã]
-[D053	ÎÖÂêËÂÃí¶þ²ã]
-[D024	ÎÖÂê½ÌÖ÷´óµî]	NORECALL	NORANDOMMOVE	NORECONNECT(D023)
+;æ²ƒçŽ›å¯ºåº™
+[D021	æ²ƒçŽ›å¯ºåº™å…¥å£]
+[D022	æ²ƒçŽ›å¯ºåº™ä¸€å±‚]
+[D032	æ²ƒçŽ›å¯ºåº™ä¸€å±‚]
+[D042	æ²ƒçŽ›å¯ºåº™ä¸€å±‚]
+[D052	æ²ƒçŽ›å¯ºåº™ä¸€å±‚]
+[D023	æ²ƒçŽ›å¯ºåº™äºŒå±‚]
+[D033	æ²ƒçŽ›å¯ºåº™äºŒå±‚]
+[D043	æ²ƒçŽ›å¯ºåº™äºŒå±‚]
+[D053	æ²ƒçŽ›å¯ºåº™äºŒå±‚]
+[D024	æ²ƒçŽ›æ•™ä¸»å¤§æ®¿]	NORECALL	NORANDOMMOVE	NORECONNECT(D023)
 
 1          84,277               ->         D021       76,74
 1          84,278               ->         D021       76,75
@@ -321,7 +321,7 @@ D023       52,366               ->         D024       16,19
 D024       16,18                ->         D023       51,365
 
 
-[2	¶¾ÉßÉ½¹È]
+[2	æ¯’è›‡å±±è°·]
 0          671,82               ->         2          414,563
 0          672,82               ->         2          415,563
 0          672,83               ->         2          415,564
@@ -362,10 +362,10 @@ D024       16,18                ->         D023       51,365
 2          416,569              ->         0          673,88
 
 
-[0116	¿ÍÕ»]	FIGHT
-[0117	Ò©µê]	SAFE
-[0120	ÎäÆ÷µê]	SAFE
-[0142	·¿ÎÝ]	FIGHT
+[0116	å®¢æ ˆ]	FIGHT
+[0117	è¯åº—]	SAFE
+[0120	æ­¦å™¨åº—]	SAFE
+[0142	æˆ¿å±‹]	FIGHT
 
 2          523,473              ->         0116       10,23
 2          523,474              ->         0116       11,24
@@ -381,19 +381,19 @@ D024       16,18                ->         D023       51,365
 2          511,462              ->         0142       9,9
 0142       9,10                 ->         2          512,462
 
-;±ÈÆæ¿óÇø
-[D401	±ÈÆæ¿óÇø]	MINE
-[D411	±±²¿¿óÇø]	MINE
-[D413	ÇÅ] 	MINE
-[D402	¶«²¿¿óÇø]	MINE
-[D414	ÇÅ] 	MINE
-[D403	·Ï¿óÇøÒ»²ã] 	MINE
-[D412	ÇÅ] 	MINE
-[D404	¿óÇøB¶þ²ã] 	MINE
-[D416	ÇÅ] 	MINE
-[D405	·Ï¿ó»ØÊÕÕ¾] 	MINE
-[D415	ÇÅ] 	MINE
-[D406	ÄÏ²¿¿óÇø] 	MINE
+;æ¯”å¥‡çŸ¿åŒº
+[D401	æ¯”å¥‡çŸ¿åŒº]	MINE
+[D411	åŒ—éƒ¨çŸ¿åŒº]	MINE
+[D413	æ¡¥] 	MINE
+[D402	ä¸œéƒ¨çŸ¿åŒº]	MINE
+[D414	æ¡¥] 	MINE
+[D403	åºŸçŸ¿åŒºä¸€å±‚] 	MINE
+[D412	æ¡¥] 	MINE
+[D404	çŸ¿åŒºBäºŒå±‚] 	MINE
+[D416	æ¡¥] 	MINE
+[D405	åºŸçŸ¿å›žæ”¶ç«™] 	MINE
+[D415	æ¡¥] 	MINE
+[D406	å—éƒ¨çŸ¿åŒº] 	MINE
 
 0          664,212              ->         D401       25,181
 0          664,213              ->         D401       24,181
@@ -436,9 +436,9 @@ D406       23,15                ->         D411       94,48
 D411       95,49                ->         D406       24,16
 
 
-;¶¾Éß¿óÇø
-[D421	¶¾Éß¿óÇøÒ»²ã]	MINE
-[D422	¶¾Éß¿óÇø¶þ²ã]	MINE
+;æ¯’è›‡çŸ¿åŒº
+[D421	æ¯’è›‡çŸ¿åŒºä¸€å±‚]	MINE
+[D422	æ¯’è›‡çŸ¿åŒºäºŒå±‚]	MINE
 
 2          564,169              ->         D421       30,374
 D421       30,375               ->         2          564,171
@@ -446,23 +446,23 @@ D421       30,375               ->         2          564,171
 D421       361,19               ->         D422       22,41
 D422       22,42                ->         D421       361,20
 
-;ÌØÊâµØÍ¼
-[F002	×æÂêÐÐ»áÕ½µØÍ¼	]	NORECALL	FIGHT3
-[F003	Éß¹ÈÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F004	Å«Á¥¶´Ñ¨	]	NORECALL	NORECONNECT(0148)
-[F005	¶´Ñ¨ÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F006	Ï¿¹ÈÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F007	ÎÖÂêÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F008	É½¹ÈÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F009	Ï¿¹ÈÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[F010	Ê¯Ä¹ÐÐ»áÕ½µØÍ¼	] 	NORECALL	FIGHT3
-[R001	GM×¨ÓÃµØÍ¼      ]	SAFE	DAY	QUIZ
-[G001	ÓéÀÖµØÍ¼	]	SAFE	DAY	QUIZ
-[G002	¹ã³¡µØÍ¼	]	SAFE	DAY	QUIZ
-[G003	¶«²¿×ãÇò³¡ ]	        SAFE	DAY	NORECONNECT(0)	NORECALL	
-[G004	Î÷²¿×ãÇò³¡ ]	        FIGHT	DAY	NORECONNECT(0)	NORECALL
+;ç‰¹æ®Šåœ°å›¾
+[F002	ç¥–çŽ›è¡Œä¼šæˆ˜åœ°å›¾	]	NORECALL	FIGHT3
+[F003	è›‡è°·è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F004	å¥´éš¶æ´žç©´	]	NORECALL	NORECONNECT(0148)
+[F005	æ´žç©´è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F006	å³¡è°·è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F007	æ²ƒçŽ›è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F008	å±±è°·è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F009	å³¡è°·è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[F010	çŸ³å¢“è¡Œä¼šæˆ˜åœ°å›¾	] 	NORECALL	FIGHT3
+[R001	GMä¸“ç”¨åœ°å›¾      ]	SAFE	DAY	QUIZ
+[G001	å¨±ä¹åœ°å›¾	]	SAFE	DAY	QUIZ
+[G002	å¹¿åœºåœ°å›¾	]	SAFE	DAY	QUIZ
+[G003	ä¸œéƒ¨è¶³çƒåœº ]	        SAFE	DAY	NORECONNECT(0)	NORECALL	
+[G004	è¥¿éƒ¨è¶³çƒåœº ]	        FIGHT	DAY	NORECONNECT(0)	NORECALL
 
-[3	ÃËÖØÊ¡]
+[3	ç›Ÿé‡çœ]
 2          296,58               ->         3          273,750
 2          297,58               ->         3          274,750
 2          297,59               ->         3          274,751
@@ -537,17 +537,17 @@ D422       22,42                ->         D421       361,20
 3          513,780              ->         2          558,80
 3          514,780              ->         2          559,80
 
-[0143	Ãñ·¿	]	FIGHT
-[0144	Ãñ·¿	]	FIGHT
-[0145	²Ö¿â	]	SAFE
-[0146	²Ö¿â¶þÂ¥]	SAFE
-[0147	ÍÁ³Ç¼àÓü]	FIGHT
-[0148	¿ÍÕ»	]	SAFE
-[0149	·þÊÎµê	]	SAFE
-[0158	ÊÎÆ·µê	]	SAFE	
-[0159	ÎäÆ÷µê	]	SAFE
-[0160	ÊÛÒ©·¿	]	SAFE
-[0161	Êéµê	]	SAFE	
+[0143	æ°‘æˆ¿	]	FIGHT
+[0144	æ°‘æˆ¿	]	FIGHT
+[0145	ä»“åº“	]	SAFE
+[0146	ä»“åº“äºŒæ¥¼]	SAFE
+[0147	åœŸåŸŽç›‘ç‹±]	FIGHT
+[0148	å®¢æ ˆ	]	SAFE
+[0149	æœé¥°åº—	]	SAFE
+[0158	é¥°å“åº—	]	SAFE	
+[0159	æ­¦å™¨åº—	]	SAFE
+[0160	å”®è¯æˆ¿	]	SAFE
+[0161	ä¹¦åº—	]	SAFE	
 
 3          276,320              ->         0143       15,20
 0143       16,20                ->         3          277,320
@@ -585,14 +585,14 @@ D422       22,42                ->         D421       361,20
 0158       7,28                 ->         3          291,303
 0158       22,13                ->         3          301,294
 
-;É³°Í¿Ë
-[0150	É³°Í¿Ë»Ê¹¬]	
-[0151	ÎäÆ÷µê]	FIGHT
-[0152	²Ö¿â]	FIGHT
-[0153	Ò©Æ·µê]	FIGHT
-[0154	ÊÎÆ·µê]	FIGHT
-[0155	·þ×°µê]	FIGHT
-[0156	¼àÓü]	FIGHT
+;æ²™å·´å…‹
+[0150	æ²™å·´å…‹çš‡å®«]	
+[0151	æ­¦å™¨åº—]	FIGHT
+[0152	ä»“åº“]	FIGHT
+[0153	è¯å“åº—]	FIGHT
+[0154	é¥°å“åº—]	FIGHT
+[0155	æœè£…åº—]	FIGHT
+[0156	ç›‘ç‹±]	FIGHT
 
 3          630,274              ->         0150       15,19
 3          631,273              ->         0150       16,18
@@ -633,31 +633,31 @@ D422       22,42                ->         D421       361,20
 3          600,282              ->         0156       9,15
 0156       10,16                ->         3          601,283
 
-;×æÂêÃí
-[0157	×æÂêËÂÃí´óµî]
-[D501	×æÂêËÂÃíÒ»²ã]
-[D502	×æÂêËÂÃí¶þ²ã]
-[D503	×æÂêËÂÃíÈý²ã]
-[D504	×æÂêËÂÃíËÄ²ã]
-[D505	×æÂêËÂÃíÎå²ã]
-[D5061	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5062	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5063	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5064	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5065	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5066	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5067	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5068	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5069	×æÂê¸ó]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
-[D5071	×æÂêÁù²ã´óÌü] NORECALL	NOPOSITIONMOVE
-[D5072	×æÂêÆß²ãÒ»] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
-[D5073	×æÂêÆß²ã¶þ] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
-[D5074	×æÂêÆß²ãÈý] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
-[D511	Í¼Êé¹Ý	]
-[D512	Í¼Êé¹Ý	]
-[D513	Í¼Êé¹Ý	]
-[D514	Í¼Êé¹Ý	]
-[D515	×æÂê½ÌÖ÷Ö®¼Ò] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)
+;ç¥–çŽ›åº™
+[0157	ç¥–çŽ›å¯ºåº™å¤§æ®¿]
+[D501	ç¥–çŽ›å¯ºåº™ä¸€å±‚]
+[D502	ç¥–çŽ›å¯ºåº™äºŒå±‚]
+[D503	ç¥–çŽ›å¯ºåº™ä¸‰å±‚]
+[D504	ç¥–çŽ›å¯ºåº™å››å±‚]
+[D505	ç¥–çŽ›å¯ºåº™äº”å±‚]
+[D5061	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5062	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5063	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5064	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5065	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5066	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5067	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5068	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5069	ç¥–çŽ›é˜]	NORANDOMMOVE	NORECALL	NOPOSITIONMOVE
+[D5071	ç¥–çŽ›å…­å±‚å¤§åŽ…] NORECALL	NOPOSITIONMOVE
+[D5072	ç¥–çŽ›ä¸ƒå±‚ä¸€] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
+[D5073	ç¥–çŽ›ä¸ƒå±‚äºŒ] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
+[D5074	ç¥–çŽ›ä¸ƒå±‚ä¸‰] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)	NOPOSITIONMOVE
+[D511	å›¾ä¹¦é¦†	]
+[D512	å›¾ä¹¦é¦†	]
+[D513	å›¾ä¹¦é¦†	]
+[D514	å›¾ä¹¦é¦†	]
+[D515	ç¥–çŽ›æ•™ä¸»ä¹‹å®¶] NORECALL	NORANDOMMOVE	NORECONNECT(D5071)
 
 3          862,174              ->         0157       9,25
 3          863,174              ->         0157       10,26
@@ -1156,8 +1156,8 @@ D5074      48,91                ->         D5073      59,10
 0161       6,16                 ->         3          409,322
 0161       7,17                 ->         3          410,323
 
-;É³°Í¿Ë°µµÀ
-[D701	ÃØÃÜÍ¨µÀ]
+;æ²™å·´å…‹æš—é“
+[D701	ç§˜å¯†é€šé“]
 3          564,287              ->         D701       28,22
 3          564,286              ->         D701       28,22
 D701       27,23                ->         3          563,286
@@ -1169,45 +1169,45 @@ D701       171,133              ->         3          660,276
 D701       31,128               ->         3          577,295
 3          578,296              ->         D701       32,127
 
-;Öí¶´
-[D710	Ê¯Ä¹Èë¿Ú]
-[D711	Ê¯Ä¹Ò»²ã]
-[D712	Ê¯Ä¹¶þ²ã]
-[D713	Ê¯Ä¹Èý²ã]
-[D714	Ê¯Ä¹ËÄ²ã]
-[D715	Ê¯Ä¹Îå²ã]
-[D716	Ê¯Ä¹Áù²ã]NORECALL
-[D717	Ê¯Ä¹Æß²ã] NORECALL	NORECONNECT(D71601)
-[D71601	Ê¯Ä¹Õó]	NORECALL
-[D71602	Ê¯Ä¹Õó]	NORECALL
-[D71603	Ê¯Ä¹Õó]	NORECALL
-[D71604	Ê¯Ä¹Õó]	NORECALL
-[D71605	Ê¯Ä¹Õó]	NORECALL
-[D71606	Ê¯Ä¹Õó]	NORECALL
-[D71607	Ê¯Ä¹Õó]	NORECALL
-[D71608	Ê¯Ä¹Õó]	NORECALL
-[D71609	Ê¯Ä¹Õó]	NORECALL
-[D71610	Ê¯Ä¹Õó]	NORECALL
-[D71611	Ê¯Ä¹Õó]	NORECALL
-[D71612	Ê¯Ä¹Õó]	NORECALL
-[D71613	Ê¯Ä¹Õó]	NORECALL
-[D71614	Ê¯Ä¹Õó]	DARK   NORECALL
-[D71615	Ê¯Ä¹Õó]	NORECALL
-[D71616	Ê¯Ä¹Õó]	DARKNORECALL
-[D71617	Ê¯Ä¹Õó]	DARK NORECALL
-[D71618	Ê¯Ä¹Õó]	DARK NORECALL
-[D71619	Ê¯Ä¹Õó]	DARK NORECALL
-[D71620	Ê¯Ä¹Õó]	DARK NORECALL
-[D71621	Ê¯Ä¹Õó]	DARK NORECALL
-[D71622	Ê¯Ä¹Õó]	DARK NORECALL
-[D71623	Ê¯Ä¹Õó]	DARK NORECALL
-[D71624	Ê¯Ä¹Õó]	DARK NORECALL
-[D71625	Ê¯Ä¹Õó]	DARK NORECALL
-[D71650	ÎäÆ÷ÐÞÀí¼ä ]	NORECALL
-[D71651	·þ×°ÐÞÀí¼ä ]	NORECALL
-[D71652	Ê×ÊÎÐÞÀí¼ä ]	NORECALL
-[D71653	Ò©Æ·³öÊÛ¼ä ]	NORECALL
-[T0002	ÌÒÔ´Ö®ÃÅ ] DARK NEEDHOLE  NORECALL NORECONNECT(D71601)
+;çŒªæ´ž
+[D710	çŸ³å¢“å…¥å£]
+[D711	çŸ³å¢“ä¸€å±‚]
+[D712	çŸ³å¢“äºŒå±‚]
+[D713	çŸ³å¢“ä¸‰å±‚]
+[D714	çŸ³å¢“å››å±‚]
+[D715	çŸ³å¢“äº”å±‚]
+[D716	çŸ³å¢“å…­å±‚]NORECALL
+[D717	çŸ³å¢“ä¸ƒå±‚] NORECALL	NORECONNECT(D71601)
+[D71601	çŸ³å¢“é˜µ]	NORECALL
+[D71602	çŸ³å¢“é˜µ]	NORECALL
+[D71603	çŸ³å¢“é˜µ]	NORECALL
+[D71604	çŸ³å¢“é˜µ]	NORECALL
+[D71605	çŸ³å¢“é˜µ]	NORECALL
+[D71606	çŸ³å¢“é˜µ]	NORECALL
+[D71607	çŸ³å¢“é˜µ]	NORECALL
+[D71608	çŸ³å¢“é˜µ]	NORECALL
+[D71609	çŸ³å¢“é˜µ]	NORECALL
+[D71610	çŸ³å¢“é˜µ]	NORECALL
+[D71611	çŸ³å¢“é˜µ]	NORECALL
+[D71612	çŸ³å¢“é˜µ]	NORECALL
+[D71613	çŸ³å¢“é˜µ]	NORECALL
+[D71614	çŸ³å¢“é˜µ]	DARK   NORECALL
+[D71615	çŸ³å¢“é˜µ]	NORECALL
+[D71616	çŸ³å¢“é˜µ]	DARKNORECALL
+[D71617	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71618	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71619	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71620	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71621	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71622	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71623	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71624	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71625	çŸ³å¢“é˜µ]	DARK NORECALL
+[D71650	æ­¦å™¨ä¿®ç†é—´ ]	NORECALL
+[D71651	æœè£…ä¿®ç†é—´ ]	NORECALL
+[D71652	é¦–é¥°ä¿®ç†é—´ ]	NORECALL
+[D71653	è¯å“å‡ºå”®é—´ ]	NORECALL
+[T0002	æ¡ƒæºä¹‹é—¨ ] DARK NEEDHOLE  NORECALL NORECONNECT(D71601)
 
 D717       80,28                ->         T0002      162,169
 
@@ -1347,17 +1347,17 @@ D71653     17,12                ->         D71603     36,34
 
 ;BC
 
-[D601	µØÀÎÄÏÒ»²ã]
-[D602	µØÀÎÎ÷Ò»²ã]
-[D603	µØÀÎ±±Ò»²ã]
-[D604	µØÀÎÎ÷¶þ²ã]
-[D605	µØÀÎ±±¶þ²ã]
-[D606	ËÀÍö¹×²Ä]
-[D607	ÌúµÆÁýÎÝ ]
-[D608	×ÏË®¾§ÎÝ ]
-[D609	Ê¯Â·Ð¡Ïª]
-[D610	Ê¯¹×²ÄÎÝ]
-[D611	Ê¯Â·Á¬½ÓÍ¨µÀ]
+[D601	åœ°ç‰¢å—ä¸€å±‚]
+[D602	åœ°ç‰¢è¥¿ä¸€å±‚]
+[D603	åœ°ç‰¢åŒ—ä¸€å±‚]
+[D604	åœ°ç‰¢è¥¿äºŒå±‚]
+[D605	åœ°ç‰¢åŒ—äºŒå±‚]
+[D606	æ­»äº¡æ£ºæ]
+[D607	é“ç¯ç¬¼å±‹ ]
+[D608	ç´«æ°´æ™¶å±‹ ]
+[D609	çŸ³è·¯å°æºª]
+[D610	çŸ³æ£ºæå±‹]
+[D611	çŸ³è·¯è¿žæŽ¥é€šé“]
 
 3          139,85               ->         D601       207,236
 D601       208,238              ->         3          140,87
@@ -1404,14 +1404,14 @@ D606       193,124              ->         D619       14,20
 ;D609	22,13	->	D606	192,123
 
 
-;ËÀÍöÉ½¹ÈÖ÷¶´Ñ¨
-[D612	ºÚ°µµØ´ø]
-[D613	ÉúËÀÖ®¼ä]
-[D614	´«Ææ²¿Âä]
-[D615	Ð°¶ñÊÆÁ¦]
-[D616	ÓÄÃ÷Ê¥Óò]
-[D617	¿Ö²À¿Õ¼ä]
-[D618	Ò»ÏßÌì	]	
+;æ­»äº¡å±±è°·ä¸»æ´žç©´
+[D612	é»‘æš—åœ°å¸¦]
+[D613	ç”Ÿæ­»ä¹‹é—´]
+[D614	ä¼ å¥‡éƒ¨è½]
+[D615	é‚ªæ¶åŠ¿åŠ›]
+[D616	å¹½æ˜Žåœ£åŸŸ]
+[D617	ææ€–ç©ºé—´]
+[D618	ä¸€çº¿å¤©	]	
 
 D609       22,13                ->         D612       200,52
 D612       199,51               ->         D609       22,14
@@ -1447,9 +1447,9 @@ D618       53,21                ->         D617       89,12
 D618       160,170              ->         D606       10,26
 D606       9,25                 ->         D618       159,171
 
-[E701	ÏãÊ¯¹ÅÄ¹Ò»²ã]
-[E702	ÏãÊ¯¹ÅÄ¹¶þ²ã]
-[E703	ÏãÊ¯¹ÅÄ¹Èý²ã]
+[E701	é¦™çŸ³å¤å¢“ä¸€å±‚]
+[E702	é¦™çŸ³å¤å¢“äºŒå±‚]
+[E703	é¦™çŸ³å¤å¢“ä¸‰å±‚]
 
 D701       172,79               ->         E701       12,18
 E701       12,17                ->         D701       173,78
@@ -1463,9 +1463,9 @@ E703       49,45                ->         E702       65,93
 E703       58,84                ->         D712       206,224
 D712       206,223              ->         E703       59,83
 
-;ÎÖÂê×ÔÈ»¶´Ñ¨
-[E001	ÎÖÂê×ÔÈ»¶´Ñ¨Ò»²ã]
-[E002	ÎÖÂê×ÔÈ»¶´Ñ¨¶þ²ã]	
+;æ²ƒçŽ›è‡ªç„¶æ´žç©´
+[E001	æ²ƒçŽ›è‡ªç„¶æ´žç©´ä¸€å±‚]
+[E002	æ²ƒçŽ›è‡ªç„¶æ´žç©´äºŒå±‚]	
 
 D003       78,229               ->         E001       9,14
 E001       8,13                 ->         D003       77,230
@@ -1476,11 +1476,11 @@ E002       84,9                 ->         E001       84,16
 E002       36,81                ->         D012       378,65
 D012       377,64               ->         E002       35,82
 
-;°ëÊÞ¶´Ñ¨Á¬½ÓÍ¨µÀ
-[E401	Á¬½ÓÍ¨µÀÒ»]
-[E402	Á¬½ÓÍ¨µÀ¶þ]
-[E403	Á¬½ÓÍ¨µÀÈý]
-[E404	Á¬½ÓÍ¨µÀËÄ]
+;åŠå…½æ´žç©´è¿žæŽ¥é€šé“
+[E401	è¿žæŽ¥é€šé“ä¸€]
+[E402	è¿žæŽ¥é€šé“äºŒ]
+[E403	è¿žæŽ¥é€šé“ä¸‰]
+[E404	è¿žæŽ¥é€šé“å››]
 
 D003       290,293              ->         E401       14,10
 E401       15,9                 ->         D003       291,294
@@ -1497,12 +1497,12 @@ E404       45,10                ->         E403       89,69
 E404       69,56                ->         D404       151,20
 D404       152,19               ->         E404       68,55
 
-;¶¾Éß¿óÇø-ËÀÍöÉ½¹ÈÁ¬½ÓÍ¨µÀ
-[E601	Á¬½ÓÍ¨µÀ]
-[E602	Á¬½ÓÍ¨µÀ]
-[E603	Á¬½ÓÍ¨µÀ]
-[E604	Á¬½ÓÍ¨µÀ]
-[E605	Á¬½ÓÍ¨µÀ]
+;æ¯’è›‡çŸ¿åŒº-æ­»äº¡å±±è°·è¿žæŽ¥é€šé“
+[E601	è¿žæŽ¥é€šé“]
+[E602	è¿žæŽ¥é€šé“]
+[E603	è¿žæŽ¥é€šé“]
+[E604	è¿žæŽ¥é€šé“]
+[E605	è¿žæŽ¥é€šé“]
 
 D422       331,383              ->         E601       135,19
 E601       134,20               ->         D422       330,382
@@ -1525,14 +1525,14 @@ E605       13,10                ->         E604       11,10
 E605       13,63                ->         D601       10,198
 D601       9,197                ->         E605       13,64
 
-;¶¾Éß¿óÇøÁ¬½ÓÍ¨µÀÈÎÎñÁ¬½Óµã
-[M001	Î´Öª°µµî	]	NORECALL	NORECONNECT(E603)
+;æ¯’è›‡çŸ¿åŒºè¿žæŽ¥é€šé“ä»»åŠ¡è¿žæŽ¥ç‚¹
+[M001	æœªçŸ¥æš—æ®¿	]	NORECALL	NORECONNECT(E603)
 
-;ÈÎÎñµØÍ¼
-[Q001	ÓÂ¶·ËÂµî	]	NORECALL	NORECONNECT(1)
-[Q002	ÓÂ¶·ËÂµî	]	NORECALL	NORECONNECT(1)
-[Q003	ÓÂ¶·ËÂµî	]	NORECALL	NORECONNECT(0)
-[Q004	Ê¬Íõµî          ]	NEEDHOLE	NORECALL	NORECONNECT(D406)
+;ä»»åŠ¡åœ°å›¾
+[Q001	å‹‡æ–—å¯ºæ®¿	]	NORECALL	NORECONNECT(1)
+[Q002	å‹‡æ–—å¯ºæ®¿	]	NORECALL	NORECONNECT(1)
+[Q003	å‹‡æ–—å¯ºæ®¿	]	NORECALL	NORECONNECT(0)
+[Q004	å°¸çŽ‹æ®¿          ]	NEEDHOLE	NORECALL	NORECONNECT(D406)
 
 D401       148,88               ->         Q004       14,14
 D401       149,89               ->         Q004       14,14
@@ -1574,12 +1574,12 @@ D422       240,68               ->         Q004       14,14
 D422       240,69               ->         Q004       14,14
 D422       239,69               ->         Q004       14,14
 
-[Q011	ÉúËÀµØ	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
-[Q012	ÌìµØÃÔ¹¬]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
-[Q013	ÌìµØÃÔ¹¬]	NORECALL	NORANDOMMOVE	NOREBONNECT(D002)	NOPOSITIONMOVE
-[Q014	ÌìµØÃÔ¹¬]	NORECALL	NORANDOMMOVE	NOREBONNECT(D002)	NOPOSITIONMOVE
-[Q015	ÉúËÀµØ	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
-[Q016	ÉúËÀµØ	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
+[Q011	ç”Ÿæ­»åœ°	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
+[Q012	å¤©åœ°è¿·å®«]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
+[Q013	å¤©åœ°è¿·å®«]	NORECALL	NORANDOMMOVE	NOREBONNECT(D002)	NOPOSITIONMOVE
+[Q014	å¤©åœ°è¿·å®«]	NORECALL	NORANDOMMOVE	NOREBONNECT(D002)	NOPOSITIONMOVE
+[Q015	ç”Ÿæ­»åœ°	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
+[Q016	ç”Ÿæ­»åœ°	]	NORECALL	NORANDOMMOVE	NORECONNECT(D002)	NOPOSITIONMOVE
 
 Q012       34,34                ->         Q015       9,20
 Q012       34,35                ->         Q015       9,20
@@ -2673,78 +2673,78 @@ Q014       22,39                ->         Q013       22,39
 Q014       23,38                ->         Q013       23,38
 Q014       23,39                ->         Q013       23,39
 
-[B010	¶Ä³¡×ßÀÈ]	FIGHT	NORECALL	
-[B011	¶Ä³¡	]	FIGHT	NORECALL	
-[B012	¶Ä³¡	]	FIGHT	NORECALL
-[B013	¶Ä³¡	]	FIGHT	NORECALL
+[B010	èµŒåœºèµ°å»Š]	FIGHT	NORECALL	
+[B011	èµŒåœº	]	FIGHT	NORECALL	
+[B012	èµŒåœº	]	FIGHT	NORECALL
+[B013	èµŒåœº	]	FIGHT	NORECALL
 
 B010       16,16                ->         0101       8,7
 B010       16,60                ->         0101       8,7
 B010       66,30                ->         0101       8,7
 
-[B101	×¼±¸·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B102	ÊÔÁ·ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B103	á÷ÁÔ·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B104	ÐÒÔË·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B105	»î¶¯ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B106	ÍöÁé¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B107	¶Ä²©ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B108	·çÔÂ¸ó	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B109	²×ÀÇÌü	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B110	·çÔÂ¸ó	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B111	Òýµ¼·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B112	áÝáåÎÝ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B113	Ñ¡Ôñ·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B114	·çÔÂ¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B115	¿ó·ò·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B116	ÃÔÃ£¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B117	ÕÙ»½·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B118	ÍöÁé¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B119	Ä¥ÄÑ·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B120	¶Ä²©ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B121	¼¯ÍÅ·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B122	Ñýºìµî	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B123	Æ½°²·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B124	ÉËº¦¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B125	À¶¿Õ¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B126	Ð¡ÔÂ¸ó	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B127	¶Ä³¡	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B128	ÒÉ»óÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B129	ÖñÔÏ¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B130	¶òÔË·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B131	ÉóÅÐ¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B132	Á¶µ¤ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B133	ÏÝÚå·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B134	ÂÞºº¼ä	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B135	ÂÃÐÐ¸ó	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B136	Ñï»¨ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B137	Ñï»¨ÊÒ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B138	ÉúËÀ¹Ø	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B139	°µºÚ·¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[B140	ÖÕ½áµØ	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B101	å‡†å¤‡æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B102	è¯•ç»ƒå®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B103	ç‹©çŒŽæˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B104	å¹¸è¿æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B105	æ´»åŠ¨å®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B106	äº¡çµé—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B107	èµŒåšå®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B108	é£Žæœˆé˜	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B109	æ²§ç‹¼åŽ…	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B110	é£Žæœˆé˜	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B111	å¼•å¯¼æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B112	å½·å¾¨å±‹	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B113	é€‰æ‹©æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B114	é£Žæœˆé—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B115	çŸ¿å¤«æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B116	è¿·èŒ«é—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B117	å¬å”¤æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B118	äº¡çµé—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B119	ç£¨éš¾æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B120	èµŒåšå®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B121	é›†å›¢æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B122	å¦–çº¢æ®¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B123	å¹³å®‰æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B124	ä¼¤å®³é—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B125	è“ç©ºé—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B126	å°æœˆé˜	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B127	èµŒåœº	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B128	ç–‘æƒ‘å®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B129	ç«¹éŸµé—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B130	åŽ„è¿æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B131	å®¡åˆ¤é—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B132	ç‚¼ä¸¹å®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B133	é™·é˜±æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B134	ç½—æ±‰é—´	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B135	æ—…è¡Œé˜	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B136	æ‰¬èŠ±å®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B137	æ‰¬èŠ±å®¤	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B138	ç”Ÿæ­»å…³	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B139	æš—é»‘æˆ¿	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[B140	ç»ˆç»“åœ°	]	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
 
-[T103	á÷ÁÔ·¿	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T105	»î¶¯ÊÒ	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1061	ÍöÁé¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1062	ÍöÁé¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1063	ÍöÁé¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T109	²×ÀÇÌü	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T115	¿ó·ò·¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)	MINE
-[T118	ÍöÁé¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T119	Ä¥ÄÑ·¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T125	À¶¿Õ¼ä	]	SAFE	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1281	ÒÉ»óÊÒ	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1282	ÒÉ»óÊÒ	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1283	ÒÉ»óÊÒ	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T131	ÉóÅÐ¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T132	Á¶µ¤ÊÒ	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T134	ÂÞºº¼ä	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1361	Ñï»¨ÊÒ	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1362	Ñï»¨ÊÒ	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T1363	Ñï»¨ÊÒ	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T138	ÉúËÀ¹Ø	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T139	°µºÚ·¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
-[T140	ÖÕ½áµØ	]	DAY	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T103	ç‹©çŒŽæˆ¿	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T105	æ´»åŠ¨å®¤	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1061	äº¡çµé—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1062	äº¡çµé—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1063	äº¡çµé—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T109	æ²§ç‹¼åŽ…	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T115	çŸ¿å¤«æˆ¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)	MINE
+[T118	äº¡çµé—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T119	ç£¨éš¾æˆ¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T125	è“ç©ºé—´	]	SAFE	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1281	ç–‘æƒ‘å®¤	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1282	ç–‘æƒ‘å®¤	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1283	ç–‘æƒ‘å®¤	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T131	å®¡åˆ¤é—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T132	ç‚¼ä¸¹å®¤	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T134	ç½—æ±‰é—´	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1361	æ‰¬èŠ±å®¤	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1362	æ‰¬èŠ±å®¤	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T1363	æ‰¬èŠ±å®¤	]	DAY	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T138	ç”Ÿæ­»å…³	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T139	æš—é»‘æˆ¿	]	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
+[T140	ç»ˆç»“åœ°	]	DAY	FIGHT	NORECALL	NORANDOMMOVE	NORECONNECT(B011)
 
 B010       56,20                ->         B011       11,13
 B011       12,14                ->         B010       57,21
@@ -2796,15 +2796,15 @@ T1281      28,20                ->         T1283      25,35
 T1283      28,32                ->         T1282      16,34
 
 
-[11	°×ÈÕÃÅ	]
-[12	´ÔÁÖÃÔ¹¬	]	
-[1001	°×ÈÕÃÅÎäÆ÷¿â	]	DAY	SAFE
-[1002	°×ÈÕÃÅ¹Ý³¤ÎÝ	]	DAY	SAFE
-[1003	°×ÈÕÃÅ·þ×°µê	]	DAY	SAFE
-[1004	°×ÈÕÃÅÍ¼Êé¹Ý	]	DAY	SAFE
-[1005	°×ÈÕÃÅÊÎÆ·ÎÝ	]	DAY	SAFE
-[1006	°×ÈÕÃÅÒ©Æ·ÎÝ	]	DAY	SAFE
-[1007	°×ÈÕÃÅÔÓ»õµê	]	DAY	SAFE
+[11	ç™½æ—¥é—¨	]
+[12	ä¸›æž—è¿·å®«	]	
+[1001	ç™½æ—¥é—¨æ­¦å™¨åº“	]	DAY	SAFE
+[1002	ç™½æ—¥é—¨é¦†é•¿å±‹	]	DAY	SAFE
+[1003	ç™½æ—¥é—¨æœè£…åº—	]	DAY	SAFE
+[1004	ç™½æ—¥é—¨å›¾ä¹¦é¦†	]	DAY	SAFE
+[1005	ç™½æ—¥é—¨é¥°å“å±‹	]	DAY	SAFE
+[1006	ç™½æ—¥é—¨è¯å“å±‹	]	DAY	SAFE
+[1007	ç™½æ—¥é—¨æ‚è´§åº—	]	DAY	SAFE
 
 
 1          43,34                ->         11         46,481
@@ -2850,17 +2850,17 @@ T1283      28,32                ->         T1282      16,34
 1002       9,18                 ->         11         227,269
 
 
-[D10011	³àÔÂÏ¿¹È¶«×ßÀÈ]
-[D10012	³àÔÂÏ¿¹ÈÎ÷×ßÀÈ]
-[D10013	³àÔÂÏ¿¹ÈÎ÷»ØËíµÀ]
-[D1002	³àÔÂÏ¿¹È¶«¶þ²ã]
-[D10031	³àÔÂÏ¿¹È¹ã³¡]
-[D10032	³àÔÂÏ¿¹È¶«³¤ÀÈ]
-[D1004	¾ñÔñÖ®µØ]
-[D10051	É½¹ÈÃØµÀ]
-[D10052	É½¹ÈÃØµÀ]
-[D10061	¶ñÄ§¼ÀÌ³]  CHECKQUEST(Q1404)	NEEDSET_ON(404)	NORECALL	NORECONNECT(D10031)
-[D10062	³àÔÂÄ§³²Ñ¨]	NORECALL	NORECONNECT(D10032)
+[D10011	èµ¤æœˆå³¡è°·ä¸œèµ°å»Š]
+[D10012	èµ¤æœˆå³¡è°·è¥¿èµ°å»Š]
+[D10013	èµ¤æœˆå³¡è°·è¥¿å›žéš§é“]
+[D1002	èµ¤æœˆå³¡è°·ä¸œäºŒå±‚]
+[D10031	èµ¤æœˆå³¡è°·å¹¿åœº]
+[D10032	èµ¤æœˆå³¡è°·ä¸œé•¿å»Š]
+[D1004	æŠ‰æ‹©ä¹‹åœ°]
+[D10051	å±±è°·ç§˜é“]
+[D10052	å±±è°·ç§˜é“]
+[D10061	æ¶é­”ç¥­å›]  CHECKQUEST(Q1404)	NEEDSET_ON(404)	NORECALL	NORECONNECT(D10031)
+[D10062	èµ¤æœˆé­”å·¢ç©´]	NORECALL	NORECONNECT(D10032)
 
 D10011     270,385              ->         12         90,14
 12         89,13                ->         D10011     269,384
@@ -2904,9 +2904,9 @@ D10061     21,26                ->         D10051     179,54
 D10052     140,23               ->         D10062     12,24
 D10062     11,25                ->         D10052     139,24
 
-[D10053	³àÔÂ¹È³¤ÀÈ] CHECKQUEST(Q1406)	NEEDSET_ON(406)	NORECALL	NORECONNECT(D10031)
-[D10054	Ï¿¹È°µµÀ]  CHECKQUEST(Q1411)	NEEDSET_ON(411)	NORECALL	NORECONNECT(D10031)
-[D10071	¶ñÄ§¾öÕ½³²Ñ¨]	NORECALL	NORECONNECT(D10031)
+[D10053	èµ¤æœˆè°·é•¿å»Š] CHECKQUEST(Q1406)	NEEDSET_ON(406)	NORECALL	NORECONNECT(D10031)
+[D10054	å³¡è°·æš—é“]  CHECKQUEST(Q1411)	NEEDSET_ON(411)	NORECALL	NORECONNECT(D10031)
+[D10071	æ¶é­”å†³æˆ˜å·¢ç©´]	NORECALL	NORECONNECT(D10031)
 
 D10071     11,25                ->         D10061     15,19
 
@@ -2916,43 +2916,43 @@ D10053     41,91                ->         D10051     11,27
 D10052     183,178              ->         D10054     79,13
 D10054     78,12                ->         D10052     183,178
 
-[D619	Ð°¶ñÖ®¶¼]  NORECALL  NORECONNECT(3)
+[D619	é‚ªæ¶ä¹‹éƒ½]  NORECALL  NORECONNECT(3)
 D619       14,19                ->         D609       15,33
 
 
 
-[T215	²ÉÊ¯³¡¶«] 	NORECALL	NORECONNECT(0)
-[T218	ÎÖÂêÍöÁé¼ä ]
-[T219	²ÉÊ¯³¡Î÷]	NORECALL	NORECONNECT(0)
+[T215	é‡‡çŸ³åœºä¸œ] 	NORECALL	NORECONNECT(0)
+[T218	æ²ƒçŽ›äº¡çµé—´ ]
+[T219	é‡‡çŸ³åœºè¥¿]	NORECALL	NORECONNECT(0)
 
-[T0000	×æÂê¾öÕ½³¡ ]	NORECALL	NORECONNECT(D503)
-[T0001	×æÂê»áÒé´óÌü ]DARK	NORECALL	NORECONNECT(D503)
+[T0000	ç¥–çŽ›å†³æˆ˜åœº ]	NORECALL	NORECONNECT(D503)
+[T0001	ç¥–çŽ›ä¼šè®®å¤§åŽ… ]DARK	NORECALL	NORECONNECT(D503)
 
 
 
-[4 ¡¡¡¡·âÄ§¹È ]
-[T0007 ·âÄ§¿óÇø ] SAFE MINE
-[D2001 ÆéÂ· ]
-[D2002 ·âÄ§µÀ ] NORECALL NORANDOMMOVE NORECONNECT(4)
-[D2003 ·âÄ§µÀ ]
-[D2004 ¼²·çµî ]
-[D2005 ¹âÃ¢»ØÀÈ ]
-[D2006 ÁÒÑæµî ]  NORECALL NORANDOMMOVE
-[D2007 À×öªÖ®Â· ]
-[D2008 °ÔÕß´óÌü ]  NORECALL NORANDOMMOVE
-[D2009 ÓÄÚ¤»ØÀÈ ]  NORECALL NORANDOMMOVE
-[D2010 ×ÝºáµÀ ] 
-[D2011 Ä§»êµî ] NORECALL NORANDOMMOVE
-[D2012 Á¶Óü»ØÀÈ ] NORECALL NORANDOMMOVE
-[D2013 ·âÄ§µî ]  NORECALL NORANDOMMOVE NORECONNECT(D2005)
+[4 ã€€ã€€å°é­”è°· ]
+[T0007 å°é­”çŸ¿åŒº ] SAFE MINE
+[D2001 å´Žè·¯ ]
+[D2002 å°é­”é“ ] NORECALL NORANDOMMOVE NORECONNECT(4)
+[D2003 å°é­”é“ ]
+[D2004 ç–¾é£Žæ®¿ ]
+[D2005 å…‰èŠ’å›žå»Š ]
+[D2006 çƒˆç„°æ®¿ ]  NORECALL NORANDOMMOVE
+[D2007 é›·éœ†ä¹‹è·¯ ]
+[D2008 éœ¸è€…å¤§åŽ… ]  NORECALL NORANDOMMOVE
+[D2009 å¹½å†¥å›žå»Š ]  NORECALL NORANDOMMOVE
+[D2010 çºµæ¨ªé“ ] 
+[D2011 é­”é­‚æ®¿ ] NORECALL NORANDOMMOVE
+[D2012 ç‚¼ç‹±å›žå»Š ] NORECALL NORANDOMMOVE
+[D2013 å°é­”æ®¿ ]  NORECALL NORANDOMMOVE NORECONNECT(D2005)
 
-[B341 ·âÄ§±¤ ] FIGHT NORECONNECT(4)
-[B342 ¶ñÄ§Ìú½³ÆÌ ] SAFE
-[B345 ¶ñÄ§·þ×°µê ] SAFE
-[B343 ¶ñÄ§Ò©ÊéÆÌ ] SAFE
-[B344 ¶ñÄ§Ê×ÊÎµê ] SAFE
-[B346 ¶ñÄ§¼àÀÎ ] FIGHT
-[B347 ¶ñÄ§Ç®×¯ ] SAFE
+[B341 å°é­”å ¡ ] FIGHT NORECONNECT(4)
+[B342 æ¶é­”é“åŒ é“º ] SAFE
+[B345 æ¶é­”æœè£…åº— ] SAFE
+[B343 æ¶é­”è¯ä¹¦é“º ] SAFE
+[B344 æ¶é­”é¦–é¥°åº— ] SAFE
+[B346 æ¶é­”ç›‘ç‰¢ ] FIGHT
+[B347 æ¶é­”é’±åº„ ] SAFE
 
 
 4          445,193        ->         1          47,170
@@ -3052,14 +3052,14 @@ D2004      19,16                ->         D2005      85,88
 D2005      85,88                ->         D2004      19,16
 
 
-;·âÄ§Õ÷³Ì
-[T334	²»¹éÂ· ]	DARK	NORECALL	NORECONNECT(3)
-[T0003	ÊÞÈË¹ÅÕ½³¡ ]	DARK	NORECALL	NORECONNECT(3)
-[T0004	Ç±ÁúÏ¿¹È ]	DARK	NORECALL	NORECONNECT(3)
-[T0005	ÏàË¼Ä¹Ñ¨ ]	DARK	NORECALL	NORECONNECT(3)
-[T0006	ÂñÃ»Ö®³Ç ]	DARK	NORECALL	NORECONNECT(3)
-[T0008	¾²¼ÅÉñÃí ]	DARK	NORECALL	NORECONNECT(3)
-[T0009  ±ÜÊÀÉ­ÁÖ ]	DARK	NORECALL
+;å°é­”å¾ç¨‹
+[T334	ä¸å½’è·¯ ]	DARK	NORECALL	NORECONNECT(3)
+[T0003	å…½äººå¤æˆ˜åœº ]	DARK	NORECALL	NORECONNECT(3)
+[T0004	æ½œé¾™å³¡è°· ]	DARK	NORECALL	NORECONNECT(3)
+[T0005	ç›¸æ€å¢“ç©´ ]	DARK	NORECALL	NORECONNECT(3)
+[T0006	åŸ‹æ²¡ä¹‹åŸŽ ]	DARK	NORECALL	NORECONNECT(3)
+[T0008	é™å¯‚ç¥žåº™ ]	DARK	NORECALL	NORECONNECT(3)
+[T0009  é¿ä¸–æ£®æž— ]	DARK	NORECALL
 
 T334       5 36         ->         3          330 330
 T334       5 35         ->         3          330 330
@@ -3170,12 +3170,12 @@ T0008      39 52         ->         T0009      49 49
 
 
 
-;ÂìÒÏ³²Ñ¨
-[M995 ÂìÒÏ³²Ò»²ã	0] DARK
-[M996 ÂìÒÏ³²¶þ²ã	0] DARK
-[M997 ÂìÒÏ³²Èý²ã	0] DARK
-[M998 ÂìÒÏ³²ËÄ²ã	0] DARK
-[M999 ÒÏºóÖ®³²Ñ¨	0] DARK NORECONNECT(M998)
+;èš‚èšå·¢ç©´
+[M995 èš‚èšå·¢ä¸€å±‚	0] DARK
+[M996 èš‚èšå·¢äºŒå±‚	0] DARK
+[M997 èš‚èšå·¢ä¸‰å±‚	0] DARK
+[M998 èš‚èšå·¢å››å±‚	0] DARK
+[M999 èšåŽä¹‹å·¢ç©´	0] DARK NORECONNECT(M998)
 
 M995       13,50                ->         M996       73,66
 M996       72,65                ->         M995       12,51
@@ -3190,21 +3190,21 @@ M997       10,69                ->         M998       91,45
 M998       90,44                ->         M997       9,70
 
 
-;×¢Ã÷£ºµØÍ¼ÎÄ¼þ¿ÉÓÃÀ´µ÷ÓÃµÄ¼¸¸ö
-;[T134	²»¹éÂ·]Ä¿Ç°Ãû³ÆÎª£ºÂÞºº¼ä
-;[T234	²»¹éÂ·]	¿É×÷°×ÈÕÃÅ°µµÀÁ¬½ÓÓÃ
-;[D12 ¡¡Î´ÖªµØÍ¼ ]Ê¢´ó1.7°æ¸üÐÂºó³öÏÖµÄ
-;[M100  Î´ÖªµØÍ¼ ]Ê¢´ó1.7°æ¸üÐÂºó³öÏÖµÄ
-;[M101  Î´ÖªµØÍ¼ ]Ê¢´ó1.7°æ¸üÐÂºó³öÏÖµÄ
+;æ³¨æ˜Žï¼šåœ°å›¾æ–‡ä»¶å¯ç”¨æ¥è°ƒç”¨çš„å‡ ä¸ª
+;[T134	ä¸å½’è·¯]ç›®å‰åç§°ä¸ºï¼šç½—æ±‰é—´
+;[T234	ä¸å½’è·¯]	å¯ä½œç™½æ—¥é—¨æš—é“è¿žæŽ¥ç”¨
+;[D12 ã€€æœªçŸ¥åœ°å›¾ ]ç››å¤§1.7ç‰ˆæ›´æ–°åŽå‡ºçŽ°çš„
+;[M100  æœªçŸ¥åœ°å›¾ ]ç››å¤§1.7ç‰ˆæ›´æ–°åŽå‡ºçŽ°çš„
+;[M101  æœªçŸ¥åœ°å›¾ ]ç››å¤§1.7ç‰ˆæ›´æ–°åŽå‡ºçŽ°çš„
 
-[D2031 ÄÏÔ´¿óÇøÒ»²ã]  MINE
-[D2032 ÄÏÔ´¿óÇø¶þ²ã]  MINE
-[D2033 ÄÏÔ´¿óÇøÒ»²ÉÇø]  MINE
-[D2034 ÄÏÔ´¿óÇø¶þ²ÉÇø]  MINE
-[D2041 ÄÏÔ´¿óÇø±±Èý²ã]  MINE
-[D2042 ÄÏÔ´¿óÇø±±À¬»ø³¡]  MINE
-[D2043 ÄÏÔ´¿óÇø±±¶þ²ã]  MINE
-[D2044 ÄÏÔ´¿óÇø±±²¿¹¤×÷Çø]  MINE
+[D2031 å—æºçŸ¿åŒºä¸€å±‚]  MINE
+[D2032 å—æºçŸ¿åŒºäºŒå±‚]  MINE
+[D2033 å—æºçŸ¿åŒºä¸€é‡‡åŒº]  MINE
+[D2034 å—æºçŸ¿åŒºäºŒé‡‡åŒº]  MINE
+[D2041 å—æºçŸ¿åŒºåŒ—ä¸‰å±‚]  MINE
+[D2042 å—æºçŸ¿åŒºåŒ—åžƒåœ¾åœº]  MINE
+[D2043 å—æºçŸ¿åŒºåŒ—äºŒå±‚]  MINE
+[D2044 å—æºçŸ¿åŒºåŒ—éƒ¨å·¥ä½œåŒº]  MINE
 1          205,518              ->         D2031      280,285
 D2031      280,285              ->         1          205,518
 D2031      198,34               ->         D2032      184,268
@@ -3225,13 +3225,13 @@ D2044      127,275              ->         11         39,313
 11         39,313               ->         D2044      127,275
 
 
-[5 ÔÂŽµº]  DAY
-[B351 ÎäÆ÷¿â 0]  FIGHT
-[B352 ÊÎÆ·ÆÌ 0]  FIGHT
-[B353 ²¼ÁÏÆÌ 0]  FIGHT
-[B354 ´¢´æÊÒ 0]  FIGHT
-[B355 ÌØ²úÆÌ 0]  FIGHT
-[B356 Ò©·¿ 0]  FIGHT
+[5 æœˆå´•å²›]  DAY
+[B351 æ­¦å™¨åº“ 0]  FIGHT
+[B352 é¥°å“é“º 0]  FIGHT
+[B353 å¸ƒæ–™é“º 0]  FIGHT
+[B354 å‚¨å­˜å®¤ 0]  FIGHT
+[B355 ç‰¹äº§é“º 0]  FIGHT
+[B356 è¯æˆ¿ 0]  FIGHT
 5          127,301              ->         B351       11,13
 B351       11,13                ->         5          127,301
 B351       11,14                ->         5          127,301
@@ -3253,12 +3253,12 @@ B355       10,16                ->         5          152,294
 5          167,314              ->         B356       10,19
 B356       10,19                ->         5          167,314
 
-[D2051 ÄÏæåÂíÊ¯¿ßÒ»²ã]
-[D2052 Å£Ä§Éñµî] NORECONNECT(5)
-[D2053 ÄÏæåÂíÊ¯¿ß¶þ²ã]
-[D2054 ÄÏæåÂíÊ¯¿ßÈý²ã]
-[D2055 ÄÏæåÂíÊ¯¿ßËÄ²ã] NORANDOMMOVE NORECONNECT(D2051)
-[D2056 Ä§¿ßÎ´ÖªÊ¥µØ] NORECALL NORANDOMMOVE NORECONNECT(D2053)
+[D2051 å—é©½é©¬çŸ³çªŸä¸€å±‚]
+[D2052 ç‰›é­”ç¥žæ®¿] NORECONNECT(5)
+[D2053 å—é©½é©¬çŸ³çªŸäºŒå±‚]
+[D2054 å—é©½é©¬çŸ³çªŸä¸‰å±‚]
+[D2055 å—é©½é©¬çŸ³çªŸå››å±‚] NORANDOMMOVE NORECONNECT(D2051)
+[D2056 é­”çªŸæœªçŸ¥åœ£åœ°] NORECALL NORANDOMMOVE NORECONNECT(D2053)
 5          527,610              ->         D2051      107,182
 5          527,611              ->         D2051      108,183
 5          528,611->            D2051      109,183
@@ -3295,13 +3295,13 @@ D2056      161,209              ->         D2055      256,180
 D2056      162,209              ->         D2055      256,181
 D2056      162,210              ->         D2055      257,181
 
-[D2061 ±±æåÂíÊ¯¿ßÒ»²ã]
-[D2062 Ê¯¿ßÁ¬½Ó»ØÀÈ]
-[D2063 ±±æåÂíÊ¯¿ß¶þ²ã]
-[D2064 ±±æåÂíÊ¯¿ßÈý²ã]
-[D2065 æåÂíÅÍÊ¯¶´] NORANDOMMOVE
-[D2066 ±±æåÂíËÄ²ã¾ÞÈË¹È] NORECALL NORANDOMMOVE
-[D2067 æåÂíÄ§¿ß¿Ö²À¹È] NORECALL NORANDOMMOVE NORECONNECT(D2062)
+[D2061 åŒ—é©½é©¬çŸ³çªŸä¸€å±‚]
+[D2062 çŸ³çªŸè¿žæŽ¥å›žå»Š]
+[D2063 åŒ—é©½é©¬çŸ³çªŸäºŒå±‚]
+[D2064 åŒ—é©½é©¬çŸ³çªŸä¸‰å±‚]
+[D2065 é©½é©¬ç£çŸ³æ´ž] NORANDOMMOVE
+[D2066 åŒ—é©½é©¬å››å±‚å·¨äººè°·] NORECALL NORANDOMMOVE
+[D2067 é©½é©¬é­”çªŸææ€–è°·] NORECALL NORANDOMMOVE NORECONNECT(D2062)
 D2061      18,176               ->         5          549,127
 D2061      17,175               ->         5          549,127
 5          549,126              ->         D2061      18,175
@@ -3334,16 +3334,16 @@ D2067      156,161              ->         D2066      87,193
 
 
 
-[D2070 Å£Ä§ËÂÃí³öÈë¿Ú]
-[D2071 Å£Ä§ËÂÒ»²ã]
-[D2072 Å£Ä§ËÂ¶þ²ã]
-[D2073 Å£Ä§ËÂÈý²ã]
-[D2074 Å£Ä§ËÂËÄ²ã»úÓö²ã]
-[D2075 ¶«Á¬½ÓÍ¨µÀ]
-[D2076 Î÷Á¬½ÓÍ¨µÀ]
-[D2077 Å£Ä§ËÂÎå²ãÃÔ¹¬] NORANDOMMOVE 
-[D2078 Å£Ä§ËÂÁù²ãÊ¥µØ] NORECALL NORECONNECT(D2075)
-[D2079 Å£Ä§½ÌÌÃ] NORECALL NORANDOMMOVE NORECONNECT(D2075)
+[D2070 ç‰›é­”å¯ºåº™å‡ºå…¥å£]
+[D2071 ç‰›é­”å¯ºä¸€å±‚]
+[D2072 ç‰›é­”å¯ºäºŒå±‚]
+[D2073 ç‰›é­”å¯ºä¸‰å±‚]
+[D2074 ç‰›é­”å¯ºå››å±‚æœºé‡å±‚]
+[D2075 ä¸œè¿žæŽ¥é€šé“]
+[D2076 è¥¿è¿žæŽ¥é€šé“]
+[D2077 ç‰›é­”å¯ºäº”å±‚è¿·å®«] NORANDOMMOVE 
+[D2078 ç‰›é­”å¯ºå…­å±‚åœ£åœ°] NORECALL NORECONNECT(D2075)
+[D2079 ç‰›é­”æ•™å ‚] NORECALL NORANDOMMOVE NORECONNECT(D2075)
 D2070      35,39                ->         5          656,459
 D2070      34,40                ->         5          656,460
 5          655,458              ->         D2070      34,38
@@ -3389,63 +3389,63 @@ D2078      255,255              ->         D2079      13,13
 D2079      12,12                ->         D2078      254,254
 
 
-[28 ¾²¼ÅÖ®³Ç ] day
-[8000	ÔÓ»õµê	]	SAFE
-[8001	²Ö¿â	]	SAFE
-[8002	Ãñ¼äÐ¡ÎÝ]	FIGHT
-[8003	ÎäÆ÷µê]	FIGHT
-[8004	Ê×ÊÎµê]	FIGHT
-[8005	Ê×ÊÎµê]	FIGHT
-[8006	Ê×ÊÎµê]	FIGHT
-[8007	ÎäÆ÷µê]	FIGHT
-[8008	ÎäÆ÷µê]	FIGHT
-[8009	Èâµê]	FIGHT
-[8010	²Ö¿â]	FIGHT
-[8011	²Ö¿â]	FIGHT
-[8012	²Ö¿â¶þ²ã]	FIGHT
-[8013	²Ö¿â¶þ²ã]	FIGHT
-[8014	Êéµê]	FIGHT
-[8015	Êéµê]	FIGHT
-[8016	·¿ÎÝ]	FIGHT
-[8017	·¿ÎÝ]	FIGHT
-[8018	·¿ÎÝ]	FIGHT
-[8019	·¿ÎÝ]	FIGHT
-[8020	·¿ÎÝ]	FIGHT
-[8021	·¿ÎÝ]	FIGHT
-[8022	·¿ÎÝ]	FIGHT
-[8023	ÎäÆ÷µê]	FIGHT
-[8024	ÎäÆ÷µê]	FIGHT
-[8025	²Ö¿â]	FIGHT
-[8026	²Ö¿â]	FIGHT
-[8027	·¿ÎÝ]	FIGHT
-[8028	Ò©µêÈë¿Ú]	FIGHT
-[8029	Ò©µêÈë¿Ú]	FIGHT
-[8030	Ò©µê]	FIGHT
-[8031	Ò©µê]	FIGHT
-[8032	·¿ÎÝ]	FIGHT
-[8033	·¿ÎÝ]	FIGHT
-[8034	·¿ÎÝ]	FIGHT
-[8035	¶Ä³¡]	FIGHT
-[8036	¶Ä³¡]	FIGHT
-[8037	³ø·¿]	FIGHT
-[8038	³ø·¿]	FIGHT
-[8039	ÒÂ·þµê]	FIGHT
-[8040	Á·¹¦·¿]	FIGHT
-[8041	Á·¹¦·¿]	FIGHT
-[8042	Á·¹¦·¿]	FIGHT
-[8043	·¿ÎÝ]	FIGHT
-[8044	·¿ÎÝ]	FIGHT
-[8045	ÀñÌÃ ]	FIGHT
-[8046	·¿ÎÝ]	FIGHT
-[8047	·¿ÎÝ]	FIGHT
-[8048	·¿ÎÝ]	FIGHT
-[8049	·¿ÎÝ]	FIGHT
-[8050	·¿ÎÝ]	FIGHT
-[8051	·¿ÎÝ]	FIGHT
-[8052	·¿ÎÝ]	FIGHT
-[8053	·¿ÎÝ]	FIGHT
-[8054	·¿ÎÝ]	FIGHT
-[8055	·¿ÎÝ]	FIGHT
+[28 é™å¯‚ä¹‹åŸŽ ] day
+[8000	æ‚è´§åº—	]	SAFE
+[8001	ä»“åº“	]	SAFE
+[8002	æ°‘é—´å°å±‹]	FIGHT
+[8003	æ­¦å™¨åº—]	FIGHT
+[8004	é¦–é¥°åº—]	FIGHT
+[8005	é¦–é¥°åº—]	FIGHT
+[8006	é¦–é¥°åº—]	FIGHT
+[8007	æ­¦å™¨åº—]	FIGHT
+[8008	æ­¦å™¨åº—]	FIGHT
+[8009	è‚‰åº—]	FIGHT
+[8010	ä»“åº“]	FIGHT
+[8011	ä»“åº“]	FIGHT
+[8012	ä»“åº“äºŒå±‚]	FIGHT
+[8013	ä»“åº“äºŒå±‚]	FIGHT
+[8014	ä¹¦åº—]	FIGHT
+[8015	ä¹¦åº—]	FIGHT
+[8016	æˆ¿å±‹]	FIGHT
+[8017	æˆ¿å±‹]	FIGHT
+[8018	æˆ¿å±‹]	FIGHT
+[8019	æˆ¿å±‹]	FIGHT
+[8020	æˆ¿å±‹]	FIGHT
+[8021	æˆ¿å±‹]	FIGHT
+[8022	æˆ¿å±‹]	FIGHT
+[8023	æ­¦å™¨åº—]	FIGHT
+[8024	æ­¦å™¨åº—]	FIGHT
+[8025	ä»“åº“]	FIGHT
+[8026	ä»“åº“]	FIGHT
+[8027	æˆ¿å±‹]	FIGHT
+[8028	è¯åº—å…¥å£]	FIGHT
+[8029	è¯åº—å…¥å£]	FIGHT
+[8030	è¯åº—]	FIGHT
+[8031	è¯åº—]	FIGHT
+[8032	æˆ¿å±‹]	FIGHT
+[8033	æˆ¿å±‹]	FIGHT
+[8034	æˆ¿å±‹]	FIGHT
+[8035	èµŒåœº]	FIGHT
+[8036	èµŒåœº]	FIGHT
+[8037	åŽ¨æˆ¿]	FIGHT
+[8038	åŽ¨æˆ¿]	FIGHT
+[8039	è¡£æœåº—]	FIGHT
+[8040	ç»ƒåŠŸæˆ¿]	FIGHT
+[8041	ç»ƒåŠŸæˆ¿]	FIGHT
+[8042	ç»ƒåŠŸæˆ¿]	FIGHT
+[8043	æˆ¿å±‹]	FIGHT
+[8044	æˆ¿å±‹]	FIGHT
+[8045	ç¤¼å ‚ ]	FIGHT
+[8046	æˆ¿å±‹]	FIGHT
+[8047	æˆ¿å±‹]	FIGHT
+[8048	æˆ¿å±‹]	FIGHT
+[8049	æˆ¿å±‹]	FIGHT
+[8050	æˆ¿å±‹]	FIGHT
+[8051	æˆ¿å±‹]	FIGHT
+[8052	æˆ¿å±‹]	FIGHT
+[8053	æˆ¿å±‹]	FIGHT
+[8054	æˆ¿å±‹]	FIGHT
+[8055	æˆ¿å±‹]	FIGHT
 28         19,480               ->         8047       8,12
 8047       8,12                 ->         28         19,480
 28         36,473               ->         8048       8,12
