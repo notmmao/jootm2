@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 
 # 本项目 CSV 字段 -> 其它版本常见字段名（同一语义的不同写法）
+# Crystal 血统（cjlaaa/Server.MirDB 导出）的映射见带注释的条目：
+# 怪物 AC/MAC/DC 是单值（=上限），Crystal 拆 Min/Max；Speed/Hit 对应 Agility/Accuracy。
 FIELD_ALIAS = {
     'Name': ('Name', 'NAME'),
     'Race': ('Race',),
@@ -29,34 +31,43 @@ FIELD_ALIAS = {
     'Level': ('Level', 'Lvl', 'LVL'),
     'Undead': ('Undead',),
     'CoolEye': ('CoolEye',),
-    'Exp': ('Exp', 'EXP'),
+    'Exp': ('Exp', 'EXP', 'Experience'),
     'HP': ('HP',),
     'MP': ('MP',),
-    'AC': ('AC', 'Ac'),
-    'MAC': ('MAC', 'Mac'),
-    'DC': ('DC', 'Dc'),
-    'DCMax': ('DCMax', 'DCMAX', 'Dc2'),
-    'MC': ('MC', 'Mc'),
-    'SC': ('SC', 'Sc'),
-    'Speed': ('Speed', 'SPEED'),
-    'Hit': ('Hit', 'HIT'),
-    'WalkSpeed': ('WalkSpeed', 'WALK_SPD'),
+    'AC': ('AC', 'Ac', 'MaxAC'),          # Crystal: MaxAC
+    'MAC': ('MAC', 'Mac', 'MaxMAC'),      # Crystal: MaxMAC
+    'DC': ('DC', 'Dc', 'MinDC'),          # Crystal: MinDC
+    'DCMax': ('DCMax', 'DCMAX', 'Dc2', 'MaxDC'),
+    'MC': ('MC', 'Mc', 'MinMC'),
+    'SC': ('SC', 'Sc', 'MinSC'),
+    'Speed': ('Speed', 'SPEED', 'Agility'),
+    'Hit': ('Hit', 'HIT', 'Accuracy'),
+    'WalkSpeed': ('WalkSpeed', 'WALK_SPD', 'MoveSpeed'),
     'WalkStep': ('WalkStep',),
     'WalkWait': ('WalkWait', 'WaLkWait', 'WALKWAIT'),
     'AttackSpeed': ('AttackSpeed', 'ATTACK_SPD'),
     'StdMode': ('StdMode',),
     'Shape': ('Shape',),
     'Weight': ('Weight',),
-    'Looks': ('Looks',),
+    'Looks': ('Looks', 'Image'),
     'DuraMax': ('DuraMax',),
     'Price': ('Price',),
     'Need': ('Need',),
-    'NeedLevel': ('NeedLevel',),
-    'MagName': ('MagName',),
+    'NeedLevel': ('NeedLevel', 'RequiredAmount'),
+    'MagName': ('MagName', 'Name'),
     'Job': ('Job',),
-    'NeedL1': ('NeedL1',),
-    'NeedL2': ('NeedL2',),
-    'NeedL3': ('NeedL3',),
+    'NeedL1': ('NeedL1', 'Level1'),       # Crystal: Level1-3（学习等级）
+    'NeedL2': ('NeedL2', 'Level2'),
+    'NeedL3': ('NeedL3', 'Level3'),
+    'L1Train': ('L1Train', 'Need1'),      # Crystal: Need1-3（修炼值）
+    'L2Train': ('L2Train', 'Need2'),
+    'L3Train': ('L3Train', 'Need3'),
+    'Spell': ('Spell',),
+    'Power': ('Power', 'PowerBase'),
+    'MaxPower': ('MaxPower', 'PowerBonus'),
+    'DefSpell': ('DefSpell', 'MPowerBase'),
+    'DefMaxPower': ('DefMaxPower', 'MPowerBonus'),
+    'Delay': ('Delay', 'DelayBase'),
 }
 
 TABLES = ('Monster', 'StdItems', 'Magic')

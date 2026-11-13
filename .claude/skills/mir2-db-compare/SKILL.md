@@ -24,9 +24,16 @@ description: 对比第三方传奇 Mir2 私服数据库（SQL dump / SQLite .db 
 |---|---|
 | SQL dump（SQLite 方言：`CREATE TABLE` + `INSERT INTO "T" VALUES …`） | `scripts/mir2_db_sql_export.py <dump.sql> -o data/db_compare/<tag>`（内存 sqlite3 灌入导出，UTF-8 读取） |
 | Paradox `.DB`（原版 M2 格式） | `scripts/mir2_db_export.py <对方DB目录> -o data/db_compare/<tag>`（需 `pip install pypxlib`，表头取 DB 自身字段名） |
+| 直接是 SQLite `.db` 文件 | 用 `python -c "import sqlite3; …"` 查 `sqlite_master` + `pragma table_info` 即可读，可仿照 `mir2_db_sql_export.py` 导出（先例：`176-mir2-red/REDM2.db`，可作 1.76 参照库） |
+| C# Crystal 引擎的 `Server.MirDB`（.NET BinaryWriter 顺序格式） | `scripts/crystal_mirdb_export.py <Server.MirDB> -o data/db_compare/<tag>`（按 suprcode/crystal v105 commit `485e59afab` 镜像 Load；**EOF 精确消费 = 正确性唯一验证**。导出 StdItems/Monster/Magic/**Npcs/Maps** 五张 CSV。先例：`mir2ServerRelease`，版本头 105；报告见 `docs/DB_COMPARE_CRYSTALDB.md` §1 的反推记录） |
 | 已是 CSV | 直接放入 `data/db_compare/<tag>/`，确认 UTF-8 编码 |
 
 注意：同名 `.db` 不一定含全部表（GEEM2.db 只有 StdItems），以内容最全的文件为准。
+
+pypxlib 的两个坑（`mir2_db_export.py` 已内置修复，仍需注意）：
+
+1. **不支持中文路径**：`Table()` 按 ascii 编码路径，源文件在含中文的目录（如 `传奇/`）时先 `cp` 到 `data/db_compare/<tag>_src/` 这类纯 ASCII 路径。
+2. **字段值固定 strict 解码**：`px_decode_errors` 只作用于字段名；脚本里的 `patch_alpha_decode()` 已包一层容错。若仍见 `'gbk' codec` 报错，先确认跑的是修过的脚本版本。
 
 ### 第 2 步：跑通用对比
 
@@ -47,6 +54,10 @@ PYTHONIOENCODING=utf-8 D:/Python310/python.exe -I scripts/compare_mir2_db.py \
 - **StdItems 拆分字段对照**：本项目是语义化列（`AcMin/AcMax/…`），对方多半是泛用槽（`Ac/Ac2/Dc/Dc2`），逐对 (Min,Max) vs (Lo,Hi) 比；schema **不能逐列对拷**。
 - **种族/AI 语义字段**：race 重映射（对方可能拿 81 当占位）、CoolEye 可能被布尔化——逐值列出差异明细。
 - **对方扩展列非零占用率**：很多引擎扩展列是空壳，全 0 就可以在报告里标注「可忽略」。
+- **NPC 对比（如有）**：本地 = `Npcs.txt` + `MerChant.txt`（用 `pyserver.world_extra.load_npc_spawns` 读，别手写解析）；对方常见是 SQL 表或 `Server.MirDB` 的 NPCInfoList。**匹配键 = 地图 + 坐标（±2 格）**，不要按名字（英文 vs 中文）或按脚本文件名（两套命名体系）。先例：Crystal 309 vs 本地 303，103 对匹配、多数 d=0。
+- **武器 StdMode 5/6 互换检查**：本项目口径 5=刀剑 / 6=杖锤（6 挂重击动画，`handlers_combat.py:471`）；ChineseDB 整体反过来了。有争议时用 `176-mir2-red/REDM2.db`（1.76 参照）仲裁。
+- **跨引擎字段不可直比**：Spell/EffectType/Shape/RaceImg 是各引擎自己的枚举/外观空间；Delay 单位不同（ours 原版 ×10 口径 vs Crystal 毫秒）。`compare_mir2_db.py` 的 FIELD_ALIAS 已含 Crystal 血统映射（Exp→Experience、AC→MaxAC、NeedL1→Level1、L1Train→Need1、Power→PowerBase 等），但 Spell/Delay 要从结论里排除。
+- **深挖脚本注意双方字段大小写**：本项目 `StdMode/DCMax/Level`，对方常见 `Stdmode/DCMAX/Lvl`——`compare_mir2_db.py` 有别名，但自己写的一次性脚本要显式映射，别共用同一个 key。
 
 ### 第 4 步：写报告 docs/DB_COMPARE_<TAG>.md
 
