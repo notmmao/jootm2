@@ -749,6 +749,10 @@ class Monster(Actor):
         # 尸体仍要作为实体下发给客户端（原版 SM_DEATH 保留 actor，画 ActDeath 帧）
         o["alive"] = self.alive
         o["corpse"] = (not self.alive and self.corpse_until > 0)
+        # 挖空变骨架（RM_SKELETON → m_boSkeleton）：重进地图/回到视野时也要恢复
+        # 骨架帧（Actor.pas:2124 GetDefaultFrame 骷髅走 ActDeath.start 不带方向），
+        # 否则玩家走远再回来尸体「变回」未挖状态——挖过肉的尸体重复可挖。
+        o["skeleton"] = bool(self.skeleton)
         return o
 
 
@@ -1538,6 +1542,24 @@ class GameWorld(WorldExtra):
                  "x": m.x, "y": m.y, "dir": m.dir},
                 m.x, m.y, SIGHT_RANGE)
 
+    def _walk_toward(self, m: Monster, tx: int, ty: int) -> bool:
+        """原版 ``TAnimalObject.GotoTargetXY``（ObjBase.pas:2709-2759）：
+        先朝目标方向走一格；被挡则按 ``n20 = Random(3)`` 决定的旋转方向
+        （2/3 顺时针 / 1/3 逆时针）依次重试相邻方向，最多 7 次——**每 tick
+        最多走一格**（循环只在还没挪动时继续，一旦走成功立即结束）。
+        之前只试一个方向，被树/墙/其他怪挡住就原地站桩，这是「怪物容易
+        卡住」的直接原因。"""
+        base = direction_toward(m.x, m.y, tx, ty, m.dir)
+        m.dir = base
+        if self.try_move(m, base):
+            return True
+        cw = random.random() < 2 / 3
+        for k in range(1, 8):
+            d = (base + (k if cw else -k)) & 7
+            if self.try_move(m, d):
+                return True
+        return False
+
     def _monster_ai(self, m: Monster, now: int) -> None:
         if m.pending_respawn or not m.alive or m.template is None:
             return
@@ -1618,8 +1640,7 @@ class GameWorld(WorldExtra):
                 elif (not is_guard and d <= RANGED_CHASE_RANGE
                       and now >= m.next_move_at):
                     m.next_move_at = now + walk_ms
-                    m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
-                    if self.try_move(m, m.dir):
+                    if self._walk_toward(m, target.x, target.y):
                         self.broadcast_move(m)
                 return
             if d == 1:
@@ -1640,15 +1661,19 @@ class GameWorld(WorldExtra):
             elif (now >= m.next_move_at and not is_guard):
                 # 原版守卫不追击：TGuardUnit.Run / TSuperGuard.Run 都没有 Walk
                 # 分支，目标跑出视野即放弃（ObjMon2.pas:924-980 / ObjGuard.pas:87）。
+                # 追击走 GotoTargetXY（被挡重试相邻方向）。
                 m.next_move_at = now + walk_ms
-                m.dir = direction_toward(m.x, m.y, target.x, target.y, m.dir)
-                if self.try_move(m, m.dir):
+                if self._walk_toward(m, target.x, target.y):
                     self.broadcast_move(m)
         elif not is_guard and now >= m.next_move_at:
+            # 原版 TAnimalObject.Wondering（ObjBase.pas:22723-22728）：
+            # 每 walk tick Random(20)=0（5%）才动，其中 Random(4)=1（1/4）
+            # 只转向（TurnTo），其余沿当前方向继续走一格——不是每次随机换向。
             m.next_move_at = now + walk_ms
-            if random.random() < 0.35:
-                m.dir = int(random.random() * 8)
-                if self.try_move(m, m.dir):
+            if random.random() < 0.05:
+                if random.random() < 0.25:
+                    m.dir = int(random.random() * 8)
+                elif self.try_move(m, m.dir):
                     self.broadcast_move(m)
 
     def _chicken_deer_ai(self, m: Monster, now: int, walk_ms: int) -> None:
@@ -1783,13 +1808,11 @@ class GameWorld(WorldExtra):
                         self._gain_slave_exp(m, enemy)
             elif now >= m.next_move_at:
                 m.next_move_at = now + walk_interval
-                m.dir = direction_toward(m.x, m.y, enemy.x, enemy.y, m.dir)
-                if self.try_move(m, m.dir):
+                if self._walk_toward(m, enemy.x, enemy.y):
                     self.broadcast_move(m)
         elif m.distance_to(master) > 2 and now >= m.next_move_at:
             m.next_move_at = now + walk_interval
-            m.dir = direction_toward(m.x, m.y, master.x, master.y, m.dir)
-            if self.try_move(m, m.dir):
+            if self._walk_toward(m, master.x, master.y):
                 self.broadcast_move(m)
 
     def _nearest_enemy(self, master: Player, self_m: Monster) -> Monster | None:

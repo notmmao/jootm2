@@ -1510,6 +1510,17 @@ export class PlayScene extends Scene {
                 this.shopPriceEl.textContent = n > 0 ? `价格: ${n} 金币` : '价格: ???? 金币';
                 break;
             }
+            case 'storageOpen':
+                // 原版 SM_SENDUSERSTORAGEITEM（ClMain.pas:5435 →
+                // ClientGetSendUserStorage：关卖物窗口 + SpotDlgMode=dmStorage +
+                // ShowShopSellDlg）：存入模式，点背包物品直接发 storageStore
+                this._showStorageDlg(msg);
+                break;
+            case 'storageList':
+                // 原版 SM_SAVEITEMLIST（ClMain.pas:5217 → ClientGetSaveItemList：
+                // 菜单列表窗口 + BoStorageMenu=TRUE，行点击即发取回）
+                this._showStorageList(msg);
+                break;
             case 'npcClose':
                 this._closeNpcDialog();
                 break;
@@ -2830,6 +2841,12 @@ export class PlayScene extends Scene {
 
     // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）/ 拿着已穿装备点背包 = 卸下
     _onBagItemClick(it, cell) {
+        // 仓库存入模式：点背包物品直接存（原版 dmStorage 分支 FState.pas:5454，
+        // 不走「拿起→投放」流程）
+        if (this.storageMode === 'deposit') {
+            this.conn.send('storageStore', { npcId: this.storageNpcId, makeIndex: it.makeIndex });
+            return;
+        }
         if (!this.pickedItem) {
             this.pickedItem = it;            // 拿起
             this.pickedSource = 'bag';
@@ -3175,12 +3192,115 @@ export class PlayScene extends Scene {
         this.shopGoldEl = null;
         this.shopSellMode = false;
         this.shopSellItem = null;
-        // 恢复背包位置（卖出时移到右侧）
+        this.storageMode = null;
+        this.storageNpcId = -1;
+        // 恢复背包位置（卖出/存入时移到右侧）
         if (this.bagPanel) {
             this.bagPanel.style.left = '0px';
             this.bagPanel.style.top = '0px';
             this.bagPanel.style.display = 'none';
         }
+    }
+
+    // ---- 仓库（原版 dmStorage / BoStorageMenu 两套窗口，FState.pas） ----
+
+    /** 存入窗口（原版 @storage → SM_SENDUSERSTORAGEITEM → dmStorage 模式的
+     * DSellDlg：投放框只是视觉提示，点背包物品直接 SendStorageItem，
+     * FState.pas:5454）。 */
+    _showStorageDlg(msg) {
+        this._closeShopPanel();
+        this.storageMode = 'deposit';
+        this.storageNpcId = msg.npcId;
+        const gui = this.manager.winManager.container;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'position:absolute;left:260px;top:176px;width:140px;height:181px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        this.shopPanel = panel;
+        this._makeWindowDraggable(panel);
+        this._libUrl('prguse', 392).then((url) => {
+            if (url && this.shopPanel === panel) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                panel.insertBefore(bg, panel.firstChild);
+            }
+        });
+        const title = document.createElement('div');
+        title.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
+        title.textContent = '仓库保管';
+        panel.appendChild(title);
+        // 投放框（27,67)61x52：视觉提示（原版 dmStorage 下点背包物品直接存入，
+        // 不经过投放框；这里保留框体与原版窗口外观一致）
+        const spot = document.createElement('div');
+        spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
+            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
+        spot.title = '点击背包里的物品存入仓库';
+        panel.appendChild(spot);
+        // 关闭（背景已画红X，热区 115,0）
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:115px;top:0px;width:16px;height:23px;cursor:pointer;';
+        close.addEventListener('click', () => this._closeShopPanel());
+        panel.appendChild(close);
+        gui.appendChild(panel);
+        if (!this.bagPanel) this._buildBag();
+        this.bagPanel.style.display = 'block';
+        this.bagPanel.style.left = '475px';
+        this.bagPanel.style.top = '0px';
+        this._refreshBag();
+    }
+
+    /** 取出列表（原版 @getback → SM_SAVEITEMLIST → ShowShopMenuDlg +
+     * BoStorageMenu=TRUE：物品行点击直接 SendTakeBackStorageItem，
+     * FState.pas:5236）。 */
+    _showStorageList(msg) {
+        this._closeShopPanel();
+        this.storageMode = 'getback';
+        this.storageNpcId = msg.npcId != null ? msg.npcId : this.storageNpcId;
+        const gui = this.manager.winManager.container;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'position:absolute;left:0;top:176px;width:308px;height:205px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        this.shopPanel = panel;
+        this._makeWindowDraggable(panel);
+        this._libUrl('prguse', 385).then((url) => {
+            if (url && this.shopPanel === panel) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                panel.insertBefore(bg, panel.firstChild);
+            }
+        });
+        const title = document.createElement('div');
+        title.style.cssText = 'position:absolute;left:19px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
+        title.textContent = '仓库物品';
+        panel.appendChild(title);
+        const duraTitle = document.createElement('div');
+        duraTitle.style.cssText = 'position:absolute;left:222px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
+        duraTitle.textContent = '持久';
+        panel.appendChild(duraTitle);
+        const list = document.createElement('div');
+        list.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'
+            + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
+        panel.appendChild(list);
+        const items = msg.items || [];
+        for (const it of items) {
+            const row = document.createElement('div');
+            row.style.cssText = 'position:relative;height:13px;cursor:pointer;color:#fff;';
+            row.innerHTML = `<span style="position:absolute;left:0;">${it.name}</span>`
+                + `<span style="position:absolute;left:222px;color:#fff;">${Math.round((it.durability || 0) / 1000)}/${Math.round((it.durabilityMax || 0) / 1000)}</span>`;
+            row.title = '点击取回该物品';
+            row.dataset.sfx = String(SFX.buttonGlass);
+            const npcId = this.storageNpcId;
+            row.addEventListener('click', () => {
+                this.conn.send('storageTake', { npcId, makeIndex: it.makeIndex });
+            });
+            list.appendChild(row);
+        }
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:291px;top:0px;width:16px;height:23px;cursor:pointer;';
+        close.addEventListener('click', () => this._closeShopPanel());
+        panel.appendChild(close);
+        gui.appendChild(panel);
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本

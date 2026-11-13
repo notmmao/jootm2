@@ -836,6 +836,59 @@ pk_point=1 黄名不打、≥200 才打）；`test_pyserver` 95/0；`test_map_vi
 
 ---
 
+## §49 第 23 轮：昼夜图标答疑 + 骨架状态下发 + 仓库全链路 + 寻路对齐 GotoTargetXY
+
+用户四项反馈：①面板右侧一直月牙是否有昼夜；②挖肉骨架重进地图变回尸体；
+③仓库无法存放；④寻路容易卡住。
+
+### 49.1 昼夜（无 bug，答疑）
+
+- 原版 `FrnEngn.pas:85-91` 分档：5-10/16-22 点=白天(图标12太阳)、11/23=傍晚(13
+  橙太阳)、4/15=早上(15 蓝底月牙)、**0-3 与 12-14 点=晚上(14 月牙)**——
+  原版怪癖：中午 12-14 点也显示月牙。`day_bright_for_hour` 与图标映射
+  `[15,12,13,14][b]`（FState.pas:3764-3768）逐值一致，22 点下发 1=太阳。
+  实测确认无 bug；用户看到月牙大概率是 0-3 点时段或正午怪癖。
+
+### 49.2 骨架状态下发（bug 修复）
+
+- 根因：`Monster.brief_json` 只发 `corpse` 不发 `skeleton`，entityAdd 走
+  「未挖尸体」分支画 ActDie 末帧。前端 ActorSprite 本来就按 `e.skeleton`
+  选 ActDeath.start（GetDefaultFrame，Actor.pas:2124）。
+- 修复：brief_json 增 `o["skeleton"]`；前端无需改。
+
+### 49.3 仓库全链路（bug 修复：前端无 UI、脚本引擎无标签）
+
+- 原版链路：脚本 `@storage`（ObjNpc.pas:1560 → SM_SENDUSERSTORAGEITEM 开
+  dmStorage 投放框，点背包物品直接 CM_USERSTORAGEITEM 存入）/
+  `@getback`（→ SM_SAVEITEMLIST 开 BoStorageMenu 列表，行点击
+  CM_USERTAKEBACKSTORAGEITEM 取回）。容量 **39**（ObjBase.pas:24720），
+  要求仓库 NPC 同图 15 格内。
+- 服务端：`Result.storage_mode`；`_npc_select` 识别 @storage/@getback（标签
+  不存在自动回 main，普通 NPC 开不出仓库）；`_handle_npc_result` 发
+  `storageOpen` / `storageList`；`_storage_store` 容量 45→39 + `_storage_npc_ok`
+  同图 15 格校验；`_storage_take` 成功后重发 storageList 刷新窗口。
+- 前端：`_showStorageDlg`（复用卖物窗口外观，点背包物品直接发 storageStore，
+  对齐 FState.pas:5454 dmStorage 分支）；`_showStorageList`（复用买物菜单
+  外观，行点击发 storageTake）；`_closeShopPanel` 复位 storageMode。
+
+### 49.4 寻路对齐（bug 修复：单方向卡死）
+
+- 根因：追击/跟随只 `try_move(朝目标方向)`，被树/墙/怪挡住就原地站桩。
+  原版 `TAnimalObject.GotoTargetXY`（ObjBase.pas:2709-2759）被挡时按
+  `n20=Random(3)`（2/3 顺时针 / 1/3 逆时针）依次重试相邻方向最多 7 次，
+  每 tick 最多走一格。
+- 修复：新增 `GameWorld._walk_toward`，替换四处：近战追击、远程追击、
+  召唤物追敌/跟随主人。乱走分支对齐 `Wondering`（ObjBase.pas:22723-22728）：
+  每 walk tick 5% 才动，1/4 只转向、其余沿当前方向直走（此前是 35% 每次
+  随机换向，怪走得乱且从不走直线）。
+
+### 49.5 验证
+
+`test_all_messages` 78/0（+6：仓库闭环 4 + 骨架下发 2）；`test_pyserver`
+95/0；`test_tick_systems` 140/0；`test_map_view` 34/0；node --check 通过。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

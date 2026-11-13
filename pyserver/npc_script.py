@@ -239,6 +239,10 @@ class Result:
     moved_x: int = 0
     moved_y: int = 0
     shop_mode: str | None = None
+    # 仓库模式（原版 ObjNpc.pas:1560-1566 UserSelect 对 @storage/@getback 标签
+    # 的处理 → SM_SENDUSERSTORAGEITEM 开投放框 / SM_SAVEITEMLIST 开列表）：
+    # "deposit" = 存入（点背包物品直接发 storageStore），"getback" = 取出列表。
+    storage_mode: str | None = None
 
 
 class NpcScriptEngine:

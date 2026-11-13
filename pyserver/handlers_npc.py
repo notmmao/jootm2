@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .npc_script import NpcScriptEngine
 from .util import BAG_SIZE, _int, _str, delphi_round
+from .world import Player
 
 NPC_TYPES = frozenset({"npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice"})
 
@@ -47,13 +48,22 @@ class NpcHandlers:
             self._send_npc_close(session, npc.id)
             return
         is_buy, is_sell = label.lower() == "buy", label.lower() == "sell"
+        is_storage, is_getback = (label.lower() == "storage",
+                                  label.lower() == "getback")
         r = self._engine().execute(p, npc, label)
         if is_buy:
             r.shop_mode = "buy"
         elif is_sell:
             r.shop_mode = "sell"
-        if (not r.say_text and r.shop_mode is None and not r.closed
-                and not r.moved and label.lower() != "main"):
+        elif is_storage:
+            r.storage_mode = "deposit"
+        elif is_getback:
+            r.storage_mode = "getback"
+        if (not r.say_text and r.shop_mode is None and r.storage_mode is None
+                and not r.closed and not r.moved and label.lower() != "main"):
+            # 标签不存在（如普通 NPC 也被点了 @storage）→ 回主对话，
+            # 同时清掉 storage_mode，避免无仓库能力的 NPC 开出仓库窗口。
+            r.storage_mode = None
             r = self._engine().execute(p, npc, "main")
         self._handle_npc_result(session, p, npc, r)
 
@@ -74,6 +84,18 @@ class NpcHandlers:
             o["shop"] = r.shop_mode
             o["goods"] = w.goods(npc)
         session.send_json(o)
+        # 仓库（原版 @storage → SM_SENDUSERSTORAGEITEM 开投放框；@getback →
+        # SM_SAVEITEMLIST 开列表窗口，物品行点击即取回）
+        if r.storage_mode == "deposit":
+            session.send_json({"type": "storageOpen", "npcId": npc.id})
+        elif r.storage_mode == "getback":
+            items = []
+            for it in p.storage:
+                t = w.item_templates.get(int(it.get("index", 0)))
+                items.append(Player.storage_json(
+                    it, t.name if t else "?", t.looks if t else 0))
+            session.send_json({"type": "storageList", "npcId": npc.id,
+                               "items": items})
 
     @staticmethod
     def _send_npc_close(session, npc_id: int) -> None:

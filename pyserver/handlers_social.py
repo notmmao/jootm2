@@ -191,6 +191,26 @@ class SocialHandlers:
                                              t.looks if t else 0))
         session.send_json({"type": "storage", "items": items})
 
+    def _storage_npc_ok(self, p, msg) -> bool:
+        """原版 ClientStorageItem（ObjBase.pas:24713-24718）：存/取都要
+        「仓库 NPC 同图且 15 格内」。消息没带 npcId 时退回旧口径（放行），
+        兼容旧客户端消息。"""
+        npc_id = _int(msg, "npcId", -1)
+        if npc_id < 0:
+            return True
+        npc = self.world.npc(npc_id)
+        return (npc is not None and npc.map is p.map
+                and abs(npc.x - p.x) < 15 and abs(npc.y - p.y) < 15)
+
+    def _storage_list_msg(self, p) -> dict:
+        w = self.world
+        items = []
+        for it in p.storage:
+            t = w.item_templates.get(int(it.get("index", 0)))
+            items.append(Player.storage_json(it, t.name if t else "?",
+                                             t.looks if t else 0))
+        return {"type": "storageList", "items": items}
+
     def _storage_store(self, session, msg: dict) -> None:
         p = self.find_by_session(session)
         if p is None:
@@ -200,8 +220,12 @@ class SocialHandlers:
         if found is None:
             w.send_system(p, "物品不存在。")
             return
-        if len(p.storage) >= 45:
-            w.send_system(p, "仓库已满。")
+        # 原版容量 39（ObjBase.pas:24720 m_StorageItemList.Count < 39）
+        if len(p.storage) >= 39:
+            w.send_system(p, "仓库已满。请取出在放")
+            return
+        if not self._storage_npc_ok(p, msg):
+            w.send_system(p, "保管失败。")
             return
         p.bag.remove(found)
         p.clear_quick_ref(int(found.get("makeIndex", 0)))
@@ -220,10 +244,16 @@ class SocialHandlers:
         if found is None:
             w.send_system(p, "物品不存在。")
             return
+        if not self._storage_npc_ok(p, msg):
+            w.send_system(p, "你不能取回。")
+            return
         p.storage.remove(found)
         p.bag.append(found)
         w.send_system(p, "已取出。")
         self.send_bag_update(p)
+        # 原版取回成功客户端 DelStorageItem 移除该行（ClMain.pas:5232）；
+        # 这里重发列表刷新打开中的取物窗口。
+        session.send_json(self._storage_list_msg(p))
 
     # ---- 交易 -----------------------------------------------------------
 

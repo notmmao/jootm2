@@ -788,6 +788,72 @@ def run_success_paths() -> int:
             w.tick(now_ms())
             check("无人地图怪物 AI 冻结（空图休眠）",
                   (far_mon.x, far_mon.y) == (x0, y0), results)
+
+        # 仓库：@storage/@getback 标签 → storageOpen/storageList；存取闭环
+        # （原版 ObjNpc.pas:1560-1566 + SM_SENDUSERSTORAGEITEM/SM_SAVEITEMLIST）
+        wh = next((n for n in w.npcs.values()
+                   if n.script is not None and n.script.section("storage")), None)
+        if wh is not None:
+            wh.map = p.map
+            wh.x, wh.y = p.x + 1, p.y
+            item = w.new_item_instance(next(t for t in w.item_templates.values()
+                                            if 0 <= t.stdMode <= 2))
+            item["durability"] = 2000
+            item["durabilityMax"] = 3000
+            p.bag.append(item)
+            mi = int(item["makeIndex"])
+            try:
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "npcSelect", "npcId": wh.id, "value": "@storage"}))
+                check("@storage → storageOpen（原版 SM_SENDUSERSTORAGEITEM）",
+                      any(m.get("type") == "storageOpen"
+                          and m.get("npcId") == wh.id for m in s1.messages),
+                      results)
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "storageStore", "npcId": wh.id, "makeIndex": mi}))
+                stored = any(int(it.get("makeIndex", 0)) == mi for it in p.storage)
+                check("storageStore → 物品入仓（容量口径 39）",
+                      stored and not p.bag_item(mi), results)
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "npcSelect", "npcId": wh.id, "value": "@getback"}))
+                lst = next((m for m in s1.messages if m.get("type") == "storageList"), None)
+                check("@getback → storageList 含刚存的物品（SM_SAVEITEMLIST）",
+                      lst is not None
+                      and any(int(i.get("makeIndex", 0)) == mi for i in lst.get("items", [])),
+                      results)
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "storageTake", "npcId": wh.id, "makeIndex": mi}))
+                check("storageTake → 物品回背包 + 列表刷新（DelStorageItem）",
+                      p.bag_item(mi) is not None and not p.storage
+                      and any(m.get("type") == "storageList" for m in s1.messages),
+                      results)
+            finally:
+                if p.bag_item(mi) is None:
+                    p.bag.append(item)
+                p.storage.clear()
+        else:
+            check("仓库流程（环境无仓库 NPC，跳过）", True, results)
+
+        # 挖空变骨架：brief_json 必须带 skeleton（否则重进地图尸体「变回」未挖帧）
+        sk = Monster(id=w.new_id(), name="鸡", x=p.x + 3, y=p.y,
+                     hp=1, max_hp=1, level=5, race=51,
+                     template=victim.template, spawn_x=p.x + 3, spawn_y=p.y)
+        w.add_actor(sk, p.map)
+        try:
+            sk.alive = False
+            sk.corpse_until = now_ms() + 60_000
+            sk.skeleton = True
+            check("brief_json 下发 skeleton=True（重进地图恢复骨架帧）",
+                  sk.brief_json().get("skeleton") is True, results)
+            sk.skeleton = False
+            check("未挖尸体 brief_json skeleton=False",
+                  sk.brief_json().get("skeleton") is False, results)
+        finally:
+            w.remove_actor(sk.id)
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):
