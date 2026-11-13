@@ -564,7 +564,8 @@ D:/Python310/python.exe scripts/convert_gbk_to_utf8.py --check     # CI：有 GB
 |---|---|
 | test_pyserver（+6：GBK/UTF-8/BOM 三写一读、转换脚本转换/备份/幂等） | **95/0** |
 | test_tick_systems（+16：84/90 可挖、骷髅/非骷髅分支、磨损初值、MonItems 空格名、TChickenDeer 概率与行为、狼/狼1 掉落对比） | **139/0** |
-| test_all_messages / test_map_view / test_sfx_map | 37/0、34/0、84/0 |
+| test_all_messages（+2：race≥80 挖空不变骷髅 / 尸体仍可再挖；离线+live） | **39/0** |
+| test_map_view / test_sfx_map | 34/0、84/0 |
 | 8080 重启 + live 冒烟 | PASS |
 
 ### 42.5 遗留

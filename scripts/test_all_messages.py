@@ -321,7 +321,8 @@ def run_success_paths() -> int:
         # 动物尸体 / 挖肉：原版 SM_DEATH 保留 actor、CM_BUTCH 带 actor id、
         # 动物死亡不 ScatterBagItems（ObjBase.pas:20983）
         animal = next((a for a in w.actors.values()
-                       if isinstance(a, Monster) and a.alive and w.butchable(a)), None)
+                       if isinstance(a, Monster) and a.alive and w.butchable(a)
+                       and w.butch_skeleton(a)), None)
         if animal is not None:
             animal.map = p.map
             p.map.actors[animal.id] = animal
@@ -368,6 +369,27 @@ def run_success_paths() -> int:
                   animal.skeleton and animal.id in w.actors, results)
             check("挖肉后下发 bagUpdate",
                   any(m.get("type") == "bagUpdate" for m in s1.messages), results)
+
+        # race ≥ 80（毒蜘蛛/蝎子/食人花/洞蛆）：原版 ObjBase.pas:17485 的骷髅分支
+        # 只在 race ∈ [50,80) 走，这些怪挖空只清尸体背包、尸体原样保留。
+        bug = next((a for a in w.actors.values()
+                    if isinstance(a, Monster) and a.alive and w.butchable(a)
+                    and not w.butch_skeleton(a)), None)
+        if bug is not None:
+            bug.map = p.map
+            p.map.actors[bug.id] = bug
+            bug.x, bug.y = p.x + 1, p.y
+            w.kill_monster(bug, int(time.time() * 1000))
+            for _ in range(20):
+                p.last_butch_at = 0
+                h["butch"](s1, {"type": "butch", "actorId": bug.id,
+                                "x": bug.x, "y": bug.y})
+                if bug.bag_looted:
+                    break
+            check(f"race≥80（{bug.name}/{bug.race}）挖空后不变骷髅",
+                  bug.bag_looted and not bug.skeleton, results)
+            check("race≥80 挖空后尸体仍保留可再挖（不删 actor）",
+                  bug.id in w.actors and bug.corpse_until > 0, results)
 
         # 第 16 轮：挖矿（原版 PileStones ObjBase.pas:21881 + MakeMine:24351）。
         # 需要 MINE 标志地图 + 鹤嘴锄（Shape 19）+ 前方不可走格。
