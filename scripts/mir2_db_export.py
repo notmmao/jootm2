@@ -30,9 +30,28 @@ import sys
 from pathlib import Path
 
 try:
-    from pypxlib import Table
+    from pypxlib import AlphaField, Table
 except ImportError:  # pragma: no cover - 环境缺依赖时给一句人话
     sys.exit("缺少依赖 pypxlib：D:/Python310/python.exe -m pip install pypxlib")
+
+
+def patch_alpha_decode(errors: str) -> None:
+    """把解码容错传导到字符串字段值。
+
+    pypxlib 的 ``px_decode_errors`` 只作用于字段名（``__init__.py`` 的
+    ``field.px_fname.data.decode``），``AlphaField._deserialize`` 对字段值固定
+    strict 解码——第三方 DB 里个别名字带非 GBK 字节会整表导出失败。包一层，
+    失败时按调用方的 errors 策略重解码（不修改库文件）。
+    """
+    orig = AlphaField._deserialize
+
+    def _deserialize(self, pxval_value):
+        try:
+            return orig(self, pxval_value)
+        except UnicodeDecodeError:
+            return pxval_value.str.val.data.decode(self.encoding, errors)
+
+    AlphaField._deserialize = _deserialize
 
 
 def value_to_csv(value):
@@ -53,6 +72,7 @@ def export_table(db_path, csv_path, encoding="cp936",
 
     db_path = Path(db_path)
     csv_path = Path(csv_path)
+    patch_alpha_decode(errors)
 
     # pypxlib 会自动寻找同目录同名的 .MB 文件
     with Table(
