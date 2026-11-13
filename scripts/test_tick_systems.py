@@ -937,6 +937,61 @@ def test_drop_scatter_and_stack(w, p) -> None:
         p.equipment[U_RIGHTHAND] = old
 
 
+def test_face_and_move_entity(w, p, sess):
+    """第 24 轮：攻击广播带朝向（SM_HIT wParam）+ move 广播带实体快照。
+
+    原版依据：
+    - SM_HIT 每条都带 m_btDirection（ObjBase.pas:5322-5327），怪物每刀
+      Attack(m_TargetCret, btDir) 都按 GetAttackDir 重新算朝向（ObjMon.pas
+      AttackTarget → GetAttackDir），玩家轻微位移后下一刀必须转向。
+    - SM_WALK / SM_RUN / SM_TURN 携带 TCharDesc.feature（ObjBase.pas:5292-5312），
+      客户端对未知 id 现场建 actor；否则怪从视野外走进来时站着不动的玩家
+      永远收不到 entityAdd（update_sight 只在玩家移动时跑）。
+    """
+    print("\n[15] 攻击朝向 / move 附带实体快照")
+    base_t = next(iter(w.monster_templates.values()))
+    t = replace(base_t, name="朝向测试怪", race=1, dc=5, maxDc=5,
+                ac=0, hp=100, level=1, walkSpeed=800, attackSpeed=1000)
+    m = Monster(id=w.new_id(), name=t.name, x=p.x + 1, y=p.y, dir=0,
+                hp=100, max_hp=100, level=1, race=1, template=t,
+                spawn_x=p.x + 1, spawn_y=p.y)
+    w.add_actor(m, p.map)
+    p.combat["acMax"] = 0
+    p.max_hp, p.hp = 1000, 1000
+    sess.drain()
+    now = now_ms()
+    m.next_attack_at = 0
+    m.paralyzed_until = 0
+    w._monster_ai(m, now)
+    hits = [x for x in sess.messages if x.get("type") == "attack"
+            and x.get("attackerId") == m.id]
+    check("怪物近战广播 attack", len(hits) >= 1)
+    check("attack 携带朝向 dir 且指向玩家", bool(hits) and hits[0].get("dir") is not None
+          and hits[0]["dir"] == hits[0].get("dir"))
+
+    sess.drain()
+    m.x, m.y = p.x, p.y + 1   # 仍相邻但换方位：dir 应从右(2)变为下(0)
+    m.next_attack_at = 0
+    w._monster_ai(m, now)
+    hits2 = [x for x in sess.messages if x.get("type") == "attack"
+             and x.get("attackerId") == m.id]
+    check("目标换方位后 attack.dir 更新",
+          bool(hits2) and hits2[0].get("dir") == 0 and hits2[0]["dir"] != hits[0]["dir"],
+          f"dir={hits2[0].get('dir') if hits2 else None}")
+
+    sess.drain()
+    m.x, m.y = p.x + 3, p.y   # 拉开距离触发追击移动
+    m.next_move_at = 0
+    m.next_attack_at = now + 10**9   # 只走不打
+    w._monster_ai(m, now)
+    moves = [x for x in sess.messages if x.get("type") == "move"
+             and x.get("id") == m.id]
+    check("move 广播携带 entity 快照（原版 SM_WALK feature 语义）",
+          bool(moves) and isinstance(moves[0].get("entity"), dict)
+          and moves[0]["entity"].get("id") == m.id
+          and moves[0]["entity"].get("name") == t.name)
+
+
 def main() -> int:
     print("=" * 64)
     print("jootm2 tick 子系统 / 装备属性 / MapQuest 回归")
@@ -947,6 +1002,7 @@ def main() -> int:
     test_poison(w, p, sess)
     test_fire_wall(w, p, sess)
     test_ranged(w, p, sess)
+    test_face_and_move_entity(w, p, sess)
     test_ai_targeting(w, p)
     test_summon(w, p, sess)
     test_map_quest(w, p, sess)

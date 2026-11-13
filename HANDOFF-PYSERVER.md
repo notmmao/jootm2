@@ -889,6 +889,54 @@ pk_point=1 黄名不打、≥200 才打）；`test_pyserver` 95/0；`test_map_vi
 
 ---
 
+## §50 第 24 轮实测反馈：攻击转向 / 升级特效 / 刷怪不可见（2026-11-13）
+
+用户反馈三项（续第 23 轮四项后的 5/6/7 号问题），全部对齐原版修复。
+
+### 50.1 怪物对打轻微位移不转向（对齐 SM_HIT 朝向）
+
+- 原版依据：`SM_HIT` 每条携带 `wParam = m_btDirection`（ObjBase.pas:5322-5327）；
+  怪物每次出手 `TMonster.AttackTarget → GetAttackDir` 重新算朝向并
+  `Attack(m_TargetCret, btDir)`（ObjMon.pas:383-400），玩家轻微位移后下一刀
+  必面向新位置。此前服务端攻击广播不带 dir、前端也不改朝向 → 怪物永远
+  面向旧方向，只有拉开距离触发走路才转向。
+- 修复：`world.py` 四处怪物攻击广播补 `"dir"`（守卫打怪 / 近战空挥 /
+  食人花空挥 / `_send_hits` 通用命中）；前端 `attack`/`flyAxe` 消息应用
+  `msg.dir`。原版范围内冷却未到时**不转向**（原地站到下一刀），保持一致。
+
+### 50.2 升级视觉特效（此前只有声音）
+
+- 原版依据：`SM_LEVELUP → DrawEffectHum(8)`（ClMain.pas:4825-4832）：
+  `NewMagic(self, -1, 999, mtExplosion)` + `s_meltstone`。magnumb=999 分支
+  （PlayScn.pas:1538-1546）用人物选择场景解除石化的光特效：
+  `g_WChrSelImages`、`MagExplosionBase=4`、`ExplosionFrame=14`、
+  `NextFrameTime=80`（即 ChrSel.wil 帧 4~17，实测 292×350）。
+- 修复：前端 `stats` 消息按自身 level 跳变触发 `_spawnLevelupFx`（chrsel
+  帧 4 起 14 帧 × 80ms，lighter 混合，角色格中心居中、人形锚点上移 20px）。
+  原版绘制坐标 `m_nTargetX+260/-55` 依赖投掷目标残留值（未投掷恒 0，特效
+  落屏幕左上），改为以角色为中心。音效 s_meltstone 此前已在 SoundManager。
+
+### 50.3 刷怪到身边站着看不见、一动才出现（根因修复）
+
+- 原版依据：`SM_WALK / SM_RUN / SM_TURN` 每条都携带 `TCharDesc.feature+status`
+  （ObjBase.pas:5292-5312 / 5430-5460），客户端对未知 id **现场创建 actor**
+  （PlayScn.SendMsg → FindActor 找不到就 NewActor）。
+- 本项目断点：`update_sight`（增量 entityAdd/entityRemove）只在玩家自己移动
+  时跑；怪从视野外（>12 格）走进来时玩家只收得到 move，而 move 处理器
+  `if (e)` 直接忽略未知 id → 怪已贴身砍人（挨打音效正常，SoundManager 全局
+  播 attack 音）但实体不存在，玩家一动才被 update_sight 补发 entityAdd。
+- 修复：`broadcast_move` 携带 `"entity": brief_json()`（对齐原版 move 带 feature
+  语义）；前端 move 处理器对未知 id 先建实体（跳过自己）再套用移动。
+  守卫类站桩怪不追击，出生即广播 entityAdd，不受此影响。
+
+### 50.4 验证
+
+`test_tick_systems` 144/0（+4：攻击朝向 3 + move 实体快照 1）；
+`test_all_messages` 78/0；`test_pyserver` 95/0；`test_map_view` 34/0；
+node --check 通过。合计 351 PASS。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

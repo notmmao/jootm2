@@ -1011,8 +1011,15 @@ class GameWorld(WorldExtra):
                 a.session.send_text(text)
 
     def broadcast_move(self, a: Actor) -> None:
+        # 原版 SM_WALK / SM_RUN / SM_TURN 每条都携带 TCharDesc.feature+status
+        # （ObjBase.pas:5292-5312 / 5430-5460），客户端收到未知 id 会凭 feature
+        # 现场创建 actor。这里同样把实体快照附带在 move 里：怪物从视野外
+        # （>12 格）走进来时，站着的玩家只收得到 move（update_sight 只在玩家
+        # 自己移动时才跑）——没有 entity 就是「怪已贴身砍人（有挨打音效）
+        # 但看不见、一动才出现」的直接原因。
         self.broadcast_around(a.map, {"type": "move", "id": a.id, "x": a.x, "y": a.y,
-                                      "dir": a.dir, "run": a.running}, a.x, a.y)
+                                      "dir": a.dir, "run": a.running,
+                                      "entity": a.brief_json()}, a.x, a.y)
 
     def broadcast_entity_add(self, a: Actor) -> None:
         self.broadcast_around(a.map, {"type": "entityAdd", "entity": a.brief_json()}, a.x, a.y)
@@ -1621,6 +1628,7 @@ class GameWorld(WorldExtra):
                     self.broadcast_around(
                         m.map, {"type": "attack", "attackerId": m.id,
                                 "targetId": target.id, "damage": dmg,
+                                "dir": m.dir,
                                 "x": target.x, "y": target.y}, m.x, m.y, SIGHT_RANGE)
                     self.send_stats(target)
                     if target.hp <= 0:
@@ -1654,6 +1662,7 @@ class GameWorld(WorldExtra):
                         self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
                                                       "targetId": target.id, "damage": 0,
                                                       "noDamage": True,
+                                                      "dir": m.dir,
                                                       "x": target.x, "y": target.y},
                                               m.x, m.y)
                     else:
@@ -1753,6 +1762,7 @@ class GameWorld(WorldExtra):
                 self.broadcast_around(m.map, {"type": "attack", "attackerId": m.id,
                                               "targetId": target.id, "damage": 0,
                                               "noDamage": True,
+                                              "dir": m.dir,
                                               "x": target.x, "y": target.y},
                                       m.x, m.y)
             else:
@@ -1964,8 +1974,12 @@ class GameWorld(WorldExtra):
             self.kill_player(target)
 
     def _send_hits(self, attacker: Actor, target: Actor, damage: int) -> None:
+        # dir 对齐原版 SM_HIT 的 wParam = m_btDirection（ObjBase.pas:5322-5327）：
+        # 客户端播放挥击动作时按该朝向选帧——玩家轻微位移后怪物的下一次
+        # 挥击必须转向玩家（原版 Attack(m_TargetCret, btDir) 每刀都带新朝向）。
         self.broadcast_around(target.map, {"type": "attack", "attackerId": attacker.id,
                                            "targetId": target.id, "damage": damage,
+                                           "dir": attacker.dir,
                                            "x": target.x, "y": target.y},
                               target.x, target.y)
         self.send_stats(target)

@@ -220,6 +220,7 @@ export class PlayScene extends Scene {
         this._lastMouse = { mx: 0, my: 0 };   // 鼠标在 canvas 内的最近位置（施法朝此处）
         this.effects = [];           // 技能特效（飞行/命中/地面火墙）
         this.damageNumbers = [];     // 伤害飘字
+        this._selfLevel = null;      // 升级特效检测基线（stats.level 变化时触发）
         this._fxCache = new Map();   // 特效帧纹理缓存 'lib/index' -> canvas
         this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
         this._dragCleaners = [];     // 窗口拖动监听清理函数
@@ -231,6 +232,7 @@ export class PlayScene extends Scene {
     async onEnter() {
         const { map, player, nearby, groundItems } = this.snapshot;
         this.self = player;
+        this._selfLevel = player && player.level != null ? player.level : null;
         // 正常登录服务端必然已复活（HP<=0 → 出生点 HP=14），这里按快照兜底，
         // 保证换角色/重进不会残留上一局的黑白屏。
         this._selfDead = !!(player && player.dead);
@@ -1157,6 +1159,15 @@ export class PlayScene extends Scene {
                 sound.unregisterEntity(msg.id);
                 break;
             case 'move': {
+                // 原版 SM_WALK 携带 feature，客户端对未知 id 现场建 actor
+                // （PlayScn.pas SendMsg → FindActor 找不到就 NewActor）。
+                // 怪物从视野外走进来时，站着不动的玩家只收得到 move——
+                // 不在这里建实体就会「挨打有声、怪看不见，一动才出现」。
+                if (msg.entity && (!this.self || msg.entity.id !== this.self.id)
+                    && !this.entities.has(msg.id)) {
+                    this.entities.set(msg.entity.id, msg.entity);
+                    this._registerSound(msg.entity);
+                }
                 const e = this.entities.get(msg.id);
                 if (e) {
                     const moved = (e.x !== msg.x || e.y !== msg.y);
@@ -1234,6 +1245,15 @@ export class PlayScene extends Scene {
                     if (msg.wideHit !== undefined) e._wideHit = msg.wideHit;
                     if (msg.longHit !== undefined) e._longHit = msg.longHit;
                     if (msg.fireHit !== undefined) e._fireHit = msg.fireHit;
+                    // 升级视觉特效：原版 SM_LEVELUP → DrawEffectHum(8)
+                    // （ClMain.pas:4825-4832，音效 s_meltstone 由 SoundManager 播）。
+                    // 服务端不发独立 levelup 消息，这里按自身 stats.level 跳变触发。
+                    if (e === this.self && msg.level !== undefined) {
+                        if (this._selfLevel != null && msg.level > this._selfLevel) {
+                            this._spawnLevelupFx();
+                        }
+                        this._selfLevel = msg.level;
+                    }
                 }
                 // 状态窗口打开时同步刷新当前页（属性页 AC/MAC 随 buff 变化、技能页快捷键变更）
                 if (this.stateWin && this.stateWin.style.display === 'block') {
@@ -1245,6 +1265,10 @@ export class PlayScene extends Scene {
                 const a = this.entities.get(msg.attackerId);
                 // noAttackAnim：冲撞等不触发攻击者攻击动作（只播目标受击，对齐原版 RM_STRUCK）
                 if (a && !msg.noAttackAnim) {
+                    // dir 对齐原版 SM_HIT 的 wParam（= m_btDirection）：怪物攻击
+                    // 前已转向目标（Attack(m_TargetCret, btDir)），玩家轻微位移后
+                    // 下一刀必须面向新位置。
+                    if (msg.dir !== undefined) a.dir = msg.dir;
                     a._action = 'attack'; a._actionAt = Date.now();
                     // 神兽吐火（变身 raceImg=55）：攻击时在神兽位置喷火焰
                     // （原版 AxeMon.pas TWarriorElfMonster.RunFrameAction：攻击第 5 帧触发 TMapEffect，帧=820+10*Dir+1 起 5 帧）
@@ -1286,6 +1310,7 @@ export class PlayScene extends Scene {
                 // 远程怪射箭/投斧：攻击者播攻击动画 + 箭矢从攻击者飞向目标（延迟伤害由服务端结算）
                 const a = this.entities.get(msg.attackerId);
                 if (a) {
+                    if (msg.dir !== undefined) a.dir = msg.dir;   // 对齐 SM_HIT 朝向语义
                     a._action = 'attack'; a._actionAt = Date.now();
                     const dir16 = this._dir16From(a.x, a.y, msg.x, msg.y);
                     this._spawnFx({ kind: 'flyAxe', sx: a.x, sy: a.y, x: msg.x, y: msg.y, dir16 });
@@ -1540,7 +1565,10 @@ export class PlayScene extends Scene {
                 this.castTarget = null;
                 this.chaseTargetId = null;   // 换图取消锁定
                 this._clearPicked();   // 换图丢弃手中拿起的物品状态
-                if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); this._registerSound(msg.player); }
+                if (msg.player) {
+                    this.self = msg.player;
+                    this._selfLevel = msg.player.level != null ? msg.player.level : null;
+                    this.entities.set(msg.player.id, msg.player); this._registerSound(msg.player); }
                 for (const e of msg.nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
                 if (msg.map) {
@@ -3616,6 +3644,16 @@ export class PlayScene extends Scene {
         this.effects.push(fx);
     }
 
+    _spawnLevelupFx() {
+        // 原版 DrawEffectHum(8)（ClMain.pas:6730-6733）：NewMagic(self, -1, 999,
+        // mtExplosion) + s_meltstone。magnumb=999 的分支（PlayScn.pas:1538-1546）
+        // 用【人物选择场景】解除石化的光特效：ImgLib=g_WChrSelImages、
+        // MagExplosionBase=4、ExplosionFrame=14、NextFrameTime=80。
+        // 原版绘制坐标 g_MySelf.m_nTargetX+260 / m_nTargetY-55 依赖投掷目标
+        // 残留值（未投掷恒 0，特效落在屏幕左上），这里改为以角色为中心绘制。
+        this._spawnFx({ kind: 'levelup', x: this.self.x, y: this.self.y });
+    }
+
     _spawnDamageNumber(x, y, damage, magicId, color) {
         const sx = this.mapActor.screenX(x);
         const sy = this.mapActor.screenY(y);
@@ -3835,6 +3873,25 @@ export class PlayScene extends Scene {
                     }
                 }
                 if (p >= 1) continue;   // 火焰到达目标，熄灭
+                survivors.push(fx);
+            } else if (fx.kind === 'levelup') {
+                // 升级光效：chrsel 帧 4 起 14 帧 × 80ms（原版 MagExplosionBase=4 /
+                // ExplosionFrame=14 / NextFrameTime=80，PlayScn.pas:1540-1545）。
+                // 这批图 292×350、WIL 自带锚点 px/py 是通用占位值（7/-44），
+                // 不作偏移，以角色所在格中心为基准居中绘制（人形锚点略上移）。
+                const ft = 80;
+                const frames = 14;
+                const rel = Math.floor(elapsed / ft);
+                if (rel >= frames) continue;   // 一次性播放完移除
+                const tex = this._fxTexture({ lib: 'chrsel', base: 4 }, rel);
+                if (tex) {
+                    const sx = this.mapActor.screenX(fx.x) + 24 - tex.width / 2;
+                    const sy = this.mapActor.screenY(fx.y) + 16 - tex.height / 2 - 20;
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';   // 原版 DrawBlend
+                    ctx.drawImage(tex.canvas, sx, sy);
+                    ctx.restore();
+                }
                 survivors.push(fx);
             } else {
                 // hit：一次性播放
