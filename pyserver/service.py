@@ -23,6 +23,7 @@ from .handlers_npc import NPC_TYPES, NpcHandlers
 from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .util import U_DRESS, U_WEAPON
+from .version import load_version
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
                     encode, normalize_exp, now_ms)
 from .world_extra import (BODY_LEATHERY, BUTCH_INTERVAL_MS, BUTCH_WEAR_MAX,
@@ -703,6 +704,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     def handle_admin(self, method: str, path: str, query: dict[str, str],
                      body: bytes) -> str | None:
         world = self.world
+        if path == "/api/version":
+            return encode(load_version())
         if path == "/api/status":
             return encode({
                 "onlinePlayers": world.online_count(),

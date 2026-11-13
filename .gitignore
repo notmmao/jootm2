@@ -22,3 +22,6 @@ __pycache__/
 
 # --- WorkBuddy 本地工作区数据（不提交） ---
 .workbuddy/
+
+# 生成的版本信息（部署前由 scripts/gen_version.py 写出，不提交）
+pyserver/version.json

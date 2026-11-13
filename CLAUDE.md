@@ -12,18 +12,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 文档 | 角色 |
 |---|---|
-| `HANDOFF-PYSERVER.md` | **本分支的增量交接文档，每次改动后必须更新**：把本轮改动、新规则、踩坑按现有分节格式（每轮一节，如 §16/§17/§18）追加进去，供下一个 Agent 快速接手 |
+| `HANDOFF-PYSERVER.md` | **本分支的主交接文档（多个 Agent 协作，每次改动后必须更新）**：只放 强制规则 / 已知缺陷 / 架构与命令 / 部署流程 / 最近轮次 / 归档索引；每轮改动在末尾追加 `## §N 标题（日期）`，文件超 ~500 行时把最老轮次移入归档 |
+| `docs/handoff/archive-*.md` | 历史轮次的逐字归档（只读不改），追历史根因时查 |
 | `HANDOFF.md` | 远澜原版 Java 交接文档，**保持与上游基线零改动、永不编辑**；玩法数值、协议语义、特效帧号的权威参考 |
 | `README.md` | 运行方式与资源准备 |
 | `docs/` | 客户端分析、GUI 系统等专题文档 |
 
 改动收尾流程：跑回归 → 更新 `HANDOFF-PYSERVER.md`（新增一节记录根因/改动/验证结果）→ 提交。
 
+**版本与部署验证机制**：构建镜像前先 `python scripts/gen_version.py`（生成 gitignored 的 `pyserver/version.json`，version = git 短 hash）；**部署后只验证 `GET /api/version` 的 version 字段 == 最新提交短 hash + `/api/status` 200，不做全量深度回归**（用户约定 2026-11-13）。
+
 ## 常用命令
 
 ```bash
 python -m pyserver                                   # 启动（默认 8080，读 config/server.properties）
 python -m pyserver --port 8081 --db data/jootm2-py.db
+
+python scripts/gen_version.py                        # 生成 pyserver/version.json（构建镜像前必跑）
 
 # 回归脚本（全部零第三方依赖）
 python scripts/test_pyserver.py                      # 离线单元测试
@@ -45,6 +50,14 @@ node --check frontend/<file>.mjs
 ```
 
 浏览器测试必须 **Ctrl+F5 硬刷新**（`.mjs` 是 no-cache 但 ES module 有缓存）。
+
+## 部署（三个部署点，镜像统一走 ACR）
+
+- **「部署」默认指阿里云** `root@aliyun.notmmao.com`（部署目录 `/root/jootm2`，compose v2）；访问服务一律用 **IP `139.224.24.88:8080`**——域名 `notmmao.com` 未备案，阿里云拦截 HTTP（`403 + Server: Beaver`）。
+- `gp-bench-3.hil`：内网 Ubuntu（SSH 用户 `ota`，无免密 sudo），目录 `~/jootm2`；compose v1 有 BuildKit 镜像兼容 bug，**非交互 ssh 用显式路径 `~/.local/bin/docker-compose`（v2）**；对外入口 `https://mir2.notmmao.com/`（Cloudflare Tunnel，容器挂在 `cf_cloudflared_network` 外部网络，由 `docker-compose.override.yml` 声明，rsync 不覆盖）。
+- 本地 Docker：Windows Docker Desktop（可能没开，先 `docker version` 探测），负责构建 + 推 ACR + 本机回归。
+- **ACR**：`crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python`（公开仓库 pull 免登录；push 需 `docker login --username=notmmao@gmail.com`）。标签 = git 短 hash + `latest` 双标签。服务器更新 = pull → `docker tag` 成 `jootm2:python` → `compose up -d`。
+- 标准流程：提交 → `python scripts/gen_version.py` → build/push ACR → 服务器 pull/tag/up → **只验证 `/api/version` version 字段 + `/api/status`**。详细坑见 HANDOFF-PYSERVER §21。
 
 ## 解释器约定（关键）
 
