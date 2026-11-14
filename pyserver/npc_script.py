@@ -127,6 +127,8 @@ class NpcScript:
             line = raw.strip()
             if not line or line.startswith(";"):
                 continue
+            if line in ("{", "}"):
+                continue   # Gee 引擎的文本块起止标记（Delphi 原版无此语法）
             if line.startswith("[") and line.endswith("]"):
                 flush()
                 cur_if = None
@@ -183,6 +185,15 @@ class NpcScript:
                         cur_if = IfStmt()
                         cur.stmts.append(cur_if)
                     state = "ELSE_SAY"
+                elif upper.startswith("#CALL"):
+                    # Gee/传奇流通引擎的脚本引用：#CALL [商人\肉店.txt] @肉店
+                    # （Delphi 原版无此指令；1.76 资料站包的商店正文全在
+                    # QuestDiary 子脚本里，独立成行等价于直接执行）
+                    flush()
+                    if cur_if is None:
+                        cur_if = IfStmt()
+                        cur.stmts.append(cur_if)
+                    cur_if.actions.append(_decode(line))
                 continue
             if state == "IF_COND" and cur_if is not None:
                 cur_if.conditions.append(_decode(line))
@@ -248,9 +259,53 @@ class Result:
 class NpcScriptEngine:
     def __init__(self, world):
         self.world = world
+        self._subs: dict[str, NpcScript | None] = {}   # QuestDiary #CALL 子脚本缓存
 
     def execute(self, p, npc, start_label: str) -> Result:
-        return self.execute_script(p, npc, npc.script if npc else None, start_label)
+        script = npc.script if npc else None
+        # Gee 风格：NPC 主脚本只有 #CALL，按钮标签(@buy/@sell)住在子脚本里。
+        # 主脚本查不到该 label 时，回退到它 #CALL 引用的子脚本中找。
+        if script is not None:
+            lbl = (start_label or "main").lstrip("@")
+            if script.section(lbl) is None:
+                for sub in self._called_subs(script):
+                    if sub.section(lbl) is not None:
+                        script = sub
+                        break
+        return self.execute_script(p, npc, script, start_label)
+
+    def _load_sub(self, rel: str) -> "NpcScript | None":
+        if rel in self._subs:
+            return self._subs[rel]
+        base = self.world.config.envir_dir / "QuestDiary"
+        sub = None
+        if base.is_dir():
+            want = rel.replace("\\", "/")
+            cand = base / want
+            if not cand.is_file():
+                lw = want.lower()
+                cand = next((p for p in base.rglob("*.txt")
+                             if p.as_posix().lower().endswith(lw)), None)
+            if cand is not None and cand.is_file():
+                sub = NpcScript.parse(read_lines(cand))
+        self._subs[rel] = sub
+        return sub
+
+    def _called_subs(self, script: NpcScript) -> list[NpcScript]:
+        subs, seen = [], set()
+        for sec in script.sections.values():
+            for st in sec.stmts:
+                if not isinstance(st, IfStmt):
+                    continue
+                for c in list(st.actions) + list(st.else_actions):
+                    if c.name.lower() in ("#call", "call"):
+                        rel = c.param.strip().strip("[]").strip('"')
+                        if rel and rel not in seen:
+                            seen.add(rel)
+                            s = self._load_sub(rel)
+                            if s is not None:
+                                subs.append(s)
+        return subs
 
     def execute_script(self, p, npc, script, start_label: str) -> Result:
         r = Result()
@@ -266,10 +321,16 @@ class NpcScriptEngine:
             ctrl = self._run_section(p, npc, sec, r)
             if r.closed or r.moved:
                 break
-            if ctrl is not None and ctrl.startswith("@"):
-                label = ctrl[1:]
-            else:
+            if ctrl is None or ctrl == "BREAK" or not ctrl.startswith("@"):
                 break
+            if ctrl.startswith("@SUB\t"):      # #CALL 跳子脚本（Gee 引用）
+                _, rel, lbl = ctrl.split("\t")
+                sub = self._load_sub(rel)
+                if sub is None:
+                    break
+                script, label = sub, lbl
+                continue
+            label = ctrl[1:]
         return r
 
     def _run_section(self, p, npc, sec: Section, r: Result) -> str | None:
@@ -389,6 +450,13 @@ class NpcScriptEngine:
             return "BREAK"
         elif n == "goto":
             return c.param if c.param.startswith("@") else "@" + c.param
+        elif n in ("#call", "call"):
+            # #CALL [商人\肉店.txt] @肉店 → 带内信号交给 execute_script 循环切脚本
+            rel = c.param.strip().strip("[]").strip('"')
+            lbl = c.tag.strip().lstrip("@")
+            if rel and lbl:
+                return f"@SUB\t{rel}\t{lbl}"
+            return None
         elif n == "break":
             return "BREAK"
         elif n == "close":
@@ -438,8 +506,17 @@ class NpcScriptEngine:
         out: list[dict] = []
         if npc is None or npc.script is None:
             return out
-        rate = getattr(npc.script, "price_rate", 100) or 100
-        for parts in npc.script.goods_rows():
+        script = npc.script
+        rows = script.goods_rows()
+        if not rows:
+            # 1.76 流通包（Gee）主城商店：主脚本只有 #CALL，[goods] 在子脚本里
+            for sub in self._called_subs(script):
+                rows = sub.goods_rows()
+                if rows:
+                    script = sub
+                    break
+        rate = getattr(script, "price_rate", 100) or 100
+        for parts in rows:
             t = self.world.item_template_by_name(parts[0])
             if t is None:
                 continue

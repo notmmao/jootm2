@@ -41,7 +41,7 @@ REDM2_DEFAULT = ROOT / "data" / "db_compare" / "REDM2.DB"
 SRC176_DEFAULT = Path("D:/work/me/game/传奇/176-mir2-red")
 
 ENVIR_FILES = ("MonGen.txt", "Npcs.txt", "MerChant.txt")
-ENVIR_DIRS = ("MonItems", "Market_Def")
+ENVIR_DIRS = ("MonItems", "Market_Def", "QuestDiary")   # QuestDiary=#CALL 子脚本正文
 CSV_FILES = ("StdItems.csv", "Monster.csv", "Magic.csv")
 
 

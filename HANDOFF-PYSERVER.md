@@ -1434,6 +1434,26 @@ end;
 
 ---
 
+## §54 176 树 Gee 脚本方言兼容 + MonGen/MonItems 原版口径重构（2026-11-14）
+
+**用户实测反馈四连**：176 树 NPC 无对话（上一轮已修 #CALL）→ 本轮：购买列表空、对话以 `{` 开头、爆率明显高、刷怪明显多；追问 176 文件来源。**来源结论**：CSV 数值=REDM2.DB（与 ruchu8 站逐字段 100% 互证，可信）；Envir 玩法层（MonGen/MonItems/NPC 脚本）=176-mir2-red 包——Gee 引擎私服发行（GMGJX.COM，幻境/生肖/会员痕迹），**不是原版**：MonItems 爆率分母 1/1=1172、1/2=1773 行 vs 主树 778/784；MonGen 0 系变体堆怪（钉耙猫王 21 vs 站点 1、多钩猫0 173 vs 11）。ruchu8 站从未作为数据源，只是对照基线。
+
+**脚本方言修复**（`pyserver/npc_script.py`，三处）：
+1. **parse 跳过 Gee 文本块标记**：Gee 对话块用独立 `{` 行开始、`}` 行结束（Delphi 原版无），此前落入 say_text 致对话首尾带花括号——`if line in ("{", "}"): continue`。
+2. **goods() 子脚本回退**：主城商店主脚本（`Market_Def/比奇城/比奇城_武器-0103.txt`）只有 `[@main] #CALL [商人\武器店.txt] @武器店`，`[goods]` 在 QuestDiary 子脚本里——`npc.script.goods_rows()` 为空时遍历 `_called_subs(script)` 取第一个有货的子脚本，**price_rate 也随该子脚本取**。
+3. 上一轮的 #CALL 全套（parse 收编进 IfStmt.actions、`@SUB\t` 带内信号切脚本、`_load_sub` 走 `config.envir_dir/QuestDiary` 带缓存；`Npc` 是 slots dataclass 不能挂运行时属性，故用带内信号而非实例属性）。注意 `world_extra.goods()` 每次新建 engine 实例，`_subs` 缓存不跨请求——正确但重复读盘，商店对话量小未优化。
+
+**数据重构（用户选型②）**：新增 `scripts/build_176_envir.py`，把 176 树失真最重的两层换成 ruchu8 站原版口径，NPC 脚本保留 Gee 包：
+- `MonGen.txt` ← `data/db_compare/ruchu8/site_spawn.csv`（Mob_*.html 刷怪表，轮9 抓的）：站点中文图名→本地 MapInfo 图号（精确/ALIAS/difflib 前缀约束），多候选用主树 MonGen 出现频次选图号；range 取主树同怪众数缺省 50；**站点未覆盖地图回退主树行**。结果 4262 行（站点 2916 + 主树回退 1349），总量 64216 只 vs 176 包 28696/主树 37428（原版口径本就密）。
+- `MonItems/` ← 新抓 `site_drop.csv`（10441 行/206 怪，`data/db_compare/r10_drop_extract.py`）：站点把多槽位列成重复 `1/1 X` 行，**同怪同品 1/1 合并为 `1/1 X k`**（数学等价，1/1 从 1498 降到 797 且剩余全来自主树回退文件）；站点未覆盖怪回退主树掉落文件（176 包 Gee 爆率文件整体作废）。结果 206 站点 + 103 回退 = 309 文件。
+- 丢弃口径：17 个站点图名本地无图（尸魔洞/骨魔洞/钳虫巢穴等，66 图资源集没有）+ 宝箱1-7 等无模板怪；物品名查无 5 种 275 行保留原样（服务端查无模板自然不掉）。报告 `data/db_compare/r10_build_envir.txt`。
+
+**验证**：桩测（`data/db_compare/r10_shop_stub.py`）比奇城_武器：say 无花括号、#CALL 拿到完整对话、goods 12 件、价 = StdItems.Price×1.1（木剑 50→55，对齐 1.76 玩家实测）。回归：**176 指针** test_pyserver 95/0、test_tick_systems 169/0、test_all_messages --live 8099 91/0；`use main` 复跑 95/0、169/0 后切回 176。8099 服务日志 spawn/299 掉落表/165 NPC 正常。观感（爆率/密度）仍需用户自测确认。
+
+**当前状态**：176 树 MonGen/MonItems/profile.json 已换、npc_script.py 已修，**未提交**；8080 常驻服务需重启 + 浏览器 Ctrl+F5 才吃到新数据。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

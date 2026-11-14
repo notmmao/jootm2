@@ -1,0 +1,11 @@
+[@每日奖励]
+{
+#IF
+NOT EQUAL U70 $DAY
+#ACT
+MOV U70 $DAY
+#CALL [功能文件\锦囊问题.txt] @锦囊问题
+#ELSESAY
+您今天已领取过每日奖励，不能再使用了。\ \
+<退出/@exit>
+}
