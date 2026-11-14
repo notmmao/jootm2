@@ -1450,7 +1450,7 @@ end;
 
 **验证**：桩测（`data/db_compare/r10_shop_stub.py`）比奇城_武器：say 无花括号、#CALL 拿到完整对话、goods 12 件、价 = StdItems.Price×1.1（木剑 50→55，对齐 1.76 玩家实测）。回归：**176 指针** test_pyserver 95/0、test_tick_systems 169/0、test_all_messages --live 8099 91/0；`use main` 复跑 95/0、169/0 后切回 176。8099 服务日志 spawn/299 掉落表/165 NPC 正常。观感（爆率/密度）仍需用户自测确认。
 
-**当前状态**：176 树 MonGen/MonItems/profile.json 已换、npc_script.py 已修，**未提交**；8080 常驻服务需重启 + 浏览器 Ctrl+F5 才吃到新数据。
+**当前状态**：已提交 `d0ff237`。**阿里云部署的是 main 版**（用户 176 实验仍在本地，构建前 `use main` 切指针、推完 ACR 立即切回 176——容器不带 data/ 目录，指针若留 176 会构建出引用不存在树的坏镜像）：`/api/version`=d0ff237、`/api/status` 200。本地 `use 176` 生效中；8080 常驻服务需重启 + 浏览器 Ctrl+F5 才吃到 176 新数据。
 
 ---
 
