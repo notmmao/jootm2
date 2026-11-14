@@ -3,7 +3,11 @@ target/
 dependency-reduced-pom.xml
 
 # --- runtime data ---
-data/
+data/*
+# 1.76 等副本树入库（Map junction 与 db 仍不追踪）
+!data/gamedata/
+data/gamedata/*/Mir200/Map/
+data/gamedata/*/.gbk-backup/
 gamedata/Mir200/Envir/GuildBase/
 # convert_gbk_to_utf8.py 的备份目录（转换前原文件，不入库）
 gamedata/.gbk-backup/

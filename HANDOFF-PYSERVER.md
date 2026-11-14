@@ -1309,21 +1309,23 @@ end;
 
 ---
 
-## §52 数据 profile 切换工具（1.76 实验）（2026-11-14）
+## §52 多 gamedata 树并存 + 生效目录切换（1.76 实验）（2026-11-14）
 
-**需求**：用户要基于 ruchu8 站/REDM2 交叉验证过的 1.76 原版数值做实验，需要与当前"我本沉默"私服数据快切。
+**需求**：基于 ruchu8 站/REDM2 交叉验证过的 1.76 数值做实验。用户明确要求**多份 gamedata 目录并存，切换只改生效目录**，不动主树文件。
 
-**新增** `scripts/switch_data.py`（切换面 = `gamedata/mud2/DB/{StdItems,Monster,Magic}.csv` + `Envir/{MonGen,Npcs,MerChant}.txt` + `MonItems/` + `Market_Def/`，profile 落 gitignored 的 `data/profiles/`）：
+**现成机制免改后端**：`pyserver/config.py` 本就支持 `gamedata.root` 配置项（server.properties / 环境变量 JOOTM2_GAMEDATA / `--gamedata` 三通道），所有消费点都走 `config.gamedata_root/envir_dir/mud2_dir/map_dir` 派生属性。
 
-- `save <name>` / `use <name>` / `list` / `build-176 [--redm2 --src176]`。
-- `build-176` = REDM2.DB（SQLite，位置对齐的 24/22/19 列前缀）合并进当前 CSV：**同名行覆盖数值、本地 Idx 保留**（角色 storage 按 idx 引用）、本地独有行原样保留、1.76 独有行插入（物品 +121、怪 +196、技能 +0）；Envir 五件套整目录照抄 `D:\work\me\game\传奇\176-mir2-red`。
-- **关键坑 1**：`db.py::seed_game_data` 只在 `std_items` 为空时导入 CSV——`use` 必须清 SQLite 三张模板表（脚本自动做，accounts/characters 不动）。
-- **关键坑 2**：首次 build 曾因 `[keep_idx]+rr[2:]` 少写 Name 列致整行左移（物品名变数字）；现 `_csv_write` 带列数断言，写出即校验。
-- **边界**：176 profile 的 MerChant 脚本列含 `传送员\传送员` 反斜杠子目录——**只能本机 Windows 用，别部署进 Docker/Linux**；176 包 MapInfo 有幻境/生肖等私服垃圾，切换面刻意不含 MapInfo（地图属性仍用本地）；`gamedata` 受 git 跟踪，切 176 后 `git status` 大量改动属预期，`use current` 后归零（已验证字节级无损）。
+**新增** `scripts/switch_data.py`：
+- 布局：主树 `gamedata/`（git 跟踪，切换时**永不改动**）+ 副本树 `data/gamedata/<name>/`（**入库分发**：.gitignore 改 `data/*` + `!data/gamedata/` 白名单，`*/Mir200/Map/` 与 `.gbk-backup/` 排除，整树 ~2MB/525 文件）；生效指针 = server.properties **两行**：`gamedata.root=` + `db.file=`。
+- `build-176`：主树整树复制（ignore Map 与 .gbk-backup）→ `Mir200/Map` 建 **junction 指回 resources/Map**；CSV 用 REDM2.DB 合并（同名覆盖、**本地 Idx 保留**、1.76 独有插入：物品 +121、怪 +196、技能 +0）；Envir 五件套（MonGen/Npcs/MerChant + MonItems/ + Market_Def/）照抄 176-mir2-red 包；其余文件同主树。
+- `use <name|main>`：两行指针一起换——main: `gamedata` + `data/jootm2.db`；176: `data/gamedata/176` + **`data/jootm2-176.db`（实验账号/数据与主库完全隔离，用户约定 2026-11-14）**+ 清该库三张模板表（`db.py::seed_game_data` 只在空表导入，不清表切换不生效）+ 副本树缺 Map junction 自动补建（git clone 后必触发，junction 不入 git）。
+- `list`：树清单 + 生效树/db。
 
-**验证**（8099 + 一次性 db）：启动 0 Traceback，spawn 5062 怪、318 掉落表、165 NPC；`test_pyserver --live` 94 PASS/0 FAIL、smoke_ws 全通；数值抽查 = 1.76 口径（僵尸1 Exp 160（本地 480）、木剑 Price 50（本地 91）、强效金创药 550）。
+**坑（都实测踩过/防住）**：①CSV 合并切片少写 Name 列致整行左移——`_csv_write` 现带列数断言；②写 properties 丢 CRLF/EOF 无换行风格 → 整文件 diff，现按原文件换行风格写回，diff 精确 2 行；③删除副本树必须 junction-aware。**Python 3.10 Windows 实测**：junction 的 `is_symlink()`/`os.path.islink()` 都是 False、`entry.is_junction()` 不存在（3.12+ 才有）、`is_dir(follow_symlinks=False)=True` 会穿透——唯一可靠判定是 `os.lstat(p).st_file_attributes & 0x400`（REPARSE 位），命中就只 `rmdir` 摘链接，绝不 rmtree 穿透 resources/Map（铁律 2）。早先一次 rmdir FileNotFoundError 其实是递归内外双重 rmdir，现容忍；④176 包 MerChant 脚本列含 `传送员\传送员` 反斜杠——**副本树只能本机 Windows 用，别把它部署进 Docker/Linux**；⑤176 包 MapInfo 有幻境/生肖私服垃圾，故 Envir 五件套不含 MapInfo（地图属性/名字表仍用主树）；⑥主树 `.gbk-backup/`（转换备份）会被整树复制带进副本——build ignore 掉 + gitignore 排除。
 
-**当前状态**：`use 176` 已生效，gamedata 处于 **176 profile**，玩腻了 `python scripts/switch_data.py use current` 回私服数据。**8080 上的常驻服务重启前不受影响**（模板在启动时导入内存）。
+**验证**：生效树路径正确、Map junction 加载正常（map=0 700x700 spawn 2651）、0 Traceback；`test_pyserver --live` **102 PASS/0 FAIL**、smoke_ws 全通；数值抽查 1.76 口径（僵尸1 Exp 160 vs 本地 480、木剑 Price 50 vs 91）；`use main` 往返后 git diff 归零；176 用独立 `jootm2-176.db`，注册新号不碰主库。
+
+**当前状态**：`use 176` 生效（树 + `data/jootm2-176.db`）；回私服 = `python scripts/switch_data.py use main`。**8080 常驻服务重启前仍是旧数据**（模板启动时进内存），重启即进 1.76 世界。部署镜像前确认指针在 main。
 
 ---
 
