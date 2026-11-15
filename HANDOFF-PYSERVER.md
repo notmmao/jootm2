@@ -1538,6 +1538,15 @@ end;
 - **验证**（全部 3.10 服务端 + 3.9 Playwright）：`test_all_messages.py` 91/0；`test_autopilot.py` 25/0（虚拟时钟：开启→寻路→击杀→拾取→节拍→低血喝药→聊天不打断→手动接管→再开启→死亡停→断线停→落库→重登不恢复→无 DB 字段→熔断）；`test_autopilot_ws.py` 16/0（真实 WS + REST + 断线重登）；`test_autopilot_ui.py` 8/0（浏览器 HUD 截图 `docs/autopilot-hud.png`）；`--soak 60` 真实挂机 1→2 级 / 9 杀 / HP 满 / 未停机；`test_ws_idle_timeout.py` 未退化。`node --check` / `py_compile` / `git diff --check` 通过。
 - 改动文件：`pyserver/autopilot.py`(新)、`pyserver/service.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_all_messages.py`、`scripts/test_autopilot.py`(新)、`scripts/test_autopilot_ws.py`(新)、`scripts/test_autopilot_ui.py`(新)、`docs/AUTOPILOT-PLAN.md`、`docs/autopilot-hud.png`(新)、本文 §58。
 
+## §59 提交分类标签 + 托管实测三修 + 渲染两修（2026-11-15）
+
+- **提交标签约定（用户要求）**：`CLAUDE.md` 新增「Git 提交分类标签」一节，每个提交带且只带一个 `[标签]`，13 类：托管/渲染/调整/保真/逻辑/网络/数据/音频/前端/测试/文档/构建/修复；标签表是唯一来源，后续可按提交性质自行扩充并同步更新。已示范 `[文档] 04e81c5`（规则）与 `[托管] 6c70096`（一期成果）。
+- **托管第 2 轮（用户实测反馈三修）**：① 不会跑 → `_step_to` 距离 >=3 格发 `run:True` 走 `RUN_INTERVAL_MS=360`（`broadcast_move` 本就带 run），贴近目标仍走 540ms；② 不主动拾取 → 新增 `_choose_loot`（价值/距离评分 + 8s 目标锁 + 三档 `loot_sight` 6/8/10），贴身威胁优先战斗；③ 隔墙卡住 → BFS 改 8 方向 A*（切比雪夫启发、6000 节点），`_walkable` 与 `world.try_move` 完全一致（去掉 `is_door` 例外），无路或连续被挡 4 步就把目标 id 拉黑 10s 换目标，**删掉 `direction_toward` 直线撞墙 fallback**。
+- **渲染：升级特效闪得厉害**：根因是 `PlayScene._fxTexture` 每帧独立 key、首次同步写 `null` 占位再异步回填，`chrsel[4..17]` 又不在 boot 预热清单，进游戏的 `abortPending('enter-game')` 还会掐断请求 → 14 帧逐帧空白。原版 `magiceff.pas:889` 是同步 `GetCachedImage`。修法：`onEnter` 的 `enter()` 之后预取 14 帧 + 1.5s 补发仍为 null 的帧；`_fxTexture(..., total)` 缺帧借用最近已加载帧；`_spawnLevelupFx` 去重（连升两级不叠加两份 `lighter`）。新增 `scripts/test_levelup_fx.py` 6/0（14/14 帧就绪、连续 8 帧有光、亮度增益 +15.6%）。
+- **渲染：怪物死后视效不对（真根因）**：`case 'attack'` 的 170ms 命中帧延迟回调在怪死后仍把尸体 `_action` 设成 `struck`，渲染循环 `ATTACK_ANIM_MS` 后归位 `stand` → 「怪死了又站起来」；同时服务端死亡后紧跟的 `entityAdd(corpse)` 用新对象替换实体，`_sprite` 按对象引用缓存（:3874）被重建、尸体帧纹理全丢 → 尸体消失一瞬再出现；1400ms 倒地动画因此只播约 150ms 就被腰斩。修法：延迟回调跳过尸体动作（伤害飘字照旧）、`entityAdd` 对已有尸体就地更新字段不替换对象、怪物按原版 `Actor.pas:1430-1434` SM_DEATH 直接定格 ActDie 末帧（仅玩家 SM_NOWDEATH 保留 1400ms 倒地动画）、渲染循环兜底把非玩家尸体强制 `death`。新增 `scripts/test_corpse_fx.py` 7/0（3 秒内动作恒 death、sprite 未重建、尸帧已加载、无火焰层）。
+- **验证**：`test_all_messages` 91/0、`test_autopilot` 32/0、`test_autopilot_ws` 16/0、`test_autopilot_ui` 8/0、`test_levelup_fx` 6/0、`test_corpse_fx` 7/0、`test_ws_idle_timeout` PASS；`--soak 60` 真实挂机 1→2 级 / 12 杀（修复前 9 杀）/ HP 满 / 状态栏出现「4格 · 跑」；`node --check` / `py_compile` / `git diff --check` 通过。
+- 改动文件：`pyserver/autopilot.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_autopilot.py`、`scripts/test_levelup_fx.py`(新)、`scripts/test_corpse_fx.py`(新)、`docs/AUTOPILOT-PLAN.md`、`CLAUDE.md`、本文 §59。
+
 ---
 
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
