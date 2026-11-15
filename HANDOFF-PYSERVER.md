@@ -226,6 +226,7 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 - `7b6e4a5`（进游戏地图加载优化：首屏纹理预载 + `.map` 字节提前 + 206 分片应用层 gzip）推送 ACR（`7b6e4a5` + `latest`，digest `sha256:0d0b2d9d73…`，image `4e3af0dc8080`），按 §21.6 标准路径部署阿里云。
 - IP 直连验证：`/api/status` 41ms；`.map` Range 分片 **206 + ETag**；`smoke_ws.py --host 139.224.24.88` 全通。
 - **流程约定（用户要求记住）**：今后「部署」默认指阿里云；标准流程 = 本机 `docker compose build` → 推 ACR（git 短 hash + `latest` 双标签）→ 阿里云 `docker pull` → `docker tag` 为 `jootm2:python` → `compose up -d` → IP 直连验证。gp-bench-3 只在用户点名时更新。
+- **⚠ gamedata 挂载覆盖镜像（2026-11-15 实测坑，用户反馈「调整没生效」）**：compose 把宿主 `./gamedata:/app/gamedata` 挂载进容器，**镜像里的新数据会被宿主旧目录整体压住**——只走镜像流程时 MonGen/MonItems/Market_Def/mud2 CSV（Magic.csv 等）**全都不生效**。每次改了 gamedata 数据后部署，必须追加：`rsync -az --delete --exclude 'Mir200/Map' --exclude '.gbk-backup' gamedata/ root@aliyun:/root/jootm2/gamedata/` → `docker compose restart jootm2` → 容器内 grep 抽查（如 MonGen D011 站点行、半兽勇士诱惑之光）+ `/api/status`。**绝不同步 `data/`（账号/人物数据库）**；宿主 `Map` 空目录无害（容器里被 `./resources/Map` 挂载覆盖），本地 junction 在 Windows rsync 下会以「symlink copied as ordinary file」告警、不会复制 204MB 地图。
 - 同日追加 `35665ec`（尸体绘制层级 + 挖肉蹲下动作）与 `4e15c9e`（新角色初始装备 + 服装店 1 级布衣）：ACR digest `sha256:5027aac745…`（image `3722552b0527`），同流程部署；IP `/api/status` 29ms、WS 冒烟全通。
 - **gp-bench-3 也切换到 ACR 镜像**（2026-11-12，image 同为 `3722552b0527`，与阿里云完全一致），LAN WS 冒烟全通。⚠️ 坑：gp-bench-3 的 compose v1（1.29.2）解析 **BuildKit 构建的镜像会抛 `KeyError: 'ContainerConfig'`**（开发机 Docker 24 默认 BuildKit，镜像 config 无该字段；此前 gp-bench-3 本地构建走旧 builder 所以没暴露）。修复：无需 root，下载 compose v2 独立二进制到 `~/.local/bin/docker-compose`（v2.27.0）；`~/.profile` 已有 `.local/bin` 前置规则，**交互登录**后裸 `docker-compose` 即 v2，**非交互 ssh** 仍解析 `/usr/bin` 的 v1，脚本里请用显式路径 `~/.local/bin/docker-compose`。ota 用户无免密 sudo。
 - `3d570ce`（材质精确区间加载修黑条/卡顿 + 现场诊断快捷键）：ACR digest `sha256:6674de0674…`（image `a6357852f385`），同流程部署阿里云；IP `/api/status` 81ms、WS 冒烟全通。本轮纯前端改动，服务端协议不变。gp-bench-3 同步部署（ACR pull + `~/.local/bin/docker-compose`），image 一致、LAN 冒烟全通。
@@ -716,3 +717,28 @@ _quick_slot 本来就拦 StdMode > 3）。
 走近进射程转远程、卸符治愈照放。回归 test_autopilot.py 39/0（两次），
 test_hosted_fixes.py 12/0。注意 test_autopilot 的「转而击杀同侧可达怪」
 用例存在与本改动无关的偶发时序波动（战士路径未动，复现率低）。
+
+## §83 捡物死循环根修：_step_to(loot) 后缺 return，怪步插进拾取节拍（2026-11-15）
+
+用户复报「捡东西死循环：移动过去没捡到 → 反方向移动 → 掉头 → 没捡到」，
+§74 只治了「落点被占」与「多件掉落抖动」，这次抓到真正的震荡源：
+
+**根因（pyserver/autopilot.py `_fight`）**：走向拾取物的 `_step_to(loot)`
+之后**没有 return**，同一 tick 继续执行选怪逻辑再调一次 `_step_to(monster)`。
+两处共用 `last_move_at` 节拍，而走（WALK 540ms）与跑（RUN 360ms）节奏不同：
+
+- 拾取步 pop 掉路径后 `len(self.path)<2` 且 dist<3 → 降级成 540ms 走；
+- 怪远 → 360ms 跑。拾取步走出后 360ms 一到（还没到 540ms），怪步抢到
+  移动权把人往反方向拉；540ms 到拾取步又拉回来……玩家在物品格 1~2 格
+  外永久震荡，**永远踩不上物品格**，`_pickup` 自然永远捡不到。
+  金币在东 2 格、怪在西 5 格时实测 8s 捡不到、轨迹来回掉头。
+
+**修复**：`_step_to(loot)` 成功（含等待节拍/已移动）即 return——一个
+tick 的移动权只归一个意图；仅当返回 False（目标已拉黑释放）才继续本 tick
+的选怪逻辑，不空耗节拍。威胁保护不变（2 格内有怪仍优先战斗）。
+
+**验证**：test_hosted_fixes.py 新增用例 [5]（真实时钟 100ms 步进）：
+金币东 2 格 + 多钩猫西 5 格，8s 内必须捡到且轨迹无掉头——修复前 FAIL
+（gold 0→0 卡在震荡位），修复后 PASS（gold 0→50 直线踩格）。stash 对照
+确认用例能抓住旧 bug。回归：test_autopilot.py 39/0、
+test_autopilot_taoist.py 18/0。

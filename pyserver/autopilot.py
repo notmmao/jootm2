@@ -390,8 +390,15 @@ class AutoPilot:
                 self.set_status("拾取中", now)   # _pickup 本 tick 已跑过
                 return
             label = "金币" if loot.is_gold() else "物品"
-            self._step_to(srv, w, p, loot.x, loot.y,
-                          ("loot", loot.id), f"捡{label}", now, exact=True)
+            # 关键：本 tick 的移动权已被「走向拾取物」占用，必须 return。
+            # 走（540ms）与跑（360ms）共用 last_move_at 节拍，若继续往下
+            # 走到选怪逻辑再 _step_to 一次，怪步总能在拾取两步之间插进来
+            # ——玩家在物品格 1~2 格外来回掉头，永远踩不上物品格（实测
+            # 震荡复现）。仅当 _step_to 放弃目标（False=已拉黑释放）才
+            # 接着选怪，避免空耗一拍。
+            if self._step_to(srv, w, p, loot.x, loot.y,
+                             ("loot", loot.id), f"捡{label}", now, exact=True):
+                return
 
         route = route_for(p.level)
         target = self._choose_target(w, p, cfg, route, now)

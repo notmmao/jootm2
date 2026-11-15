@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
 from pyserver.world import Monster, now_ms  # noqa: E402
+from pyserver.world_extra import GroundItem  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -185,6 +187,41 @@ def main() -> None:
             break
     check("怪对宝宝出手扣血", baby.hp < hp0 or not baby.alive,
           f"hp {hp0} -> {baby.hp}")
+
+    print("\n[5] 捡拾/打怪节拍互斥：走向金币不被怪步打断（治来回掉头死循环）")
+    # 复现：金币在东 2 格（步行节拍 540ms）、怪在西 5 格（跑步节拍 360ms）。
+    # 旧实现 _step_to(loot) 后不 return，同 tick 继续选怪再 _step_to 一次，
+    # 怪步总在拾取两步之间插入 → 玩家在金币 1~2 格外来回掉头，永远踩不上
+    # 物品格。真实时钟 100ms 步进，最多 8s 内必须捡到金币。
+    p4, _ = login(srv, "HF4", job=0)
+    clear_monsters(srv, p4)
+    sx, sy = p4.x, p4.y
+    gi_a = GroundItem(w.new_id(), None, 50, sx + 2, sy, now_ms(), p4.map)
+    w.add_ground_item(gi_a)
+    mob4 = spawn(srv, p4, -5, 0, name="多钩猫")
+    mob4.x, mob4.y = sx - 5, sy
+    gold0 = p4.gold
+    srv.autopilot.enable(p4, "balanced")
+    picked = False
+    traj: list[tuple[int, int]] = []
+    deadline = now_ms() + 8000
+    while now_ms() < deadline:
+        srv.autopilot.tick(now_ms())
+        traj.append((p4.x, p4.y))
+        if p4.gold > gold0:
+            picked = True
+            break
+        time.sleep(0.1)
+    check("8s 内踩上物品格捡到金币", picked,
+          f"gold {gold0}->{p4.gold}, 末位置={traj[-1] if traj else None}, "
+          f"目标=({sx + 2},{sy})")
+    srv.autopilot.disable(p4, "测试结束")
+    # 掉头次数统计：修复后走向金币应是一条直线（x 单调不减直到踩格）
+    if picked:
+        xs = [x for x, _ in traj]
+        reversals = sum(1 for i in range(1, len(xs))
+                        if xs[i] > xs[i - 1] and xs[i - 1] < xs[i - 2])
+        check("无来回掉头震荡", reversals == 0, f"traj={traj}")
 
     print(f"\n===== PASS {PASS} / FAIL {FAIL} =====")
     if FAIL:
