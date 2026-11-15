@@ -1568,6 +1568,22 @@ end;
 - **验证**：`test_pyserver.py` **99 PASS / 0 FAIL**（新增 4 条：`/site` 301 补斜杠、`/site/` 落到 index.html、未知页 404、前缀阻止 `..` 穿越）；curl 实测 `/site`(301→200, 208KB)、`/site/assets/style.css`、`/site/assets/maps/0.png`(200, 206 Range)、`/site/maps/0.html`、HEAD 200、游戏 `/` 200 且 `main.mjs` 仍 gzip。
 - 改动文件：`pyserver/net.py`、`pyserver/config.py`、`pyserver/__main__.py`、`scripts/test_pyserver.py`、本文 §60。
 
+## §61 武器/装备持久磨损对齐（2026-11-15）
+
+- **排查结论**（用户「检查武器持久相关计算」）：pyserver 原来**普通攻击完全没有武器磨损**，`_damage_weapon` 只在挖矿路径被调用；挖矿磨损也不下发任何持久更新，客户端要重登才能看到持久变化；持久到 0 只钳 0 不损毁。
+- **原版依据**（GameOfMir/M2Server/ObjBase.pas）：
+  - `DoDamageWeapon`（:18967-19009）：磨损量在 `_Attack` 尾部（:22396）传入 ``Random(5)+2 - m_AddAbil.btWeaponStrong``（:22255，命中且 nPower>0 才磨）；节流 ``Round(持久/1.03)``（:18975/19005）变化才发 RM_DURACHANGE→SM_DURACHANGE(642)；扣到 0 **SendDelItems + wIndex:=0 直接损毁**（不是留在身上变「已破坏」）。
+  - `StruckDamage`（:22461-22560）：被击伤害>0 时衣服（U_DRESS）固定磨损 ``Random(10)+5``，然后**全部装备槽**（含武器、含衣服再磨一次）各 1/8 概率磨损同量；节流 ``Round(持久/1000)``（显示 1 点）变化才发 SM_DURACHANGE；到 0 损毁清槽，衣服损毁还 FeatureChanged。POISON_DAMAGEARMOR ×1.2 本项目无该毒状态，略。
+  - 挖矿磨损 ``Random(15)+5``（:21915）原已对齐，只是没接持久推送。
+  - 客户端 `ClientGetDuraChange`（ClMain.pas:5125/6132）按装备栏 slot 原地更新持久。
+- **实现**：
+  - `pyserver/world.py`：新增 `do_damage_weapon`（DoDamageWeapon 直译）、`wear_struck`+`_wear_slot_struck`（StruckDamage 直译）、`send_dura_change`（SM_DURACHANGE）；`send_bag_update` 从 GameService **下沉到 GameWorld**（怪物 AI 受击路径也要推 bagUpdate），`service.send_bag_update` 改为委托。
+  - `pyserver/handlers_combat.py`：`_attack_monster`/`_attack_player` 命中后磨损武器 ``Random(5)+2 - _weapon_strong``（武器模板 Strong，176 数据一般 0）；PvP 主目标与刺杀/半月副目标（原版 DirectAttack:21980 也走 StruckDamage）加 `wear_struck`；`_damage_weapon` 统一转发 `do_damage_weapon`。
+  - `world.py::_apply_hit_to_player`（怪物打玩家唯一汇合点）加 `wear_struck`。
+  - `frontend/scene/PlayScene.mjs`：新增 `case 'duraChange'`——按 `msg.slot` 原地更新装备持久并 `_refreshStateWin()`（对齐 ClientGetDuraChange，不重建物品）。
+- **测试**：新增 `scripts/test_durability.py` **16 PASS / 0 FAIL**（磨损量、1.03 节流、到 0 损毁、衣服固定+循环 1/8 双段、显示值节流、伤害 0 不磨、攻击命中磨损、被怪击磨损）；全量回归 `test_pyserver` 99/0、`test_tick_systems` 169/0、`test_autopilot` 32/0、`test_all_messages` 91/0。
+- 改动文件：`pyserver/world.py`、`pyserver/service.py`、`pyserver/handlers_combat.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_durability.py`（新增）、本文 §61。
+
 ---
 
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）

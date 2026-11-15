@@ -1263,6 +1263,101 @@ class GameWorld(WorldExtra):
         else:
             self.broadcast_around(a.map, o, a.x, a.y)
 
+    # ---- 装备持久磨损（原版 DoDamageWeapon / StruckDamage）-----------------
+
+    def send_bag_update(self, p: Player) -> None:
+        """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。
+
+        从 GameService 下沉到 GameWorld：装备被磨损/损毁的推送在怪物 AI
+        受击路径（wear_struck）里也要发，而怪物 AI 在 world 层。"""
+        if p.session is None:
+            return
+        p.session.send_json({
+            "type": "bagUpdate", "gold": p.gold,
+            "dress": p.dress_looks(self), "weapon": p.weapon_shape(self),
+            "weight": p.bag_weight(self), "maxWeight": p.max_weight,
+            "wearWeight": p.wear_weight(self), "handWeight": p.hand_weight(self),
+            "maxWearWeight": p.max_wear_weight(), "maxHandWeight": p.max_hand_weight(),
+            "quickSlots": [p.quick_slots[i] if p.quick_slot_valid(i) else 0
+                           for i in range(len(p.quick_slots))],
+            "items": p.items_json(self),
+        })
+
+    def send_dura_change(self, p: Player, slot: int, it: dict) -> None:
+        """原版 RM_DURACHANGE → SM_DURACHANGE（Grobal2.pas:642 = 642 号消息）：
+        客户端 ClientGetDuraChange（ClMain.pas:5125→6132）按装备栏 slot 原地
+        更新持久显示，不重建物品。"""
+        if p.session is None:
+            return
+        p.session.send_json({
+            "type": "duraChange", "slot": slot,
+            "durability": int(it.get("durability", 0)),
+            "durabilityMax": int(it.get("durabilityMax", 0)),
+        })
+
+    def do_damage_weapon(self, p: Player, amount: int) -> None:
+        """原版 ``TBaseObject.DoDamageWeapon``（ObjBase.pas:18967-19009）。
+
+        - 持久扣 amount；扣到 ≤ 0 时武器**直接损毁清槽**（SendDelItems +
+          ``wIndex := 0``，GameOfMir 里不是留在身上变「已破坏」）；
+        - 节流：``Round(持久/1.03)``（:18975/19005）变化才发 SM_DURACHANGE。
+        """
+        if p.equipment is None:
+            return
+        it = p.equipment[U_WEAPON]
+        if it is None:
+            return
+        old = int(it.get("durability", 0) or 0)
+        old_point = delphi_round(old / 1.03)
+        dura = old - amount
+        if dura <= 0:
+            it["durability"] = 0
+            p.equipment[U_WEAPON] = None
+            self.send_system(p, "武器持久用完，已损毁。")
+            self.send_bag_update(p)
+            return
+        it["durability"] = dura
+        if delphi_round(dura / 1.03) != old_point:
+            self.send_dura_change(p, U_WEAPON, it)
+
+    def wear_struck(self, target: Player, damage: int) -> None:
+        """原版 ``TBaseObject.StruckDamage``（ObjBase.pas:22461-22560）：被击中
+        且伤害 > 0 时装备磨损——先对衣服（U_DRESS）固定磨损 ``Random(10)+5``
+        （:22478-22516），再对**全部**装备槽（含武器、含衣服）各 1/8 概率磨损
+        同量（:22517-22560）；到 0 直接损毁清槽（衣服还要 FeatureChanged，
+        本项目用 bagUpdate 刷外观）；节流 ``Round(持久/1000)``（显示 1 点）
+        变化才发 SM_DURACHANGE。POISON_DAMAGEARMOR 的 ×1.2 本项目暂无该毒
+        状态，略。
+        """
+        if damage <= 0 or not target.equipment:
+            return
+        n_dam = random.randint(5, 14)
+        self._wear_slot_struck(target, U_DRESS, n_dam)   # 22478 衣服固定磨损
+        for slot in range(len(target.equipment)):        # 22517 全槽各 1/8
+            if target.equipment[slot] is None:
+                continue
+            if random.randrange(8) != 0:
+                continue
+            self._wear_slot_struck(target, slot, n_dam)
+
+    def _wear_slot_struck(self, target: Player, slot: int, amount: int) -> None:
+        it = target.equipment[slot]
+        if it is None:
+            return
+        old = int(it.get("durability", 0) or 0)
+        old_disp = delphi_round(old / 1000)
+        dura = old - amount
+        if dura <= 0:
+            it["durability"] = 0
+            target.equipment[slot] = None
+            if slot == U_DRESS:
+                self.send_system(target, "衣服持久用完，已损毁。")
+            self.send_bag_update(target)
+            return
+        it["durability"] = dura
+        if delphi_round(dura / 1000) != old_disp:
+            self.send_dura_change(target, slot, it)
+
     def nearby(self, game_map: GameMap, x: int, y: int,
                radius: int = SIGHT_RANGE) -> list[Actor]:
         return [a for a in game_map.actors.values() if a.alive
@@ -2247,6 +2342,7 @@ class GameWorld(WorldExtra):
             target.mp -= mp_cost
             dmg -= mp_cost
         target.hp = max(0, target.hp - max(0, dmg))
+        self.wear_struck(target, dmg)   # 原版 StruckDamage（ObjBase.pas:22261）
         self._send_hits(m, target, dmg)
         # 原版 TSpitSpider.SpitAttack（ObjMon.pas:706-712）：m_boUsePoison 的
         # 吐毒蜘蛛命中后 Random(m_btAntiPoison + 20) = 0 即 POISON_DECHEALTH

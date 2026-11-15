@@ -1718,6 +1718,19 @@ export class PlayScene extends Scene {
                     if (!still) this._clearSellSpot();
                 }
                 break;
+            case 'duraChange': {
+                // 原版 SM_DURACHANGE → ClientGetDuraChange（ClMain.pas:5125/6132）：
+                // 按装备栏 slot 原地更新持久，不重建物品、不刷背包
+                if (this.self && Array.isArray(this.self.items) && msg.slot !== undefined) {
+                    const it = this.self.items.find(x => x.slot === msg.slot);
+                    if (it) {
+                        it.durability = msg.durability;
+                        it.durabilityMax = msg.durabilityMax;
+                    }
+                }
+                this._refreshStateWin();
+                break;
+            }
             case 'npcSay':
                 this._showNpcDialog(msg);
                 break;

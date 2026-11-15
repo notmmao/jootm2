@@ -728,20 +728,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                                    "x": m.x, "y": m.y}, m.x, m.y, SIGHT_RANGE)
 
     def send_bag_update(self, p: Player) -> None:
-        """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。"""
-        if p.session is None:
-            return
-        w = self.world
-        p.session.send_json({
-            "type": "bagUpdate", "gold": p.gold,
-            "dress": p.dress_looks(w), "weapon": p.weapon_shape(w),
-            "weight": p.bag_weight(w), "maxWeight": p.max_weight,
-            "wearWeight": p.wear_weight(w), "handWeight": p.hand_weight(w),
-            "maxWearWeight": p.max_wear_weight(), "maxHandWeight": p.max_hand_weight(),
-            "quickSlots": [p.quick_slots[i] if p.quick_slot_valid(i) else 0
-                           for i in range(len(p.quick_slots))],
-            "items": p.items_json(w),
-        })
+        """``GameService.sendBagUpdate``：全量背包 + 金币 + 快捷栏 + 负重。
+        （实现在 GameWorld.send_bag_update——装备磨损/损毁在 world 层也要推送。）"""
+        self.world.send_bag_update(p)
 
     # ---- 持久化 ---------------------------------------------------------
 

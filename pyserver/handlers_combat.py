@@ -338,6 +338,11 @@ class CombatHandlers:
         dmg = max(1, dam - (m.template.ac if m.template else 0))
         dmg = green_poison_bonus(m, dmg)
         m.hp = max(0, m.hp - dmg)
+        # 原版 _Attack 结尾（ObjBase.pas:22396/22255）：命中且造成伤害（nPower>0）
+        # 才磨损武器，磨损量 Random(5)+2 - m_AddAbil.btWeaponStrong（武器 Strong）。
+        wear = random.randint(2, 6) - self._weapon_strong(p)
+        if wear > 0:
+            w.do_damage_weapon(p, wear)
         # 原版 ObjBase.pas:2807-2811 TBaseObject.Struck：动物每次被打扣
         # m_nMeatQuality Random(300)——砍得越狠肉越差。
         if m.meat_quality > 0:
@@ -413,6 +418,10 @@ class CombatHandlers:
             raw += bonus
         dmg = max(1, raw - target.combat.get("acMax", 0))
         target.hp = max(0, target.hp - dmg)
+        wear = random.randint(2, 6) - self._weapon_strong(p)
+        if wear > 0:
+            w.do_damage_weapon(p, wear)   # 原版 _Attack 对 PvP 同样磨损（:22396）
+        w.wear_struck(target, dmg)        # StruckDamage（ObjBase.pas:22261）
         o = {"type": "attack", "attackerId": p.id, "targetId": target.id,
              "damage": dmg, "x": target.x, "y": target.y}
         if sword_hit:
@@ -480,6 +489,7 @@ class CombatHandlers:
         if isinstance(front, Player) and front.alive and hit_check(p, front):
             dmg = max(1, dam - front.combat.get("acMax", 0))
             front.hp = max(0, front.hp - dmg)
+            w.wear_struck(front, dmg)    # 原版 DirectAttack → StruckDamage（:21980）
             w.broadcast_around(front.map, {"type": "attack", "attackerId": p.id,
                                            "targetId": front.id, "damage": dmg,
                                            "x": front.x, "y": front.y},
@@ -495,6 +505,7 @@ class CombatHandlers:
             return
         second = sword_second_dam(p, dam, 12, 5)
         target.hp = max(0, target.hp - second)
+        w.wear_struck(target, second)        # 原版 DirectAttack → StruckDamage
         w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
                                         "targetId": target.id, "damage": second,
                                         "x": target.x, "y": target.y, "swordHit": 12},
@@ -534,6 +545,8 @@ class CombatHandlers:
             if p.attack_mode == 0:
                 return
             target.hp = max(0, target.hp - second)
+            # 原版 DirectAttack 副目标同样走 StruckDamage（ObjBase.pas:21980）
+            w.wear_struck(target, second)
             w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
                                             "targetId": target.id, "damage": second,
                                             "x": target.x, "y": target.y},
@@ -602,13 +615,16 @@ class CombatHandlers:
         it = (p.equipment[U_WEAPON] if p.equipment else None) or {}
         return int(it.get("durability", 0) or 0)
 
+    def _weapon_strong(self, p) -> int:
+        """原版 ``m_AddAbil.btWeaponStrong``：武器的 Strong 属性（本项目
+        ItemTemplate.strong，176 数据一般为 0）。"""
+        t = self._weapon_template(p)
+        return int(getattr(t, "strong", 0) or 0) if t is not None else 0
+
     def _damage_weapon(self, p, amount: int) -> None:
-        """武器磨损（原版 DoDamageWeapon）。挖到耐久 0 后原版不再可挖
-        （ObjBase.pas:8823 ``m_UseItems[U_WEAPON].Dura > 0``）。"""
-        it = (p.equipment[U_WEAPON] if p.equipment else None)
-        if not it:
-            return
-        it["durability"] = max(0, int(it.get("durability", 0) or 0) - amount)
+        """武器磨损入口（统一走 GameWorld.do_damage_weapon：原版
+        DoDamageWeapon 负责节流下发 SM_DURACHANGE 与到 0 损毁清槽）。"""
+        self.world.do_damage_weapon(p, amount)
 
     def _pile_stones(self, p, dx: int, dy: int) -> None:
         """原版 ``TPlayObject.PileStones``（ObjBase.pas:21881-21925）逐行直译。
