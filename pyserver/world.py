@@ -1821,9 +1821,16 @@ class GameWorld(WorldExtra):
                 continue
             m = self.actor(h["monster"])
             t = self.actor(h["target"])
-            if (isinstance(m, Monster) and isinstance(t, Player)
-                    and m.alive and t.alive and m.map is t.map):
-                self._apply_hit_to_player(m, t, h["damage"])
+            if (isinstance(m, Monster) and m.alive and m.map is not None
+                    and t is not None and t.alive and m.map is t.map):
+                if isinstance(t, Player):
+                    self._apply_hit_to_player(m, t, h["damage"])
+                elif isinstance(t, Monster) and t.master_id >= 0:
+                    # 召唤物吃远程伤害：通用怪打怪结算
+                    t.hp = max(0, t.hp - h["damage"])
+                    self._send_hits(m, t, h["damage"])
+                    if t.hp <= 0:
+                        self.kill_monster(t, now, None)
         self.combat_state["pending_ranged"] = keep
 
     def _expire_corpses(self, now: int) -> None:
@@ -2031,7 +2038,10 @@ class GameWorld(WorldExtra):
                     self.send_stats(target)
                     if target.hp <= 0:
                         self.kill_monster(target, now, None)
-                return
+                if t.race in SUPER_GUARD_RACES:
+                    return      # 守卫站桩：走完上面分支即止
+                # 普通怪打召唤物继续走下方通用近战/远程分支（原版 TMonster 的
+                # AttackTarget 对宠物/骷髅同样 _Attack 结算，ObjBase.pas:22240）
             if t.race in RANGED_RACES:
                 if d <= RANGED_ATTACK_RANGE:
                     if now >= m.next_attack_at:
@@ -2074,7 +2084,14 @@ class GameWorld(WorldExtra):
                                                       "x": target.x, "y": target.y},
                                               m.x, m.y)
                     else:
-                        self._apply_hit_to_player(m, target, dmg)
+                        if isinstance(target, Player):
+                            self._apply_hit_to_player(m, target, dmg)
+                        else:
+                            # 召唤物挨打：原版通用怪打怪结算（守卫分支同款）
+                            target.hp = max(0, target.hp - dmg)
+                            self._send_hits(m, target, dmg)
+                            if target.hp <= 0:
+                                self.kill_monster(target, now, None)
             elif (now >= m.next_move_at and not is_guard):
                 # 原版守卫不追击：TGuardUnit.Run / TSuperGuard.Run 都没有 Walk
                 # 分支，目标跑出视野即放弃（ObjMon2.pas:924-980 / ObjGuard.pas:87）。
@@ -2240,6 +2257,10 @@ class GameWorld(WorldExtra):
                               - (enemy.template.ac if enemy.template else 0))
                     enemy.hp = max(0, enemy.hp - dmg)
                     self._send_hits(m, enemy, dmg)
+                    # 原版 TAnimalObject.Struck(hiter) → SetTargetCreat(hiter)：
+                    # 被打的怪记仇，怪转头打宝宝（这就是道士宝宝顶怪的仇恨来源）
+                    enemy.last_hiter_id = m.id
+                    enemy.target_id = m.id
                     if enemy.hp <= 0:
                         self.kill_monster(enemy, now, master)
                         t = enemy.template
@@ -2364,9 +2385,13 @@ class GameWorld(WorldExtra):
             # 中立怪（鸡/鹿/羊/奥玛）在原版是 TMonster：Run 里没有 SearchTarget，
             # 只 Wondering 乱走，唯一的目标来源是被打时 TAnimalObject.Struck →
             # SetTargetCreat(hiter)。所以这里**不搜索**，只沿用已被打出仇恨的目标，
-            # 目标死亡/隐身/跑出视野后自然放弃，回到闲逛。
+            # 目标死亡/隐身/跑出视野后自然放弃，回到闲逛。召唤物打它同样走
+            # Struck（SetTargetCreat），所以目标可以是玩家也可以是有主的召唤物。
             cur = self.actor(m.target_id) if m.target_id >= 0 else None
             if (isinstance(cur, Player) and cur.alive and cur.hide_until <= now
+                    and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE):
+                return cur
+            if (isinstance(cur, Monster) and cur.master_id >= 0 and cur.alive
                     and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE):
                 return cur
             return None
@@ -2375,15 +2400,29 @@ class GameWorld(WorldExtra):
                 and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE
                 and (not is_guard or self._guard_hostile(m, cur))):
             return cur
+        if (isinstance(cur, Monster) and cur.master_id >= 0 and cur.alive
+                and cur.map is m.map and cur.distance_to(m) <= AGGRO_RANGE
+                and not is_guard):
+            # 召唤物也在仇恨名单里（原版 TAnimalObject.SearchTarget 的
+            # IsProperTarget 含宠物/骷髅——道士宝宝顶怪时怪会转火宝宝）。
+            return cur
         best, best_d = None, 1 << 30
-        for p in self.players():
-            if p.map is not m.map or p.hide_until > now:
+        cand = (list(m.map.actors.values()) if m.map is not None
+                else list(self.players()))
+        for a in cand:
+            if isinstance(a, Player):
+                if a.map is not m.map or a.hide_until > now or not a.alive:
+                    continue
+                if is_guard and not self._guard_hostile(m, a):
+                    continue
+            elif isinstance(a, Monster):
+                if a.master_id < 0 or not a.alive or is_guard:
+                    continue    # 守卫只管红名玩家（ObjMon2 TGuard 语义）
+            else:
                 continue
-            if is_guard and not self._guard_hostile(m, p):
-                continue
-            d = p.distance_to(m)
-            if p.alive and d <= AGGRO_RANGE and d < best_d:
-                best, best_d = p, d
+            d = a.distance_to(m)
+            if d <= AGGRO_RANGE and d < best_d:
+                best, best_d = a, d
         return best
 
     @staticmethod
@@ -2393,17 +2432,21 @@ class GameWorld(WorldExtra):
         # PkPoint div 100（ObjBase.pas:2236），>=2 即深红名 pk_point>=200。
         return p.id == m.last_hiter_id or p.pk_point >= RED_NAME_PK_POINT
 
-    def _ranged_damage(self, m: Monster, target: Player) -> int:
-        """怪物对玩家的原始伤害（DC 掷点 − AC），可能 <= 0。
+    def _ranged_damage(self, m: Monster, target) -> int:
+        """怪物攻击的原始伤害（DC 掷点 − AC），可能 <= 0。
 
         原版 ``TBaseObject.AttackDir`` 的伤害结算在 ``nDamage <= 0`` 时直接 Exit
         （``ObjBase.pas:22470 StruckDamage``），``TSpitSpider.SpitAttack`` 也先
         ``if nDamage <= 0 then Exit`` 才发飞矢。旧实现套了 ``max(1, …)``，让
         DC=1 的鸡也能稳定打掉 1 点血，看起来就是「鸡会攻击人」。
         """
-        return m.roll_attack() - target.combat.get("acMax", 0)
+        if isinstance(target, Player):
+            ac = target.combat.get("acMax", 0)
+        else:
+            ac = target.template.ac if target is not None and target.template else 0
+        return m.roll_attack() - ac
 
-    def _ranged_attack(self, m: Monster, target: Player, now: int) -> None:
+    def _ranged_attack(self, m: Monster, target: Actor, now: int) -> None:
         """广播飞矢，按距离延迟结算伤害（原版 SendDelayMsg）。"""
         dmg = self._ranged_damage(m, target)
         if dmg <= 0:
