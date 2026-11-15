@@ -23,9 +23,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from dataclasses import replace  # noqa: E402
+
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
+from pyserver.util import U_ARMRINGL  # noqa: E402
 from pyserver.world import Monster  # noqa: E402
 
 PASS = 0
@@ -100,6 +103,23 @@ def send(srv, sess, type_: str, **fields) -> None:
     srv.on_message(sess, json.dumps(msg, ensure_ascii=False))
 
 
+def cast_clear(srv, sess, p, magic_id: int, dx: int = 1) -> None:
+    """清冷却/留足蓝再施法（施法节流按真实时钟，测试内连放会被拦）。"""
+    p.skill_cooldown.clear()
+    p.mp = max(p.mp, 200)
+    send(srv, sess, "castMagic", magicId=magic_id,
+         targetX=p.x + dx, targetY=p.y, targetId=0)
+
+
+def _amulet_idx(w, p, count: int) -> int:
+    """造一个 StdMode=25 Shape=5 护身符模板（沿用 test_spell_fx 的做法）。"""
+    base = next(iter(w.item_templates.values()))
+    idx = 900000 + len(w.item_templates) + count
+    t = replace(base, index=idx, stdMode=25, shape=5, duraMax=count * 100)
+    w.item_templates[idx] = t
+    return idx
+
+
 def main() -> None:
     srv = make_service()
     w = srv.world
@@ -163,6 +183,55 @@ def main() -> None:
           f"first={palace[0] if palace else None}")
     check("入口格坐标与玩家可达点一致",
           all(isinstance(g["x"], int) and isinstance(g["y"], int) for g in gates))
+
+    print("\n[8] 召唤骷髅：宝宝存活期间再施放 = 无新宝宝、不加熟练度"
+          "（Magic.pas:1387-1421，MakeSlave nil → boTrain=False）")
+    p.equipment[U_ARMRINGL] = {
+        "makeIndex": 800001, "index": _amulet_idx(w, p, 5),
+        "durability": 500, "durabilityMax": 500, "lucky": 0, "slot": -1}
+    p.skills[17] = {"level": 0, "train": 0, "key": 0}
+    p.mp = 1000
+    cast_clear(srv, sess, p, 17)
+    check("首次施法造出骷髅", p.summon_id == baby.id or p.summon_id >= 0,
+          f"summon_id={p.summon_id}")
+    check("首次施法加熟练度", p.skills[17]["train"] > 0,
+          f"train={p.skills[17]['train']}")
+    skel_id = p.summon_id
+    skel = w.actor(skel_id)
+    skel_train_before = p.skills[17]["train"]
+    cast_clear(srv, sess, p, 17)
+    check("存活期再放：旧骷髅保留（同一 id）", p.summon_id == skel_id
+          and skel.alive, f"summon_id={p.summon_id}")
+    check("存活期再放：不加熟练度", p.skills[17]["train"] == skel_train_before,
+          f"train={p.skills[17]['train']}/{skel_train_before}")
+
+    print("\n[9] 召唤神兽：宝宝存活期间再施放 = 召回面前、不加熟练度"
+          "（Magic.pas:1382-1384 RecallSlave，ObjBase.pas:21940）")
+    p.skills[30] = {"level": 0, "train": 0, "key": 0}
+    p.equipment[U_ARMRINGL] = {
+        "makeIndex": 800002, "index": _amulet_idx(w, p, 9),
+        "durability": 1200, "durabilityMax": 1200, "lucky": 0, "slot": -1}
+    # 先清掉骷髅（换宝宝类型）
+    w.remove_summon(skel)
+    p.summon_id = -1
+    cast_clear(srv, sess, p, 30)
+    dog = w.actor(p.summon_id) if p.summon_id >= 0 else None
+    check("首次施法造出神兽", dog is not None and dog.alive,
+          f"summon_id={p.summon_id}")
+    check("首次施法加熟练度", p.skills[30]["train"] > 0,
+          f"train={p.skills[30]['train']}")
+    dog_train_before = p.skills[30]["train"]
+    # 把宝宝挪远，再施放 → 应被召回面前一格
+    dog.map.reposition(dog, p.x + 5, p.y)
+    dog.x, dog.y = p.x + 5, p.y
+    cast_clear(srv, sess, p, 30)
+    check("存活期再放：旧神兽保留（同一 id）", p.summon_id == dog.id
+          and dog.alive, f"summon_id={p.summon_id}")
+    check("存活期再放：不加熟练度", p.skills[30]["train"] == dog_train_before,
+          f"train={p.skills[30]['train']}/{dog_train_before}")
+    check("神兽被召回主人身边（面前格/近旁兜底）",
+          max(abs(dog.x - p.x), abs(dog.y - p.y)) <= 2,
+          f"dog=({dog.x},{dog.y}) p=({p.x},{p.y})")
 
     print(f"\n===== PASS {PASS} / FAIL {FAIL} =====")
     sys.exit(1 if FAIL else 0)

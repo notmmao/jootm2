@@ -2291,17 +2291,25 @@ class GameWorld(WorldExtra):
             if self._walk_toward(m, master.x, master.y):
                 self.broadcast_move(m)
 
-    def _slave_space_move(self, m: Monster, master: Player) -> None:
-        """宝宝瞬移跟随（原版 ``TBaseObject.SpaceMove(..., 1)``，ObjMon.pas:494）。
+    def _slave_space_move(self, m: Monster, master: Player, front: bool = False) -> None:
+        """宝宝瞬移（原版 ``TBaseObject.SpaceMove(..., 1)``，ObjMon.pas:494）。
 
         原版 ``nInt=1`` → ``RM_SPACEMOVE_SHOW2``（magic 1600，10 帧×30ms），
         离开时还有 ``RM_SPACEMOVE_FIRE`` → ``SM_SPACEMOVE_HIDE2``（magic 1590）。
         本项目沿用玩家传送的两段消息（``spaceMoveHide``/``spaceMoveShow`` +
         ``variant=1``），旧地图先移除实体、新地图重新下发快照。
+
+        front=False：宝宝跟随跟随落主人**背后**一格（``GetBackPosition``）；
+        front=True：召唤召回（原版 ``RecallSlave``，ObjBase.pas:21940-21958）
+        落主人**面前**一格（``GetFrontPosition``），召唤神兽宝宝存活期间
+        再施放走这条路（Magic.pas:1382-1384）。
         """
         if master.map is None:
             return
-        pos = self._back_near(master.map, master.x, master.y, master.dir)
+        if front:
+            pos = self._front_near(master.map, master.x, master.y, master.dir)
+        else:
+            pos = self._back_near(master.map, master.x, master.y, master.dir)
         if pos is None:
             return
         old_map, ox, oy = m.map, m.x, m.y

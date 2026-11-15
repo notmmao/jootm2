@@ -1325,6 +1325,7 @@ class CombatHandlers:
             return True
 
         # 17 召唤骷髅 / 30 召唤神兽（:465-475 / :537-556）
+        # 护身符在造宝宝**之前**就消耗（13~19 共用段 :432-435、神兽 :541-542）。
         if magic_id in (17, 30):
             need = 1 if magic_id == 17 else 5
             am = self._find_amulet(p, 1, need)
@@ -1335,7 +1336,15 @@ class CombatHandlers:
             self._use_amulet(p, slot, item, need)
             old = w.actor(p.summon_id) if p.summon_id >= 0 else None
             if isinstance(old, Monster) and old.alive:
-                w.remove_summon(old)
+                # 原版宝宝存活期间不再造新：MakeSlave（ObjBase.pas:7163）
+                # 在 m_SlaveList.Count >= 上限时返回 nil → Result=False
+                # → **不加熟练度**。骷髅（MagMakeSlave Magic.pas:1387-1421）
+                # 什么都不做，旧宝宝原地保留；神兽（MagMakeSinSuSlave
+                # :1382-1384）走 RecallSlave（ObjBase.pas:21940）把旧宝宝
+                # SpaceMove 召回面前。
+                if magic_id == 30:
+                    w._slave_space_move(old, p, front=True)
+                return False
             summon = w.spawn_summon(p, "变异骷髅" if magic_id == 17 else "神兽")
             if summon is None:
                 w.send_system(p, "召唤失败。")
