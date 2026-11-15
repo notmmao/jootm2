@@ -153,6 +153,7 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "takeOffItem": {"type": "takeOffItem", "slot": 1, "makeIndex": equip_mi},
         "quickSlot": {"type": "quickSlot", "slot": 0, "makeIndex": consumable_mi},
         "drop": {"type": "drop", "makeIndex": equip_mi},
+        "dropGold": {"type": "dropGold", "gold": 1},
         "moveItem": {"type": "moveItem", "makeIndex": equip_mi,
                      "targetIndex": consumable_mi},
         "npcTalk": {"type": "npcTalk", "npcId": npc_id},

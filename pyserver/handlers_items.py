@@ -16,7 +16,7 @@ from .util import (
 
 ITEM_TYPES = frozenset({
     "pickup", "useItem", "takeOnItem", "takeOffItem", "quickSlot",
-    "drop", "moveItem", "magicKeyChange",
+    "drop", "dropGold", "moveItem", "magicKeyChange",
 })
 
 
@@ -70,6 +70,19 @@ class ItemHandlers:
             self.send_bag_update(p)
         else:
             self.world.send_system(p, "物品不存在。")
+
+    def _drop_gold(self, session, msg: dict) -> None:
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        amount = _int(msg, "gold", 0)
+        if self.world.drop_gold(p, amount):
+            self.world.send_system(p, f"丢弃了 {amount} 金币。")
+            self.send_bag_update(p)
+        else:
+            # 原版 ClientDropGold（ObjBase.pas:16187）：nGold >= m_nGold 拒绝——
+            # 至少留 1 金币在身上。
+            self.world.send_system(p, "无法丢弃这么多金币。")
 
     def _move_item(self, session, msg: dict) -> None:
         p = self.find_by_session(session)

@@ -1035,6 +1035,13 @@ export class PlayScene extends Scene {
             this._clearPicked();
             return;
         }
+        // 拿起金币时点击画面 → 弹「放下多少金币」对话框（FState.pas:1965）
+        if (this._goldPicked) {
+            this._goldPicked = false;
+            this.goldEl.style.outline = '';
+            this._showDropGoldDialog();
+            return;
+        }
         const run = e.button === 2;   // 左键走、右键跑
         const { mx, my } = this._mouseXY(e);
 
@@ -2951,7 +2958,15 @@ export class PlayScene extends Scene {
         // 金币（原版 DGold 10,190）
         // 金币（原版 DItemBagDirectPaint：TextOut(Left+64, Top+185, GetGoldStr) 白色千分位）
         this.goldEl = document.createElement('div');
-        this.goldEl.style.cssText = 'position:absolute;left:64px;top:185px;font-size:12px;color:#ffffff;text-shadow:1px 1px 0 #000;';
+        this.goldEl.style.cssText = 'position:absolute;left:64px;top:185px;font-size:12px;color:#ffffff;text-shadow:1px 1px 0 #000;cursor:pointer;';
+        // 金币可拿起 → 点游戏画面弹「放下多少金币」对话框（原版金币是可拖动的
+        // g_MovingItem，DBackgroundBackgroundClick 拿着金币点背景 → DMessageDlg
+        // 询问数量 → CM_DROPGOLD；FState.pas:1953-1974）
+        this.goldEl.addEventListener('click', () => {
+            if (this.pickedItem) return;
+            this._goldPicked = !this._goldPicked;
+            this.goldEl.style.outline = this._goldPicked ? '2px solid #ffe400' : '';
+        });
         panel.appendChild(this.goldEl);
         // 物品描述区（原版 DItemBagDirectPaint：鼠标悬停物品在 Left+70,Top+215 起显示 3 行描述）
         this.bagDescEl = document.createElement('div');
@@ -3146,6 +3161,53 @@ export class PlayScene extends Scene {
         this.pickedItem = null;
         this.pickedSource = null;
         this.pickedSlot = -1;
+        this._goldPicked = false;
+        if (this.goldEl) this.goldEl.style.outline = '';
+    }
+
+    /** 「你想放下多少金币?」对话框（原版 DMessageDlg，FState.pas:1965-1969）。 */
+    _showDropGoldDialog() {
+        const max = (this.self && this.self.gold) || 0;
+        if (max <= 1) { this._log('金币不足，无法丢弃。'); return; }
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:absolute;inset:0;z-index:60;background:rgba(0,0,0,0.35);'
+            + 'display:flex;align-items:center;justify-content:center;';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#1c1c1c;border:2px solid #b8a06a;padding:14px 18px;'
+            + 'font-size:12px;color:#fff;width:220px;';
+        box.innerHTML = '<div style="margin-bottom:8px;">你想放下多少金币?</div>';
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;';
+        const input = document.createElement('input');
+        input.type = 'text'; input.inputMode = 'numeric';
+        input.style.cssText = 'flex:1;background:#000;border:1px solid #666;color:#fff;'
+            + 'padding:3px 6px;font-size:12px;outline:none;';
+        const ok = document.createElement('button');
+        ok.textContent = '确定';
+        ok.style.cssText = 'padding:3px 10px;cursor:pointer;background:#3a3a3a;color:#fff;border:1px solid #888;';
+        const cancel = document.createElement('button');
+        cancel.textContent = '取消';
+        cancel.style.cssText = ok.style.cssText;
+        row.appendChild(input); row.appendChild(ok); row.appendChild(cancel);
+        box.appendChild(row);
+        ov.appendChild(box);
+
+        const close = () => ov.remove();
+        const submit = () => {
+            const n = Math.floor(Number(String(input.value).replace(/[^\d]/g, '')) || 0);
+            close();
+            if (n > 0) this.conn.send('dropGold', { gold: n });
+        };
+        ok.addEventListener('click', submit);
+        cancel.addEventListener('click', close);
+        input.addEventListener('keydown', (ev) => {
+            ev.stopPropagation();
+            if (ev.key === 'Enter') submit();
+            if (ev.key === 'Escape') close();
+        });
+        ov.addEventListener('mousedown', (ev) => ev.stopPropagation());
+        this.manager.winManager.container.appendChild(ov);
+        setTimeout(() => input.focus(), 0);
     }
 
     // ---- NPC 对话框（原版 DMerchantDlg 样式）----

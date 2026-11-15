@@ -14,8 +14,8 @@ from typing import Any
 from .drop_rates import load_drop_rates
 from .gamedata import parse_map_quest, read_lines
 from .util import (
-    BAG_SIZE, GROUND_ITEM_TTL_MS, SIGHT_RANGE, U_WEAPON, encode, java_div,
-    now_ms,
+    BAG_SIZE, GROUND_ITEM_TTL_MS, RED_NAME_PK_POINT, SIGHT_RANGE, U_WEAPON,
+    encode, java_div, now_ms,
 )
 
 
@@ -817,7 +817,7 @@ class WorldExtra:
                 p.equipment[slot] = None
                 return
 
-    def kill_player(self, p) -> None:
+    def kill_player(self, p, killer=None) -> None:
         # 原版 SM_NOWDEATH（Actor.pas:2388-2395）：客户端 m_boDeath := TRUE，
         # 播死亡音效与 bmg_gameover，PlayScn.pas:1476 把画面切成 ceGrayScale
         # 黑白屏；服务端**不**把角色搬回城。复活靠退出角色重新登录，
@@ -852,8 +852,86 @@ class WorldExtra:
         p.poison_ticks = 0
         p.inc_health = p.inc_spell = 0
         p.target_id = -1
+        self._death_drops(p, killer)
         self.send_stats(p)
         self.send_system(p, "你被击败了。按 Esc →「返回角色选择」重新登录即可在出生点复活。")
+
+    def _death_drops(self, p, killer) -> None:
+        """死亡掉落惩罚（原版 ``TBaseObject.Die`` ObjBase.pas:20982-21013）。
+
+        按原版默认配置（M2Share.pas:2019-2026）实现：
+        - 背包散落 ``boDieScatterBag=True``、``nDieScatterBagRate=3``：
+          每件背包物品 ``Random(3)=0`` 掉落（1/3 概率）；
+          红名 ``PKLevel>=2``（pk_point>=200）``boDieRedScatterBagAll=True`` 全掉
+          （TPlayObject.ScatterBagItems，ObjBase.pas:26648-26687）；
+        - 身上装备 ``DropUseItems``（:20689-20757）：被怪杀死才掉
+          （``boKillByMonstDropUseItem=True``，:21005；被玩家杀
+          ``boKillByHumanDropUseItem=False`` 不掉），每槽 ``Random(30)=0``
+          掉落、红名 ``nDieRedDropUseItemRate=15``；
+        - 金币 ``boDieDropGold=False``（:21012）默认不掉。
+
+        落地半径 ``DropWide=2``（ScatterBagItems:26650 / DropUseItems 传 2）。
+        毒死/未知来源按被怪杀处理（原版 m_LastHiter 即毒源怪）。
+        """
+        from .world import Player
+
+        has_bag = bool(p.bag)
+        has_equip = any(it is not None for it in p.equipment)
+        if not has_bag and not has_equip:
+            return
+        red = p.pk_point >= RED_NAME_PK_POINT
+        dropped: list[str] = []
+
+        # ① 背包散落（原版 for i := Count-1 downto 0 逐件 Random(3)=0）
+        keep: list[dict] = []
+        for it in p.bag:
+            if red or random.randrange(3) == 0:
+                if self._death_drop_one(p, it):
+                    dropped.append("物品")
+                    continue
+            keep.append(it)
+        p.bag = keep
+
+        # ② 身上装备：被怪杀才掉（每槽 Random(rate)=0）
+        if not isinstance(killer, Player):
+            rate = 15 if red else 30
+            for slot in range(len(p.equipment)):
+                it = p.equipment[slot]
+                if it is not None and random.randrange(rate) == 0:
+                    if self._death_drop_one(p, it):
+                        p.equipment[slot] = None
+                        dropped.append("装备")
+        if dropped:
+            p.recompute(self)
+            self.send_bag_update(p)
+            self.send_system(p, f"死亡掉落了 {len(dropped)} 件物品在尸体旁。")
+
+    def _death_drop_one(self, p, it: dict) -> bool:
+        pos = self.scatter_pos(p.map, p.x, p.y, 2)
+        if pos is None:
+            return False
+        gi = GroundItem(self.new_id(), it, 0, pos[0], pos[1], now_ms(), p.map)
+        if not self.add_ground_item(gi):
+            return False
+        it.pop("slot", None)
+        return True
+
+    def drop_gold(self, p, amount: int) -> bool:
+        """原版 ``TPlayObject.ClientDropGold``（ObjBase.pas:16187-16212）：
+        ``nGold >= m_nGold`` 拒绝——必须至少留 1 金币；成功则
+        ``DropGoldDown``（:2301）``GetDropPosition`` 半径 3 落地，
+        同格 <=2000 金币自动合并（``add_ground_item``）。"""
+        if amount <= 0 or amount >= p.gold:
+            return False
+        pos = self.scatter_pos(p.map, p.x, p.y, 3)
+        if pos is None:
+            return False
+        gi = GroundItem(self.new_id(), None, amount, pos[0], pos[1],
+                        now_ms(), p.map)
+        self.add_ground_item(gi)    # 金币 False = 已并入同格旧堆，同样算成功
+        p.gold -= amount
+        self.send_stats(p)
+        return True
 
     def broadcast_rush(self, a, steps: int) -> None:
         self.broadcast_around(a.map, {"type": "move", "id": a.id, "x": a.x, "y": a.y,

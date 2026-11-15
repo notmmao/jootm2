@@ -440,7 +440,7 @@ class CombatHandlers:
         elif sword_hit == 25:
             self._sword_wide_attack(p, sword_second_dam(p, raw, 25, 13), target)
         if target.hp <= 0:
-            w.kill_player(target)
+            w.kill_player(target, p)
 
     def _sword_long_hit_monster(self, p, m) -> None:
         w = self.world
@@ -502,7 +502,7 @@ class CombatHandlers:
                                front.x, front.y, SIGHT_RANGE)
             w.send_stats(front)
             if front.hp <= 0:
-                w.kill_player(front)
+                w.kill_player(front, p)
         if not hit_check(p, target):
             w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
                              "targetId": target.id, "miss": True, "dir": p.dir,
@@ -519,7 +519,7 @@ class CombatHandlers:
         w.send_stats(target)
         self._train_sword_skills(p, 12)      # 刺杀主目标命中（原版 _Attack 统一加点）
         if target.hp <= 0:
-            w.kill_player(target)
+            w.kill_player(target, p)
 
     def _sword_long_attack(self, p, second: int, exclude) -> None:
         dx, dy = direction_delta(p.dir)
@@ -559,7 +559,7 @@ class CombatHandlers:
                                target.x, target.y, SIGHT_RANGE)
             w.send_stats(target)
             if target.hp <= 0:
-                w.kill_player(target)
+                w.kill_player(target, p)
 
     # ---- 消息入口：方向攻击 --------------------------------------------
 

@@ -1633,6 +1633,22 @@ end;
 
 ---
 
+## §64 死亡惩罚掉落 + 丢金币（2026-11-15）
+
+- **死亡惩罚（此前完全没有）**：`kill_player(p, killer=None)` 新增掉落链 `_death_drops`，按原版 `TBaseObject.Die`（ObjBase.pas:20982-21013）+ 默认配置（M2Share.pas:2019-2026）：
+  - 背包散落：每件 `Random(3)=0`（1/3 概率）掉在尸体旁（`boDieScatterBag=True / rate=3`）；红名 `PKLevel>=2`（pk_point>=200）全掉（`boDieRedScatterBagAll=True`，TPlayObject.ScatterBagItems :26648）。
+  - 身上装备：**被怪杀才掉**（`boKillByMonstDropUseItem=True`，:21005；被玩家杀 `boKillByHumanDropUseItem=False` 不掉），每槽 `Random(30)=0`、红名 15（`DropUseItems` :20689）。
+  - 金币：`boDieDropGold=False` 默认**不掉**（:21012）。
+  - 落地用 `scatter_pos(range=2)`（原版 `DropWide=2`）；掉装备后 `recompute` + `bagUpdate`。
+  - 调用点：PvP 4 处传攻击者 Player，怪杀传怪实例（world.py:2364），毒死/未知按被怪杀语义（killer=None）。
+- **丢金币**：新消息 `dropGold {gold}`（原版 CM_DROPGOLD，ClMain.pas:3759 → ObjBase.pas:4771 `ClientDropGold` :16187）——`nGold >= m_nGold` 拒绝（**必须留 1 金币**）、`scatter_pos(range=3)` 落地（`DropGoldDown` :2301）、同格 <=2000 金币自动合并（add_ground_item）。已注册 `_handlers` / `ITEM_TYPES` / `test_all_messages.py`。
+- **前端**（PlayScene.mjs）：背包金币显示可点击「拿起」（高亮 outline），再点游戏画面弹「你想放下多少金币?」对话框（原版 FState.pas:1953-1974 DBackgroundBackgroundClick → DMessageDlg），确认后发 `dropGold`；Enter 确认 / Esc 取消。
+- **回归**：新增 `scripts/test_death_drop.py` **19/0**（散落守恒 / 红名全掉 / 被玩家杀装备不掉 / 被怪杀掉 / 金币默认不掉 / dropGold 拒绝边界与全链路）；全量回归 99/169/91/16/11/32 全绿。
+- 注意：`GetDropPosition` 专挑空格，多堆金币天然落在不同格，「同格合并」只是兜底——测试按总量断言而非堆数。
+- 改动文件：`pyserver/world_extra.py`、`pyserver/world.py`、`pyserver/handlers_combat.py`、`pyserver/handlers_items.py`、`pyserver/service.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_death_drop.py`（新增）、`scripts/test_all_messages.py`、本文 §64。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

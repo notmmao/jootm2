@@ -122,6 +122,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "takeOffItem": self._take_off_item,
             "quickSlot": self._quick_slot,
             "drop": self._drop,
+            # 原版 CM_DROPGOLD（ClMain.pas:3759 SendDropGold → ObjBase.pas:4771）
+            "dropGold": self._drop_gold,
             "moveItem": self._move_item,
             "magicKeyChange": self._magic_key_change,
             # NPC / 商店

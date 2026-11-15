@@ -2361,7 +2361,7 @@ class GameWorld(WorldExtra):
                 target.last_poison_at = now_ms()
                 self.send_stats(target)
         if target.hp <= 0:
-            self.kill_player(target)
+            self.kill_player(target, m)
 
     def _send_hits(self, attacker: Actor, target: Actor, damage: int) -> None:
         # dir 对齐原版 SM_HIT 的 wParam = m_btDirection（ObjBase.pas:5322-5327）：
