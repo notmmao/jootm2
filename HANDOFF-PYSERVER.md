@@ -1607,6 +1607,18 @@ end;
 
 ---
 
+## §63 wiki 命名 + 计划文档 + 阿里云部署同步（2026-11-15）
+
+- **命名约定（用户）**：数据库静态站以后统一叫 **wiki**；部署阿里云时 wiki 站要跟着同步。计划文档见 `docs/WIKI-PLAN.md`（结构参考 `docs/AUTOPILOT-PLAN.md`）。
+- **部署内容**：`ac69642` 镜像（含 §60 的 `/site` 路由、§61 持久磨损、§62 站点指针），ACR 双标签 `ac69642` + `latest`。
+- **流程**：`gen_version.py` → 本地 `docker build` → push ACR → 服务器 pull/tag `jootm2:python` → `docker compose up -d` → `rsync -a --delete data/website/ root@aliyun.notmmao.com:/root/jootm2/data/website/`（compose 已挂 `./data:/app/data`，无需再重启）。
+- **验证**：`/api/version` = `ac69642`；`/api/status` 200；`/site/` 200，`Content-Length: 173513`（首页统计 541/39/273/445/133/245）；`/site/npcs.html` 51241；`/site/assets/maps/0.png` 98994；`Content-Type: text/html; charset=utf-8`、缓存头 `max-age=60, must-revalidate`、无 `Content-Encoding`（符合站点关 gzip 的设计）。
+- **版本差**：本次部署的镜像版本 = `ac69642`；随后只有本节的纯文档提交，按约定不为文档重建镜像，所以 `/api/version` 会比 HEAD 落后一个文档提交（下次有代码改动时自然对齐）。
+- **坑**：公网首次连续 curl 时 `-w %{size_download}` 偶发报出远小于 `Content-Length` 的数值（2824/4236），但紧接着单独请求并 `wc -c` 实体完全一致——是 `-o /dev/null` 组合的测量假象，不是截断；判读以 `Content-Length` + 落地文件字节数为准。
+- 改动文件：`docs/WIKI-PLAN.md`（新增）、本文 §63。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
