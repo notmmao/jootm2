@@ -75,9 +75,9 @@ def clear_monsters(srv, p):
             w.actors.pop(a.id, None)
 
 
-def spawn(srv, p, dx, dy, hp=1):
+def spawn(srv, p, dx, dy, hp=1, name="稻草人"):
     w = srv.world
-    t = w.monster_templates.get("稻草人") or next(iter(w.monster_templates.values()))
+    t = w.monster_templates.get(name) or next(iter(w.monster_templates.values()))
     m = Monster(id=w.new_id(), name=t.name, x=p.x + dx, y=p.y + dy,
                 hp=hp, max_hp=max(hp, t.hp), level=t.level, exp=t.exp,
                 race=t.race, race_img=t.raceImg, appr=t.appr, template=t,
@@ -289,6 +289,68 @@ def main() -> int:
                   f"exp {exp_wall} → {p2.exp}")
         finally:
             GameMap.can_walk = orig_can_walk
+
+        print("\n=== 12. 空档期挖肉（safe/balanced 开、efficient 关）===")
+        from pyserver.world_extra import CORPSE_MS
+        clear_monsters(srv, p2)
+        for gid in list(srv.world.ground_items):
+            del srv.world.ground_items[gid]
+        p2.hp = p2.max_hp
+        w2 = srv.world
+        # 杀一只鸡留在 4 格外：可挖动物尸体（race 51，leathery 50 → 3~10 刀）。
+        # 服务端 _butch 按真实墙钟校验 corpse_until，测试虚拟时钟的 1000 会
+        # 被判「尸体已过期」拒收，这里必须用真实 now_ms()。
+        from pyserver.world import now_ms as _now_ms
+        chicken = spawn(srv, p2, 4, 0, hp=1, name="鸡")
+        w2.kill_monster(chicken, _now_ms(), p2)
+        check("鸡尸体可挖（butchable/未挖/未变骷髅）",
+              not chicken.alive and w2.butchable(chicken)
+              and not chicken.bag_looted and not chicken.skeleton
+              and chicken.corpse_until > _now_ms())
+        srv.autopilot.enable(p2, "balanced", now=end + 1000)
+        pilot5 = srv.autopilot.get(p2)
+        s.messages.clear()
+        bag0, butch_start = len(p2.bag), end + 1000
+        # advance 的虚拟时钟远快于真实墙钟，而服务端 _butch 的 600ms 出刀
+        # 节流按真实 now_ms() 校验——把 service 模块的 now_ms 打补丁成
+        # 「真实起点 + 虚拟偏移」，两边节拍才一致。
+        import pyserver.service as _svc
+        _orig_now_ms = _svc.now_ms
+        _clock = {"v": butch_start}
+        _real0 = _now_ms()
+        _svc.now_ms = lambda: _real0 + max(0, _clock["v"] - butch_start)
+        try:
+            for _ in range(140):
+                _clock["v"] += 100
+                srv.autopilot.tick(_clock["v"])
+            end = _clock["v"]
+        finally:
+            _svc.now_ms = _orig_now_ms
+        butch_sends = [m for m in s.messages if m.get("type") == "butch"
+                       and m.get("actorId") == p2.id and m.get("meat")]
+        check("走到尸体 2 格内出刀挖肉", len(butch_sends) >= 1,
+              f"butch 消息 {len(butch_sends)} 条")
+        check("挖空后尸体标记 bag_looted", chicken.bag_looted)
+        check("挖肉产出进背包（肉/金币）",
+              len(p2.bag) > bag0 or p2.gold > gold0,
+              f"bag {bag0}→{len(p2.bag)}, gold {gold0}→{p2.gold}")
+        check("挖完释放尸体目标锁", pilot5.butch_id == 0,
+              f"butch_id={pilot5.butch_id}")
+        check("挖肉期间熔断不误停（产出算进展）",
+              pilot5.active or "挖肉" not in pilot5.reason,
+              pilot5.reason)
+        # 效率档：不开挖肉
+        chicken2 = spawn(srv, p2, 5, 1, hp=1, name="鸡")
+        w2.kill_monster(chicken2, _now_ms(), p2)
+        srv.autopilot.enable(p2, "efficient", now=end + 1000)
+        pilot6 = srv.autopilot.get(p2)
+        s.messages.clear()
+        end = advance(srv, 60, start=end + 1000, step=100)
+        check("效率档不出刀挖肉",
+              not any(m.get("type") == "butch" for m in s.messages)
+              and not chicken2.bag_looted,
+              f"butch={sum(1 for m in s.messages if m.get('type') == 'butch')}")
+        srv.autopilot.disable(p2, "测试结束")
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):

@@ -36,6 +36,8 @@ STUCK_MS = 180_000              # 零经验熔断：大图从城里走到野外�
                                 # 设太短会把「正在赶路」误判成卡死
 PATH_MAX_NODES = 6000           # A* 单次扫描上限（100ms tick 内纯内存可承受）
 LOOT_LOCK_MS = 8000             # 拾取目标锁定时长，避免多件掉落间来回抖动
+BUTCH_LOCK_MS = 15_000          # 挖肉尸体锁定（一只动物要挖 3~10 次 × 600ms）
+BUTCH_INTERVAL_MS = 700         # 挖肉动作节奏（服务端校验 600ms，留余量防无效连点）
 UNREACHABLE_MS = 10_000         # 不可达目标黑名单时长（怪会移动，不能永久拉黑）
 BLOCKED_LIMIT = 4               # 连续被挡几步就换目标，别原地磨墙
 
@@ -44,20 +46,20 @@ PRESETS: dict[str, dict] = {
     "safe": {
         "name": "安全", "level_delta": 0, "sight": 9, "loot_sight": 6,
         "potion_hp": 0.70, "retreat_hp": 0.42, "max_target_dc": 12,
-        "pickup_min_price": 0, "thrust": False,
-        "desc": "只打不高于自身等级的怪，血线 70% 就喝药",
+        "pickup_min_price": 0, "thrust": False, "butch": True,
+        "desc": "只打不高于自身等级的怪，血线 70% 就喝药，顺手挖肉赚钱",
     },
     "balanced": {
         "name": "均衡", "level_delta": 3, "sight": 12, "loot_sight": 8,
         "potion_hp": 0.55, "retreat_hp": 0.28, "max_target_dc": 18,
-        "pickup_min_price": 0, "thrust": True,
-        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药",
+        "pickup_min_price": 0, "thrust": True, "butch": True,
+        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药，顺手挖肉赚钱",
     },
     "efficient": {
         "name": "效率", "level_delta": 8, "sight": 12, "loot_sight": 10,
         "potion_hp": 0.45, "retreat_hp": 0.20, "max_target_dc": 26,
-        "pickup_min_price": 50, "thrust": True,
-        "desc": "接受高 8 级的怪、只捡值钱物品，药水用得更省",
+        "pickup_min_price": 50, "thrust": True, "butch": False,
+        "desc": "接受高 8 级的怪、只捡值钱物品，不挖肉专注升级",
     },
 }
 DEFAULT_PRESET = "balanced"
@@ -197,6 +199,11 @@ class AutoPilot:
     target_id: int = 0
     loot_id: int = 0
     loot_until: int = 0
+    butch_id: int = 0              # 正在挖的尸体 id
+    butch_until: int = 0           # 挖肉目标锁过期时刻
+    last_butch_at: int = 0
+    last_bag: int = 0              # 背包数快照：挖肉/拾取得手也是「进展」信号
+    last_gold: int = 0
     unreachable: dict[int, int] = field(default_factory=dict)  # 怪 id → 黑名单过期时刻
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
@@ -225,9 +232,15 @@ class AutoPilot:
             return
 
         cfg = PRESETS[self.preset]
-        # 熔断：长时间一点经验都没涨，说明卡住 / 打不到怪 / 断在奇怪状态。
-        if p.exp != self.last_exp:
+        # 熔断：长时间一点进展都没有（经验/背包/金币都不变），说明卡住 /
+        # 打不到怪 / 断在奇怪状态。挖肉不涨经验但会进肉、捡钱也只动金币，
+        # 都要算进展，否则新手纯挖肉赚钱 3 分钟就被误停。
+        progress = (p.exp != self.last_exp or len(p.bag) != self.last_bag
+                    or p.gold != self.last_gold)
+        if progress:
             self.last_exp = p.exp
+            self.last_bag = len(p.bag)
+            self.last_gold = p.gold
             self.last_progress_at = now
         elif now - self.last_progress_at >= STUCK_MS:
             mgr.disable(p, "长时间没有获得经验，托管已停止")
@@ -316,7 +329,11 @@ class AutoPilot:
         route = route_for(p.level)
         target = self._choose_target(w, p, cfg, route, now)
         if target is None:
-            # 视野内没怪 → 朝全图最近的合格怪走（步子仍受走/跑节拍限制）
+            # 视野内没有可打的怪 → 空档期挖肉（新角色金币主要来源：鸡/鹿/羊/
+            # 狼都是可挖动物，肉卖给商店换钱）。原版 Alt+左键 CM_BUTCH，
+            # 距离 ≤2 就能挖（ObjBase.pas:17470），不必站上尸体格。
+            if self._butch_corpses(srv, w, p, cfg, now):
+                return
             far = self._nearest_monster(w, p, cfg, now)
             if far is None:
                 self.set_status("附近没有可打的怪 · 等待刷新", now)
@@ -347,6 +364,70 @@ class AutoPilot:
                     and (a.target_id == p.id or p.distance_to(a) <= 1)):
                 return True
         return False
+
+    def _butch_corpses(self, srv, w, p, cfg, now: int) -> bool:
+        """空档期挖肉。返回 True = 本 tick 已被挖肉占用（走位或出刀）。
+
+        原版 CM_BUTCH 链路（ObjBase.pas:17458-17504）：
+        * 要求 ``m_boDeath and not m_boSkeleton and m_boAnimal``——尸体还在
+          （corpse_until 未过）、没变骷髅、是可挖动物；
+        * 距离 ≤2，两次出刀间隔 dwTurnIntervalTime（600ms 默认）；
+        * 挖空一次就 ``TakeBagItems`` 一次性拿走全部产出（bag_looted）。
+        只在视野里没有活怪可打时进行——有怪先清怪，挖肉不打断战斗节奏。
+        """
+        if not cfg.get("butch"):
+            return False
+        sight = cfg.get("loot_sight", 8)
+        corpse = self._choose_butch(w, p, cfg, now, sight)
+        if corpse is None:
+            self.butch_id = 0
+            return False
+        d = max(abs(p.x - corpse.x), abs(p.y - corpse.y))
+        if d > 2:
+            self._step_to(srv, w, p, corpse.x, corpse.y,
+                          ("butch", corpse.id), f"挖肉 · {corpse.name}", now)
+            return True
+        if now - self.last_butch_at < BUTCH_INTERVAL_MS:
+            self.set_status(f"挖肉 · {corpse.name}", now)
+            return True
+        self.last_butch_at = now
+        srv._butch(p.session, {"type": "butch", "actorId": corpse.id,
+                               "x": corpse.x, "y": corpse.y})
+        # 挖空（TakeBagItems 已给产出）或尸体被挖成骷髅/到期消失 → 释放目标
+        if corpse.bag_looted or corpse.skeleton or corpse.corpse_until <= now:
+            self.butch_id = 0
+            self.butch_until = 0
+        self.set_status(f"挖肉 · {corpse.name}", now)
+        return True
+
+    def _choose_butch(self, w, p, cfg, now: int, sight: int):
+        """选挖肉尸体：视野内最近的可挖尸体，锁定 15s（一只要挖 3~10 次）。"""
+        if self.butch_until > now:
+            m = w.actor(self.butch_id)
+            if (isinstance(m, Monster) and not m.alive and m.map is p.map
+                    and not m.skeleton and not m.bag_looted
+                    and m.corpse_until > now
+                    and max(abs(p.x - m.x), abs(p.y - m.y)) <= sight + 2):
+                return m
+        best, best_d = None, 10 ** 9
+        gm = p.map
+        if gm is None:
+            return None
+        for a in gm.actors.values():
+            # 注意：w.nearby 只返回活物，尸体必须直接扫地图注册表
+            if (not isinstance(a, Monster) or a.alive or a.skeleton
+                    or a.bag_looted or a.corpse_until <= now
+                    or not w.butchable(a)):
+                continue
+            if max(abs(a.x - p.x), abs(a.y - p.y)) > sight:
+                continue
+            d = p.distance_to(a)
+            if d < best_d:
+                best, best_d = a, d
+        if best is not None:
+            self.butch_id = best.id
+            self.butch_until = now + BUTCH_LOCK_MS
+        return best
 
     def _choose_loot(self, w, p, cfg, now: int):
         """主动拾取目标：按价值/距离评分，锁定 8s 避免多件掉落间来回抖动。"""
