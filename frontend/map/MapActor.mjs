@@ -990,8 +990,11 @@ export class MapActor {
         const byRow = this._byRow || (this._byRow = new Map());
         byRow.clear();
         for (const e of entities) {
-            if (!byRow.has(e.y)) byRow.set(e.y, []);
-            byRow.get(e.y).push(e);
+            // drawRow（原版 m_nDownDrawLevel）：沃玛系尸体分到 y-1 行参与排序，
+            // 屏幕锚点仍用 e.y —— 效果是同 y 行的掉落物/实体画在尸体之上。
+            const rowY = (e.drawRow != null && e.drawRow >= 0) ? e.drawRow : e.y;
+            if (!byRow.has(rowY)) byRow.set(rowY, []);
+            byRow.get(rowY).push(e);
         }
         // 地面掉落物也按行调度（原版 PlayScn.pas 在 `for j` 行循环里画
         // DropedItemList：`if j = DropItem.y - BlockTop`）。以前在整帧末尾统一画，

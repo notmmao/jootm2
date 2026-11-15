@@ -250,7 +250,20 @@ export class PlayScene extends Scene {
         this.entities.clear();
         this.entities.set(player.id, player);
         this._registerSound(player);
-        for (const e of nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
+        // 快照里的尸体要打上 _corpse 标记（与 entityAdd 路径 :1312 一致）：
+        // brief_json 只带 corpse:true 布尔，渲染层按 _corpse 分流画 ActDeath 帧。
+        // 漏了会画成「活物站着不动、过一会尸体到期被服务端收走才消失」。
+        for (const e of nearby || []) {
+            if (player && e.id === player.id) continue;   // self 用完整快照对象
+            if (e.corpse) {
+                e._corpse = true;
+                e._action = 'death';
+                e._actionAt = Date.now();
+            }
+            this.entities.set(e.id, e);
+            this._registerSound(e);
+            if (e.corpse) this._sprite(e).prefetchDeathFrame(e);
+        }
         // 脚步音按脚下地砖分类（原版 Actor.pas:2169-2257）：SoundManager 每次移动回调取一次。
         sound.terrainAt = (x, y) => this._terrainAt(x, y);
         this.groundItems.clear();
@@ -3934,9 +3947,17 @@ export class PlayScene extends Scene {
                 // 镜头匀速追赶时（托管跑路最明显）逻辑格和画出来的角色会差
                 // 好几格，光圈必须落在画出来的位置而不是逻辑格上。
                 shiftX: ox, shiftY: oy,
-                layers: sp.getLayers(now),
-            };
-            (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
+            // 沃玛系尸体绘制行下移一行（原版 m_nDownDrawLevel，AxeMon.pas:444-446：
+            // TSkeletonOma.GetDefaultFrame 对 m_wAppearance in [30..34,151] 设 1，
+            // TScorpionMon→TCatMon→TSkeletonOma 继承）。行循环里 j = Ry-Level 就画、
+            // 屏幕位置不变 → 本行（Ry）的掉落物/角色反而画在尸体之上。
+            // 其余怪 Level=0：同行尸体盖住物品是原版行为，不改。
+            drawRow: ((e._corpse || e._action === 'die')
+                      && (e.appr === 151 || (e.appr >= 30 && e.appr <= 34)))
+                ? e.y - 1 : undefined,
+            layers: sp.getLayers(now),
+        };
+        (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
         }
         entities.unshift(...corpses);
         perf.add('build', performance.now() - tBuild);
