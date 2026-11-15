@@ -1669,3 +1669,33 @@ end;
 5. `pyserver/world.py::tick` + `world_extra.py` —— 世界循环
 6. `scripts/` 下 `test_*.py` / `compare_stacks.py` + `scripts/golden/` —— 回归基线
 7. `git log --oneline -20` —— 最新提交即版本（`/api/version` 同源）
+
+## §65 升级特效跟随 + 掉落归属/同格拾取（2026-11-15）
+
+- **升级特效跟随角色**：原版 `DrawEffectHum(8)`（ClMain.pas:6732）是
+  `NewMagic(g_MySelf,...)`——特效绑 MagOwner，每帧按 owner 当前坐标绘制。
+  旧实现抓 spawn 时刻的逻辑格定格，托管跑路时光效落在原位置。前端 levelup
+  渲染分支改为每帧取 `this.self.x/y`。
+- **掉落归属**（原版 `ClientPickUpItem` ObjBase.pas:1699-1707）：
+  `GroundItem.owner_id`（对应 `MapItem.OfBaseObject`）+ `FLOOR_ITEM_OWNERSHIP_MS = 2*60*1000`
+  （`dwFloorItemCanPickUpTime` 默认值）。**只有怪物掉落**归属击杀者（原版用
+  m_ExpHitter，本项目以 killer 近似，drop_loot 传递 kill_monster 的 killer）；
+  玩家死亡散落（ScatterBagItems(nil)）、手动丢物品（:16265 传 nil）、
+  手动丢金币（ClientDropGold 同）**均无归属**。归属期内非本人/非同队拒绝
+  （g_sCanotPickUpItem「在一定时间以内无法捡起此物品！！！」），超时/归属者
+  不在图上放行。同队判定查双方 party 互含（原版 IsOfGroup）。
+- **同格拾取**：原版 `GetItem(m_nCurrX, m_nCurrY)`——必须站在物品所在格
+  （前端早已如此，服务端旧为 ±1 放行）。站上物品格 + 玩家不可重叠 →
+  「站住别人的掉落让人捡不到」玩法成立。
+- **托管适配**：`_step_to`/`bfs_path` 增加 `exact=True`（只认目标格），
+  捡拾走 exact；`_pickup` 同格过滤 + `_can_pick_owner` 跳过别人归属内物品。
+- **回归**：`scripts/test_death_drop.py` 扩到 **26/0**（非同格拒绝 / 站上可捡 /
+  他人归属内被拒+提示 / 同队可捡 / 超时可捡 / 死亡散落无归属）；test_autopilot
+  32/0（新增 exact 寻路）。全量回归 99/169/91/16/11/32 全绿。
+- 测试坑：复用同一 session 登录第二个角色会被服务端拒绝（session 已绑定），
+  必须独立 Session；重登链路每次创建新 Player 对象（旧 id 移出 map.players），
+  归属测试要用 `service.find_by_session` 取最新对象。
+- 改动文件：`pyserver/world_extra.py`、`pyserver/autopilot.py`、
+  `frontend/scene/PlayScene.mjs`、`scripts/test_death_drop.py`、本文 §65。
+
+---
