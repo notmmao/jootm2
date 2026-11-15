@@ -358,9 +358,10 @@ class AutoPilot:
                           ("monster", target.id), f"前往 {target.name}", now)
 
     def _nearby_threat(self, w, p) -> bool:
-        """两格内有活怪贴身 / 正在锁定我就先战斗。"""
+        """两格内有活怪贴身 / 正在锁定我就先战斗（召唤物不算威胁——
+        宝宝贴着主人是常态，敌对玩家的宝宝也不会主动锁玩家）。"""
         for a in w.nearby(p.map, p.x, p.y, 2):
-            if (isinstance(a, Monster) and a.alive
+            if (isinstance(a, Monster) and a.alive and a.master_id < 0
                     and (a.target_id == p.id or p.distance_to(a) <= 1)):
                 return True
         return False
@@ -430,7 +431,12 @@ class AutoPilot:
         return best
 
     def _choose_loot(self, w, p, cfg, now: int):
-        """主动拾取目标：按价值/距离评分，锁定 8s 避免多件掉落间来回抖动。"""
+        """主动拾取目标：按价值/距离评分，锁定 8s 避免多件掉落间来回抖动。
+
+        目标格被别的活物占着（怪站在金币上）时**直接跳过不追**：原版必须
+        站上物品格才能捡（ObjBase.pas:1696），被占的格永远进不去，追过去
+        只会「走不到→拉黑→换目标→又拉黑」来回掉头震荡。
+        """
         sight = cfg.get("loot_sight", 8)
         if self.loot_until > now:
             gi = w.ground_item(self.loot_id)
@@ -438,7 +444,8 @@ class AutoPilot:
                     and self.unreachable.get(gi.id, 0) <= now
                     and max(abs(p.x - gi.x), abs(p.y - gi.y)) <= sight + 2
                     and _want_pickup(w, gi, cfg)
-                    and w._can_pick_owner(p, gi)):
+                    and w._can_pick_owner(p, gi)
+                    and not _tile_blocked_by_other(p, gi.x, gi.y)):
                 return gi
         best, best_score = None, -1.0
         for gi in w.ground_items.values():
@@ -453,6 +460,8 @@ class AutoPilot:
                 continue
             if not gi.is_gold() and len(p.bag) >= BAG_SIZE:
                 continue
+            if d > 0 and _tile_blocked_by_other(p, gi.x, gi.y):
+                continue        # 落点被占：等怪走开，别来回掉头
             t = None if gi.is_gold() else _template(w, gi.item)
             value = 80 if gi.is_gold() else max(1, t.price if t else 1)
             score = value / (1.0 + d * 0.7)
@@ -466,7 +475,8 @@ class AutoPilot:
 
     def _choose_target(self, w, p, cfg, route, now: int):
         cached = w.actor(self.target_id)
-        if (isinstance(cached, Monster) and cached.alive and cached.map is p.map
+        if (isinstance(cached, Monster) and cached.alive and cached.master_id < 0
+                and cached.map is p.map
                 and p.distance_to(cached) <= cfg["sight"] + 2
                 and self.unreachable.get(cached.id, 0) <= now
                 and now - self.last_scan_at < 600):
@@ -476,6 +486,9 @@ class AutoPilot:
         for a in w.nearby(p.map, p.x, p.y, cfg["sight"]):
             if not isinstance(a, Monster) or not a.alive:
                 continue
+            if a.master_id >= 0:
+                continue        # 召唤物（含自己的宝宝）不是打怪目标——打了
+                                # 就是「道士攻击自己的召唤物」，还记仇到主人头上
             if self.unreachable.get(a.id, 0) > now:
                 continue
             t = a.template
@@ -511,6 +524,8 @@ class AutoPilot:
         for a in gm.actors.values():
             if not isinstance(a, Monster) or not a.alive or a.template is None:
                 continue
+            if a.master_id >= 0:
+                continue        # 召唤物不追（见 _choose_target）
             if self.unreachable.get(a.id, 0) > now:
                 continue
             if any(k in a.name for k in AVOID_NAMES):
@@ -591,6 +606,18 @@ class AutoPilot:
 
 
 # ---------------------------------------------------------------- 物品筛选
+def _tile_blocked_by_other(p, x: int, y: int) -> bool:
+    """目标格是否有**别的**活物占位（自己站在上面不算——那正是捡拾位）。
+
+    ``GameMap.occupied`` 把玩家自己也算进去，捡拾判定必须排除自身。
+    """
+    gm = p.map
+    if gm is None:
+        return False
+    lst = gm.by_pos.get((x, y))
+    return any(a.alive and a is not p for a in (lst or ()))
+
+
 def _template(w, it: dict | None):
     if not it:
         return None
