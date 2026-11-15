@@ -135,7 +135,26 @@ def main() -> None:
     check("宝宝 HP 不变", baby.hp == baby_hp, f"hp={baby.hp}/{baby_hp}")
     check("野生怪受伤", wild.hp < wild_hp, f"hp={wild.hp}/{wild_hp}")
 
-    print("\n[5] 大地图入口数据（MapInfo.txt 连接行 → snapshot.gates）")
+    print("\n[5] 治愈术可治疗自家宝宝（IsProperFriend，ObjBase.pas:24192-24196）")
+    baby.hp = max(1, baby.hp // 2)
+    hurt = baby.hp
+    p.skills[2] = {"level": 0}          # 治愈术 0 级
+    p.mp = 1000
+    send(srv, sess, "castMagic", magicId=2,
+         targetX=baby.x, targetY=baby.y, targetId=baby.id)
+    check("宝宝 HP 回升", baby.hp > hurt, f"hp={baby.hp}/{baby.max_hp}")
+
+    print("\n[6] 治愈术不可治疗野生怪（IsProperFriend=False → 无人被治疗）")
+    wild.hp = max(1, wild.hp // 2)
+    wild_hp = wild.hp
+    p.hp = p.max_hp // 2
+    my_hp = p.hp
+    send(srv, sess, "castMagic", magicId=2,
+         targetX=wild.x, targetY=wild.y, targetId=wild.id)
+    check("野生怪 HP 不变", wild.hp == wild_hp, f"hp={wild.hp}/{wild_hp}")
+    check("自己也不被治疗", p.hp == my_hp, f"hp={p.hp}/{my_hp}")
+
+    print("\n[7] 大地图入口数据（MapInfo.txt 连接行 → snapshot.gates）")
     snap = w.map_snapshot(p, "test")
     gates = snap["map"].get("gates") or []
     check("比奇省(map 0) 有入口数据", len(gates) > 0, f"gates={len(gates)}")

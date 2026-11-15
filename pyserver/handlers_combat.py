@@ -1062,10 +1062,13 @@ class CombatHandlers:
         if (target is not None and tx >= 0 and ty >= 0
                 and (abs(target.x - tx) > 1 or abs(target.y - ty) > 1)):
             target = None
-        # 原版 IsProperTarget（ObjBase.pas:21508-21513）：自家宝宝不可作目标
-        # （攻击模式≠全体攻击）。目标作废 → 按对地施法处理，特效照放、无伤害，
-        # 与「打空」同一软失败路径。
-        if isinstance(target, Monster) and target.master_id == p.id:
+        # 原版 IsProperTarget（ObjBase.pas:21508-21513）：自家宝宝不可作攻击
+        # 目标（攻击模式≠全体攻击）。目标作废 → 按对地施法处理，特效照放、
+        # 无伤害，与「打空」同一软失败路径。治疗系走 IsProperFriend
+        # （ObjBase.pas:24192-24196，主人=自己 → True），宝宝**可**作治疗目标，
+        # 不在此豁免之列。
+        if (isinstance(target, Monster) and target.master_id == p.id
+                and not is_heal_magic(magic_id)):
             target = None
         if isinstance(target, Monster):
             p.target_id = target.id
@@ -1182,15 +1185,22 @@ class CombatHandlers:
                                                                   target.x, target.y), push)
             return True
 
-        # 2 治愈术（:301）
+        # 2 治愈术（:301）：IsProperFriend（ObjBase.pas:24192-24196）主人=自己
+        # 的宝宝恒为友方，可作治疗目标；别的怪 / 别人的宝宝不可。
         if is_heal_magic(magic_id):
-            if not isinstance(target, Player):
+            if not (isinstance(target, Player)
+                    or (isinstance(target, Monster) and target.master_id == p.id)):
                 return False
             if target.hp >= target.max_hp:
                 return False
             heal = max(1, heal_power(p, t, lv))
-            target.inc_healing = (min(300, target.inc_healing + heal)
-                                 if target.inc_healing + heal < 300 else 300)
+            if isinstance(target, Player):
+                target.inc_healing = (min(300, target.inc_healing + heal)
+                                      if target.inc_healing + heal < 300 else 300)
+            else:
+                # 宝宝没有 inc_healing 池：原版 RM_MAGHEALING 经 SendDelayMsg
+                # 800ms 延迟后即时加血（Magic.pas:316），直接加并广播 stats。
+                target.hp = min(target.max_hp, target.hp + heal)
             w.send_stats(target)
             return True
 
@@ -1421,13 +1431,20 @@ class CombatHandlers:
 
         # 29 群体治疗术（:532 MagBigHealing）：目标点 3x3 内的队友
         if magic_id == 29:
+            # IsProperFriend：队友/自己 + 主人=自己的宝宝都可被群疗
             pwr = heal_power(p, t, lv)
             healed = 0
             for nb in w.nearby(p.map, tx, ty, 1):
-                if not isinstance(nb, Player) or not nb.alive or nb.hp >= nb.max_hp:
+                if not nb.alive or nb.hp >= nb.max_hp:
                     continue
-                nb.inc_healing = (min(300, nb.inc_healing + pwr)
-                                 if nb.inc_healing + pwr < 300 else 300)
+                if not (isinstance(nb, Player)
+                        or (isinstance(nb, Monster) and nb.master_id == p.id)):
+                    continue
+                if isinstance(nb, Player):
+                    nb.inc_healing = (min(300, nb.inc_healing + pwr)
+                                      if nb.inc_healing + pwr < 300 else 300)
+                else:
+                    nb.hp = min(nb.max_hp, nb.hp + pwr)
                 w.send_stats(nb)
                 healed += 1
             w.send_system(p, f"施展了 {t.name}，治疗了 {healed} 个目标。")
