@@ -32,6 +32,11 @@ CORPSE_MS = 180_000
 # 初值 50 见 ``ObjBase.pas:1286``。所以出肉次数是随机的 3~10 次（平均约 4），
 # 不是固定的 2 次。
 BODY_LEATHERY = 50
+
+# 掉落物归属时长：原版 ``g_Config.dwFloorItemCanPickUpTime`` 默认
+# ``2 * 60 * 1000``（ClientPickUpItem ObjBase.pas:1699）。到期后
+# ``OfBaseObject := nil``，谁都能捡。
+FLOOR_ITEM_OWNERSHIP_MS = 2 * 60 * 1000
 BUTCH_WEAR_MIN = 5
 BUTCH_WEAR_MAX = 20
 
@@ -100,6 +105,10 @@ class GroundItem:
     y: int
     created_at: int
     map: Any = None
+    # 归属（原版 MapItem.OfBaseObject）：只有**怪物掉落**归属击杀者（含召唤
+    # 主人，ObjBase.pas:20987 用 m_ExpHitter），玩家死亡散落 / 手动丢弃 /
+    # 手动丢金币都传 nil（:21011 / :16265 / ClientDropGold）→ 谁都能捡。
+    owner_id: int = -1
 
     def is_gold(self) -> bool:
         return self.gold > 0
@@ -526,14 +535,42 @@ class WorldExtra:
                 return True
         return False
 
+    def _can_pick_owner(self, p, gi) -> bool:
+        """掉落归属判定（原版 ``ClientPickUpItem`` ObjBase.pas:1699-1707）：
+        掉落 ``dwFloorItemCanPickUpTime``（默认 2 分钟）内归属
+        ``MapItem.OfBaseObject``（只有怪物掉落会设置——击杀者/召唤主人），
+        本人或同队成员可捡；超时原版 ``OfBaseObject := nil`` 谁都能捡；
+        归属者离线（查不到）同样放行。"""
+        if gi.owner_id < 0 or gi.owner_id == p.id:
+            return True
+        if now_ms() - gi.created_at > FLOOR_ITEM_OWNERSHIP_MS:
+            return True
+        owner = gi.map.players.get(int(gi.owner_id))
+        if owner is None:
+            return True
+        my_party = self.party_of(p.id)
+        if my_party is not None and owner.id in my_party.member_ids:
+            return True
+        owner_party = self.party_of(owner.id)
+        if owner_party is not None and p.id in owner_party.member_ids:
+            return True
+        return False
+
     def pickup(self, p, item_id: int) -> bool:
         gi = self.ground_items.get(int(item_id))
         if gi is None or gi.map is not p.map:
             return False
-        if max(abs(p.x - gi.x), abs(p.y - gi.y)) > 1:
+        # 原版 ``GetItem(m_nCurrX, m_nCurrY)``（ObjBase.pas:1696）：**必须站在
+        # 物品所在格上**才能捡——这也构成「站上去挡住别人捡」的玩法（玩家
+        # 不能重叠占格，别人进不了这一格就永远捡不到）。
+        if gi.x != p.x or gi.y != p.y:
             return False
         if not gi.is_gold() and len(p.bag) >= BAG_SIZE:
             self.send_system(p, "背包已满，无法拾取。")
+            return False
+        if not self._can_pick_owner(p, gi):
+            # g_sCanotPickUpItem（ObjBase.pas:1705）
+            self.send_system(p, "在一定时间以内无法捡起此物品！！！")
             return False
         del self.ground_items[gi.id]
         if gi.is_gold():
@@ -610,12 +647,18 @@ class WorldExtra:
         self._broadcast_item_drop(gi)
         return True
 
-    def drop_loot(self, m) -> None:
+    def drop_loot(self, m, killer=None) -> None:
+        """怪物掉落（原版 ``ScatterBagItems(AttackBaseObject)`` ObjBase.pas:20987
+        用 ``m_ExpHitter``——本项目以击杀者近似）。掉落物归属击杀者
+        （含召唤主人）2 分钟（``FLOOR_ITEM_OWNERSHIP_MS``），本人/同队可捡。"""
+        from .world import Player
+
         table = self.drop_tables.get(m.template.name if m.template else m.name)
         if not table:
             return
         mon = m.template.name if m.template else m.name
         rates = self.drop_rates
+        owner_id = killer.id if killer is not None and isinstance(killer, Player) else -1
         for e in table:
             # 原版概率是 num/den（MonItems 的 `1/4`），倍率在判定时相乘。
             if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point):
@@ -627,14 +670,14 @@ class WorldExtra:
                 gold = java_div(e.count, 2) + int(random.random() * e.count)
                 gold = max(1, int(gold * rates.amount(mon)))
                 gi = GroundItem(self.new_id(), None, gold, pos[0], pos[1],
-                                now_ms(), m.map)
+                                now_ms(), m.map, owner_id)
             else:
                 t = self.item_template_by_name(e.item_name)
                 if t is None:
                     continue
                 dura = max(1, java_div(t.duraMax * (20 + int(random.random() * 81)), 100))
                 gi = GroundItem(self.new_id(), self.new_item_instance(t, dura), 0,
-                                pos[0], pos[1], now_ms(), m.map)
+                                pos[0], pos[1], now_ms(), m.map, owner_id)
             self.add_ground_item(gi)
 
     def roll_butch_loot(self, m, p) -> list[dict]:
@@ -752,7 +795,7 @@ class WorldExtra:
         m.body_leathery = self.base_leathery(m)
         m.bag_looted = False
         if not animal:
-            self.drop_loot(m)
+            self.drop_loot(m, killer)
         if killer is not None:
             self.trigger_map_quest(killer, m)
         # corpse=True → 客户端按尸体处理（隐藏名字/血条、画倒地帧）；

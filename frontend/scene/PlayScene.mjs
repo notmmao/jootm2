@@ -4336,14 +4336,16 @@ export class PlayScene extends Scene {
                 // 残留值，未投掷恒 0）当屏幕坐标用，特效会飞到屏幕左上，是坏实现。
                 // 这里按「图片底部 = 角色脚底」对齐、水平以角色格中心居中；
                 // WIL 自带锚点 px/py=7/-44 是选角场景的占位值，不套用。
+                // **跟随角色**：原版 NewMagic(g_MySelf,...)（ClMain.pas:6733）特效
+                // 绑 MagOwner，每帧按 owner 当前坐标画——托管跑路时特效跟着人走。
                 const ft = 80;
                 const frames = 14;
                 const rel = Math.floor(elapsed / ft);
                 if (rel >= frames) continue;   // 一次性播放完移除
                 const tex = this._fxTexture({ lib: 'chrsel', base: 4 }, rel, frames);
-                if (tex) {
-                    const sx = this.mapActor.screenX(fx.x) + 24 - tex.width / 2;
-                    const sy = this.mapActor.screenY(fx.y) + 16 - tex.height;
+                if (tex && this.self) {
+                    const sx = this.mapActor.screenX(this.self.x) + 24 - tex.width / 2;
+                    const sy = this.mapActor.screenY(this.self.y) + 16 - tex.height;
                     ctx.save();
                     ctx.globalCompositeOperation = 'lighter';   // 原版 DrawBlend
                     ctx.drawImage(tex.canvas, sx, sy);

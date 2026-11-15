@@ -122,13 +122,15 @@ def _walkable(game_map, x: int, y: int) -> bool:
             and game_map.can_walk(x, y) and not game_map.occupied(x, y))
 
 
-def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int) -> list[int]:
-    """8 方向 A*（切比雪夫启发），返回走到「目标格或其相邻格」的方向序列。
+def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int,
+             exact: bool = False) -> list[int]:
+    """8 方向 A*（切比雪夫启发），默认返回走到「目标格或其相邻格」的方向序列；
+    ``exact=True`` 只认目标格本身（捡拾必须站在物品所在格，ObjBase.pas:1696）。
 
     只做本图寻路；找不到返回空列表，调用方据此**换目标**而不是直线撞墙。
     启发式让大图绕墙比朴素 BFS 少扫一个量级，节点上限保护 100ms tick。
     """
-    if game_map is None or max(abs(sx - tx), abs(sy - ty)) <= 1:
+    if game_map is None or max(abs(sx - tx), abs(sy - ty)) <= (0 if exact else 1):
         return []
     start = (sx, sy)
 
@@ -155,7 +157,7 @@ def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int) -> list[int]:
                 continue
             best[(nx, ny)] = ng
             prev[(nx, ny)] = (d, (cx, cy))
-            if max(abs(nx - tx), abs(ny - ty)) <= 1:
+            if max(abs(nx - tx), abs(ny - ty)) <= (0 if exact else 1):
                 goal = (nx, ny)
                 heap.clear()
                 break
@@ -276,10 +278,13 @@ class AutoPilot:
         if now - self.last_pickup_at < PICKUP_INTERVAL_MS:
             return
         for gi in list(w.ground_items.values()):
-            if gi.map is not p.map or max(abs(p.x - gi.x), abs(p.y - gi.y)) > 1:
+            # 原版 ClientPickUpItem（ObjBase.pas:1696）必须站在物品格上才能捡
+            if gi.map is not p.map or (p.x, p.y) != (gi.x, gi.y):
                 continue
             if not _want_pickup(w, gi, cfg):
                 continue
+            if not w._can_pick_owner(p, gi):
+                continue        # 别人的掉落（2 分钟归属内），别反复尝试
             if not gi.is_gold() and len(p.bag) >= BAG_SIZE:
                 continue
             self.last_pickup_at = now
@@ -301,12 +306,12 @@ class AutoPilot:
         loot = None if self._nearby_threat(w, p) else self._choose_loot(w, p, cfg, now)
         if loot is not None:
             d = max(abs(p.x - loot.x), abs(p.y - loot.y))
-            if d <= 1:
+            if d == 0:                       # 同格才能捡（原版 GetItem 自身坐标）
                 self.set_status("拾取中", now)   # _pickup 本 tick 已跑过
                 return
             label = "金币" if loot.is_gold() else "物品"
             self._step_to(srv, w, p, loot.x, loot.y,
-                          ("loot", loot.id), f"捡{label}", now)
+                          ("loot", loot.id), f"捡{label}", now, exact=True)
 
         route = route_for(p.level)
         target = self._choose_target(w, p, cfg, route, now)
@@ -351,12 +356,15 @@ class AutoPilot:
             if (gi is not None and gi.map is p.map
                     and self.unreachable.get(gi.id, 0) <= now
                     and max(abs(p.x - gi.x), abs(p.y - gi.y)) <= sight + 2
-                    and _want_pickup(w, gi, cfg)):
+                    and _want_pickup(w, gi, cfg)
+                    and w._can_pick_owner(p, gi)):
                 return gi
         best, best_score = None, -1.0
         for gi in w.ground_items.values():
             if gi.map is not p.map or not _want_pickup(w, gi, cfg):
                 continue
+            if not w._can_pick_owner(p, gi):
+                continue        # 2 分钟归属期内的别人掉落，跳过不追
             if self.unreachable.get(gi.id, 0) > now:
                 continue
             d = max(abs(p.x - gi.x), abs(p.y - gi.y))
@@ -437,15 +445,17 @@ class AutoPilot:
         return best
 
     def _step_to(self, srv, w, p, tx: int, ty: int, key: tuple,
-                 label: str, now: int) -> bool:
-        """走到目标点（相邻即可）；返回 False = 目标不可达、已换目标。
+                 label: str, now: int, exact: bool = False) -> bool:
+        """走到目标点（默认相邻即可，``exact=True`` 要求踏上目标格——
+        捡拾原版必须站在物品所在格上，ObjBase.pas:1696）；返回 False =
+        目标不可达、已换目标。
 
         距离 >=3 格按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去；逼近时
         仍用走。路径 A* 与 ``try_move`` 共用阻挡判定，找不到路**绝不退化成
         direction_toward 朝墙直线撞**，而是短时拉黑目标重新选。
         """
         dist = max(abs(p.x - tx), abs(p.y - ty))
-        if dist <= 1:
+        if dist <= (0 if exact else 1):
             return True
         running = dist >= RUN_MIN_DIST or len(self.path) >= 2
         interval = RUN_INTERVAL_MS if running else WALK_INTERVAL_MS
@@ -455,9 +465,9 @@ class AutoPilot:
             return True                      # 与手动共用换图短锁
         # 缓存只绑「目标 + 坐标 + 所在图」，不绑玩家坐标：路径是一串方向，
         # 走一步 pop 一步；目标移动 / 换图 / 被挡才重算。
-        path_key = key + (tx, ty, p.map.name if p.map else "")
+        path_key = key + (tx, ty, p.map.name if p.map else "", exact)
         if not self.path or self.path_key != path_key:
-            self.path = bfs_path(p.map, p.x, p.y, tx, ty)
+            self.path = bfs_path(p.map, p.x, p.y, tx, ty, exact)
             self.path_key = path_key
             if not self.path:
                 self._give_up_target(key, now)

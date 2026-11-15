@@ -31,7 +31,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
 from pyserver.util import RED_NAME_PK_POINT  # noqa: E402
-from pyserver.world import Monster, Player  # noqa: E402
+from pyserver.world import Monster, Player, now_ms  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -246,12 +246,107 @@ def test_drop_gold(w, p, sess, service):
           f"gold={p4.gold}, ground={[(gi.gold) for gi in g]}")
 
 
+def make_player(service, sess, name):
+    """在**独立 session** 上注册登录（复用同一 session 会被服务端拒绝重登）。"""
+    s = Session()
+    for msg in ({"type": "register", "username": name, "password": "test12345"},
+                {"type": "login", "username": name, "password": "test12345"},
+                {"type": "createCharacter", "name": name, "sex": 0,
+                 "hair": 1, "job": 0},
+                {"type": "enterGame", "name": name},
+                {"type": "noticeOk", "name": name}):
+        service.on_message(s, json.dumps(msg, ensure_ascii=False))
+    p = service.find_by_session(s)
+    assert p is not None and p.name == name, f"{name} 登录失败"
+    return p, s
+
+
+def test_pickup_rules(w, p, sess, service):
+    print("\n[5] 拾取：同格才能捡 + 2 分钟归属（怪物掉落归击杀者，同队可捡）")
+    from pyserver.world_extra import FLOOR_ITEM_OWNERSHIP_MS, GroundItem
+    b, b_sess = make_player(service, sess, "B" + str(int(time.time()) % 100000))
+    t = add_template(w, stdMode=0, shape=0, price=10)
+    gm = p.map or w.default_map
+
+    # ① 非同格拒绝（原版 GetItem(m_nCurrX, m_nCurrY)）：无归属物品，
+    #    站相邻格 → 静默失败；站上物品格 → 捡到
+    gi = GroundItem(w.new_id(), bag_item(t, 700301), 0, b.x + 1, b.y,
+                    now_ms(), gm, -1)
+    w.add_ground_item(gi)
+    b_sess.drain()
+    service._pickup(b_sess, {"type": "pickup", "itemId": gi.id})
+    check("非同格静默拒绝", gi.id in w.ground_items
+          and not any(m.get("type") == "bagUpdate" for m in b_sess.messages),
+          f"types={b_sess.types()}")
+    b.x, b.y = gi.x, gi.y        # 站到物品格上
+    b_sess.drain()
+    service._pickup(b_sess, {"type": "pickup", "itemId": gi.id})
+    check("站上物品格 → 捡到", gi.id not in w.ground_items,
+          f"types={b_sess.types()}")
+
+    # ② 别人 2 分钟内不能捡（g_sCanotPickUpItem）
+    gi2 = GroundItem(w.new_id(), bag_item(t, 700302), 0, b.x, b.y,
+                     now_ms(), gm, p.id)
+    w.add_ground_item(gi2)
+    b_sess.drain()
+    service._pickup(b_sess, {"type": "pickup", "itemId": gi2.id})
+    check("他人捡归属内物品被拒 + 提示",
+          any(m.get("type") == "systemMessage"
+              and "在一定时间以内无法捡起此物品" in m.get("text", "")
+              for m in b_sess.messages) and gi2.id in w.ground_items,
+          f"types={b_sess.types()}")
+
+    # ③ 同队成员可捡（原版 IsOfGroup）
+    w.create_party(p.id, b.id)
+    service._pickup(b_sess, {"type": "pickup", "itemId": gi2.id})
+    check("同队成员可捡", gi2.id not in w.ground_items,
+          f"types={b_sess.types()}")
+    w.leave_party(p.id)
+    w.leave_party(b.id)
+
+    # ④ 超过 2 分钟归属失效，谁都能捡
+    gi3 = GroundItem(w.new_id(), bag_item(t, 700303), 0, b.x, b.y,
+                     now_ms() - FLOOR_ITEM_OWNERSHIP_MS - 1, gm, p.id)
+    w.add_ground_item(gi3)
+    service._pickup(b_sess, {"type": "pickup", "itemId": gi3.id})
+    check("超时后他人可捡（OfBaseObject := nil）",
+          gi3.id not in w.ground_items)
+
+    # ⑤ 玩家死亡散落无归属：别人站上去直接可捡
+    p.pk_point = 0
+    p.bag = [bag_item(t, 700304)]
+    p.dead, p.alive = False, True
+    sess.drain()
+    real_randrange = random.randrange
+    random.randrange = lambda n: 0  # noqa: E731   # 必掉
+    try:
+        w.kill_player(p, None)
+    finally:
+        random.randrange = real_randrange
+    death_items = [gi for gi in w.ground_items.values()
+                   if gi.map is gm and gi.item
+                   and gi.item.get("makeIndex") == 700304]
+    check("死亡散落物 owner=-1（原版 ScatterBagItems(nil)）",
+          len(death_items) == 1 and death_items[0].owner_id == -1,
+          f"owner={death_items[0].owner_id if death_items else '?'}")
+    if death_items:
+        b.x, b.y = death_items[0].x, death_items[0].y
+        service._pickup(b_sess, {"type": "pickup", "itemId": death_items[0].id})
+        check("他人可立即捡死亡散落物",
+              death_items[0].id not in w.ground_items)
+
+
 def main():
     w, p, sess, service = build()
     test_bag_scatter(w, p, sess)
     p2 = test_red_scatter_all(w, p, sess, service)
     test_equip_drop_by_monster(w, p2, sess, service)
     test_drop_gold(w, p, sess, service)
+    # 重登链路会创建新 Player 对象（旧 id 已从 map.players 移除），
+    # 归属测试必须用当前 session 绑定的最新对象。
+    p = service.find_by_session(sess)
+    assert p is not None
+    test_pickup_rules(w, p, sess, service)
     print(f"\n结果: {PASS} PASS / {FAIL} FAIL")
     return 1 if FAIL else 0
 
