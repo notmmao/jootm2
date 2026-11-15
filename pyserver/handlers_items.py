@@ -120,10 +120,22 @@ class ItemHandlers:
         elif 0 <= t.stdMode <= 2:
             self._consume(p, t, it)
         elif t.stdMode == 3:
-            if t.shape in (1, 2, 3, 5):
+            # 原版 ObjBase.pas:23335-23438 EatItems → EatUseItems(StdItem.Shape)
+            # (:23513-23591) 按 Shape 精确分流。旧实现把「非卷轴」一律当祝福油，
+            # 导致修复油(9)/战神油(10)/增益药水(12) 全都被拿去加武器幸运。
+            #   1/2/3/5 传送卷、4 祝福油 WeaptonMakeLuck、9 修复油 RepairWeapon、
+            #   10 战神油 SuperRepairWeapon、12 临时增益药水、11 彩票(原版已注释掉)
+            shape = t.shape
+            if shape in (1, 2, 3, 5):
                 self._use_scroll_item(p, t, it)
-            else:
+            elif shape == 4:
                 self._use_bless_oil(p, it)
+            elif shape in (9, 10):
+                self._repair_weapon(p, it, super_repair=(shape == 10))
+            elif shape == 12:
+                w.send_system(p, "该增益药水暂未开放。")
+            else:
+                w.send_system(p, "无法使用该物品。")
         elif t.stdMode == 31:
             self._unbundle_item(p, t, it)
         elif slot_for(t.stdMode) >= 0:
@@ -245,6 +257,47 @@ class ItemHandlers:
         weapon["lucky"] = luck
         p.recompute(w)
         w.send_stats(p)
+        self.send_bag_update(p)
+
+    def _repair_weapon(self, p, oil_item: dict, super_repair: bool = False) -> None:
+        """原版 ``RepairWeapon`` / ``SuperRepairWeapon``（ObjBase.pas:23673-23700）。
+
+        修复油(Shape=9) / 战神油(Shape=10) 双击即修**当前佩戴的武器**，不需要 NPC，
+        也不需要把武器放进任何窗口：
+
+        - 普通修复油：``Dec(DuraMax, (DuraMax-Dura) div 30)``（nRepairItemDecDura），
+          再 ``Inc(Dura, Min(5000, DuraMax-Dura))``——补持久的代价是掉上限；
+        - 战神油：``Dura := DuraMax``，上限不变。
+
+        只有真修成了才消耗油（原版 ``EatItems`` 返回 True 才 Dispose 物品）。
+        """
+        w = self.world
+        weapon = p.equipment[U_WEAPON]
+        if weapon is None:
+            w.send_system(p, "请先装备武器。")
+            return
+        dura = int(weapon.get("durability", 0))
+        dura_max = int(weapon.get("durabilityMax", 0))
+        if dura_max <= dura:
+            w.send_system(p, "武器持久已满，不需要修复。")
+            return
+        if super_repair:
+            new_dura, new_max = dura_max, dura_max
+        else:
+            new_max = max(0, dura_max - (dura_max - dura) // 30)
+            gain = min(5000, new_max - dura)
+            if gain <= 0:
+                w.send_system(p, "武器磨损过重，修复油无效。")
+                return
+            new_dura = dura + gain
+        p.bag.remove(oil_item)
+        p.clear_quick_ref(int(oil_item.get("makeIndex", 0)))
+        weapon["durabilityMax"] = new_max
+        weapon["durability"] = new_dura
+        # 原版 RM_DURACHANGE → SM_DURACHANGE 只按装备栏 slot 原地更新持久；
+        # bagUpdate 负责把消耗掉的油从背包移除（并同步金币/负重）。
+        w.send_dura_change(p, U_WEAPON, weapon)
+        w.send_system(p, "武器修复成功...")
         self.send_bag_update(p)
 
     # ---- 穿戴 / 卸下 ----------------------------------------------------

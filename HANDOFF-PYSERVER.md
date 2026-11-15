@@ -774,3 +774,56 @@ test_autopilot_taoist.py 18/0。
 **验证**：三场景探针（人为做旧的库拷贝被刷回 [50,150,300] 且 accounts/characters
 计数不变、空库正常导入、坏 CSV 路径保留原表）；test_pyserver 107/0、
 test_tick_systems 180/0。部署后线上以 `/api/version` + 容器内查 `magics` 复核。
+
+---
+
+## §85 修复油被当祝福油 + NPC 修理没有投放框（2026-11-16，用户反馈）
+
+**反馈**：①「修复油怎么用？我看到是幸运+1，体现在哪？有什么用？」②「NPC 的修复 UI 有问题，没有地方放装备」。
+
+**根因（本地 Delphi 源码逐条核对）**：
+- `StdItems.csv:178` 修复油 = `StdMode=3 Shape=9`，`135` 祝福油 = `Shape=4`，
+  `133` 战神油 = `Shape=10`，`Shape=12` 是临时增益药水。原版
+  `ObjBase.pas:17359-17438 ClientUseItems` → `EatItems` → `EatUseItems(Shape)`
+  （:23436、:23513-23591）按 Shape 精确分流：4=`WeaptonMakeLuck`（:23621）、
+  9=`RepairWeapon`（:23673）、10=`SuperRepairWeapon`（:23692）。旧 `_use_item`
+  只把 1/2/3/5 当卷轴，**其余一律走 `_use_bless_oil`** → 修复油/战神油/增益
+  药水全被拿去掷幸运，这就是用户看到「幸运+1」的原因。
+- 幸运在界面上「看不到」：`instance_json` 不下发 `lucky`，前端 `_itemDesc`
+  没有幸运行。原版 `FState.pas:4238/4346` 在物品说明里显示「幸运+N」。
+- NPC 修理链路整体缺失：`npc_script/handlers_npc` 只认 buy/sell/storage，点
+  `<修理/@repair>` 只回一句文本。原版 `TMerchant.UserSelect`
+  （ObjNpc.pas:1419-1465）对 `@repair/@s_repair` 发 `RM_SENDUSERREPAIR` /
+  `RM_SENDUSERSREPAIR` → 客户端 `ClientGetSendUserRepair`
+  （ClMain.pas:6235-6241）置 `SpotDlgMode=dmRepair` + `ShowShopSellDlg`
+  （复用卖物投放圈），再由 `CM_MERCHANTQUERYREPAIRCOST`/`SM_SENDREPAIRCOST`
+  与 `CM_USERREPAIRITEM`/`SM_USERREPAIRITEM_OK|FAIL` 完成问价和扣钱修复。
+
+**修复**：
+- `pyserver/handlers_items.py`：StdMode=3 按 Shape 分流；新增 `_repair_weapon`
+  ——修复油双击修**当前佩戴的武器**（`Dec(DuraMax,(DuraMax-Dura) div 30)` +
+  单次最多 +5000），战神油直接补满且不掉上限，只有真修成才消耗油；Shape=12
+  明确提示未开放且不消耗。
+- `pyserver/world.py instance_json` 下发 `lucky`（模板 `specialPwr` + 实例
+  `lucky`，等于 `Player.recompute` 的 `p.luck`）；`frontend/scene/PlayScene.mjs`
+  的 `_itemDesc` 显示「幸运+N」。
+- `pyserver/npc_script.py` 解析脚本头 `(@buy @sell @repair @s_repair)` 能力
+  声明并新增 `Result.repair_mode`；`handlers_npc.py` 新增
+  `queryRepairCost`/`repairItem`（原版价 `Round(nPrice div 3 / DuraMax *
+  (DuraMax-Dura))`、特修 ×3、普通修理掉上限再补满、特修补满不掉上限、
+  满持久/StdMode=43 拒修、只认背包物品）；`service.py` 注册消息。
+- 前端 `shop:'repair'/'s_repair'` 复用 DSellDlg 投放框（`shopRepairMode`）：
+  拿起物品点圈问价、OK 发 `repairItem`、`repairResult` 清圈、`sellPrice`
+  显示「修理费: N 金币」。
+
+**玩法口径（回答用户）**：修复油双击直接修手上的武器，不用 NPC、不用放装备；
+NPC 修理必须先把**装备卸下放进背包**再拖进圈（原版 `ClientRepairItem` 只在
+`m_ItemList` 找物品，ObjBase.pas:24653-24681）。普通修理/修复油会掉最大持久，
+特殊修理/战神油不掉。幸运 N = 有 N/10 概率打出攻击上限（`roll_dc_with_luck`），
+只影响物理攻击。
+
+**验证**：新增 `scripts/test_repair.py` 39/0、`scripts/test_repair_ui.py`
+（Playwright 3.9 连 3.10 起的临时服务）14/0；回归 `test_pyserver` 107/0、
+`test_all_messages` 91/0、`test_tick_systems` 180/0、`test_durability` 16/0；
+`node --check` / `py_compile` / `git diff --check` 通过。面板贴图与位置观感
+仍需用户 Ctrl+F5 实机确认。

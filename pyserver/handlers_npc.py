@@ -9,7 +9,11 @@ from .npc_script import NpcScriptEngine
 from .util import BAG_SIZE, _int, _str, delphi_round
 from .world import Player
 
-NPC_TYPES = frozenset({"npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice"})
+NPC_TYPES = frozenset({
+    "npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice",
+    # 原版 CM_MERCHANTQUERYREPAIRCOST=1024 / CM_USERREPAIRITEM=1023
+    "queryRepairCost", "repairItem",
+})
 
 
 class NpcHandlers:
@@ -44,23 +48,33 @@ class NpcHandlers:
             return
         value = _str(msg, "value") or "main"
         label = value[1:] if value.startswith("@") else value
-        if label.lower() in ("exit", "quit"):
+        low = label.lower()
+        if low in ("exit", "quit"):
             self._send_npc_close(session, npc.id)
             return
-        is_buy, is_sell = label.lower() == "buy", label.lower() == "sell"
-        is_storage, is_getback = (label.lower() == "storage",
-                                  label.lower() == "getback")
+        is_buy, is_sell = low == "buy", low == "sell"
+        is_repair, is_s_repair = low == "repair", low == "s_repair"
+        is_storage, is_getback = low == "storage", low == "getback"
         r = self._engine().execute(p, npc, label)
         if is_buy:
             r.shop_mode = "buy"
         elif is_sell:
             r.shop_mode = "sell"
+        elif is_repair or is_s_repair:
+            # 原版 TMerchant.UserSelect（ObjNpc.pas:1419-1465）：点
+            # <修理/@repair> / <特殊修理/@s_repair> 发 RM_SENDUSERREPAIR /
+            # RM_SENDUSERSREPAIR，客户端 ClientGetSendUserRepair 置
+            # SpotDlgMode=dmRepair + ShowShopSellDlg（复用卖物投放框）。
+            mode = "s_repair" if is_s_repair else "repair"
+            if self._repair_allowed(npc, mode):
+                r.repair_mode = mode
         elif is_storage:
             r.storage_mode = "deposit"
         elif is_getback:
             r.storage_mode = "getback"
-        if (not r.say_text and r.shop_mode is None and r.storage_mode is None
-                and not r.closed and not r.moved and label.lower() != "main"):
+        if (not r.say_text and r.shop_mode is None and r.repair_mode is None
+                and r.storage_mode is None
+                and not r.closed and not r.moved and low != "main"):
             # 标签不存在（如普通 NPC 也被点了 @storage）→ 回主对话，
             # 同时清掉 storage_mode，避免无仓库能力的 NPC 开出仓库窗口。
             r.storage_mode = None
@@ -83,6 +97,9 @@ class NpcHandlers:
         if r.shop_mode is not None:
             o["shop"] = r.shop_mode
             o["goods"] = w.goods(npc)
+        elif r.repair_mode is not None:
+            # 修理复用 npcSay 下发 shop 字段，前端据此开 dmRepair 模式的投放框。
+            o["shop"] = r.repair_mode
         session.send_json(o)
         # 仓库（原版 @storage → SM_SENDUSERSTORAGEITEM 开投放框；@getback →
         # SM_SAVEITEMLIST 开列表窗口，物品行点击即取回）
@@ -254,3 +271,103 @@ class NpcHandlers:
         p.gold += price
         w.send_system(p, f"出售了 {t.name}，获得 {price} 金币。")
         self.send_bag_update(p)
+
+    # ---- 修理（CM_MERCHANTQUERYREPAIRCOST=1024 / CM_USERREPAIRITEM=1023）----
+
+    @staticmethod
+    def _repair_allowed(npc, mode: str) -> bool:
+        """原版 ``m_boRepair`` / ``m_boS_repair`` 由脚本头 ``(@buy @sell @repair)``
+        声明（LocalDB.pas:3240-3250），``ClientRepairItem``（ObjNpc.pas:2431-2438）
+        再校验一次。部分 1.80 脚本没有能力头，退化为「有对应段 / 是商人」，
+        避免点了 <修理/@repair> 链接却什么都不发生。
+        """
+        script = getattr(npc, "script", None)
+        if script is None:
+            return False
+        abilities = getattr(script, "abilities", None)
+        if abilities:
+            return mode in abilities
+        if script.section(mode) is not None:
+            return True
+        return bool(getattr(npc, "merchant", False))
+
+    def _repair_price(self, npc, t, it, mode: str) -> int:
+        """原版 ``ClientQueryRepairCost``（ObjNpc.pas:2392-2420）与
+        ``ClientRepairItem``（:2422-2491）：
+
+        ``nPrice := GetUserPrice(GetUserItemPrice(UserItem))``，
+        ``nRepairPrice := Round(nPrice div 3 / DuraMax * (DuraMax - Dura))``；
+        特殊修理 ``nPrice := nPrice * nSuperRepairPriceRate(3)``。
+        ``DuraMax <= Dura``（没磨损）或 StdMode=43（矿石）→ 不可修（-1）。
+        """
+        if not self._repair_allowed(npc, mode):
+            return -1
+        dura = int(it.get("durability", 0) or 0)
+        dura_max = int(it.get("durabilityMax", 0) or 0)
+        if dura_max <= dura or t.stdMode == 43:
+            return -1
+        n_price = self._user_item_price(npc, t, it)
+        if n_price <= 0:
+            return -1
+        if mode == "s_repair":
+            n_price *= 3
+        price = (delphi_round((n_price // 3) / dura_max * (dura_max - dura))
+                 if dura_max > 0 else n_price)
+        return max(1, price)
+
+    def _repair_find(self, session, msg: dict):
+        """修理只认**背包里**的物品：原版 ClientRepairItem 在 m_ItemList
+        （背包）里按 MakeIndex 找 UserItem，身上的 m_UseItems 不在其中，
+        所以要先卸下装备才能修（ObjBase.pas:24653-24681）。"""
+        p, npc = self._npc_and_player(session, msg)
+        if p is None or npc is None:
+            return None, None, None, None
+        found = p.bag_item(_int(msg, "makeIndex", -1))
+        if found is None:
+            self.world.send_system(p, "请先把要修理的装备放进背包。")
+            return p, npc, None, None
+        t = self.world.item_templates.get(int(found.get("index", 0)))
+        return p, npc, found, t
+
+    def _query_repair_cost(self, session, msg: dict) -> None:
+        mode = "s_repair" if _str(msg, "mode") == "s_repair" else "repair"
+        p, npc, found, t = self._repair_find(session, msg)
+        if p is None or npc is None or found is None or t is None:
+            return
+        # 原版 SM_SENDREPAIRCOST 与卖价共用客户端那一行「价格: N 金币」
+        # （ClMain.pas:5177-5183），因此复用 sellPrice 消息类型。
+        session.send_json({"type": "sellPrice", "npcId": npc.id,
+                           "makeIndex": int(found.get("makeIndex", 0)),
+                           "price": max(0, self._repair_price(npc, t, found, mode))})
+
+    def _repair_item(self, session, msg: dict) -> None:
+        mode = "s_repair" if _str(msg, "mode") == "s_repair" else "repair"
+        p, npc, found, t = self._repair_find(session, msg)
+        if p is None or npc is None or found is None or t is None:
+            return
+        w = self.world
+        price = self._repair_price(npc, t, found, mode)
+        ok = price >= 0 and p.gold >= price
+        if ok:
+            dura = int(found.get("durability", 0) or 0)
+            dura_max = int(found.get("durabilityMax", 0) or 0)
+            p.gold -= price
+            if mode == "s_repair":
+                # 特殊修理：不掉上限、直接补满（ObjNpc.pas:2476-2480）
+                found["durability"] = dura_max
+            else:
+                # 普通修理：Dec(DuraMax, (DuraMax-Dura) div 30) 后 Dura := DuraMax
+                # （ObjNpc.pas:2482-2486）——注意与修复油「单次最多 +5000」不同。
+                new_max = max(0, dura_max - (dura_max - dura) // 30)
+                found["durabilityMax"] = new_max
+                found["durability"] = new_max
+            w.send_system(p, f"修理了 {t.name}，花费 {price} 金币。")
+            self.send_bag_update(p)
+        elif price < 0:
+            w.send_system(p, "这个物品无法修理。")
+        else:
+            w.send_system(p, "金币不足，无法修理。")
+        # 原版 SM_USERREPAIRITEM_OK/FAIL 都清掉 g_SellDlgItemSellWait
+        # （ClMain.pas:5185-5200），前端据此清空投放框。
+        session.send_json({"type": "repairResult", "ok": ok,
+                           "makeIndex": int(found.get("makeIndex", 0))})

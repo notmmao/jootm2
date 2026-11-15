@@ -631,6 +631,13 @@ class Player(Actor):
             "durabilityMax": it.get("durabilityMax", 0),
         }
         if t:
+            # 原版 FState.pas GetMouseItemInfo 武器 tooltip 显示「幸运+N」
+            # (:4238/4346)：模板幸运写 AC 低位，祝福油累积的幸运写
+            # UserItem.btValue[3]（ObjBase.pas:23641-23660）。两者之和正好等于
+            # Player.recompute 的 p.luck（:568-572），这里下发总幸运给前端显示。
+            base_luck = (t.specialPwr if t.stdMode in (5, 6)
+                         and 1 <= t.specialPwr <= 10 else 0)
+            o["lucky"] = base_luck + int(it.get("lucky", 0))
             o.update(stdMode=t.stdMode, shape=t.shape, weight=t.weight,
                      dc=t.dcMin, dcMax=t.dcMax, mc=t.mcMin, mcMax=t.mcMax,
                      sc=t.scMin, scMax=t.scMax, ac=t.acMin, acMax=t.acMax,

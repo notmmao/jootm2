@@ -133,6 +133,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "sellItem": self._sell_item,
             # 原版 CM_QUERYSELLPRICE（ClMain.pas:3683 SendQueryPrice）→ SM_SENDBUYPRICE
             "querySellPrice": self._query_sell_price,
+            # 原版 CM_MERCHANTQUERYREPAIRCOST / CM_USERREPAIRITEM（Grobal2.pas:131-132）
+            "queryRepairCost": self._query_repair_cost,
+            "repairItem": self._repair_item,
             # 战斗 / 技能
             "attack": self._attack,
             "dirAttack": self._dir_attack,

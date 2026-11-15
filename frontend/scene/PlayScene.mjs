@@ -236,6 +236,7 @@ export class PlayScene extends Scene {
         this._canvas = document.getElementById('screen');
         this.chatLines = [];
         this._chatInput = null;
+        this.shopRepairMode = null;  // DSellDlg 模式：null=卖出 / repair / s_repair
     }
 
     async onEnter() {
@@ -1821,7 +1822,14 @@ export class PlayScene extends Scene {
                 if (!this.shopPriceEl || !this.shopSellItem) break;
                 if (msg.makeIndex !== undefined && msg.makeIndex !== this.shopSellItem.makeIndex) break;
                 const n = Number(msg.price) || 0;
-                this.shopPriceEl.textContent = n > 0 ? `价格: ${n} 金币` : '价格: ???? 金币';
+                const label = this._priceLabel();
+                this.shopPriceEl.textContent = n > 0 ? `${label} ${n} 金币` : `${label} ???? 金币`;
+                break;
+            }
+            case 'repairResult': {
+                // 原版 SM_USERREPAIRITEM_OK / FAIL 都清掉 g_SellDlgItemSellWait
+                // （ClMain.pas:5185-5200）：修完（或失败）投放框都要清空。
+                this._clearSellSpot();
                 break;
             }
             case 'storageOpen':
@@ -3172,6 +3180,10 @@ export class PlayScene extends Scene {
             if (it.durabilityMax > 0) {
                 line1 += (line1 ? '  ' : '') + '持久 ' + Math.round(it.durability / 1000) + '/' + Math.round(it.durabilityMax / 1000);
             }
+            // 原版 GetMouseItemInfo（FState.pas:4238/4346）：武器幸运（模板 AC 低位 +
+            // 祝福油累积的 btValue[3]）在物品说明里显示「幸运+N」。没有这一行时
+            // 祝福油只留一句系统消息，玩家在界面上完全看不到「幸运+1」加在哪。
+            if (it.lucky > 0) line2 += '幸运+' + it.lucky + ' ';
             if (it.dcMax) line2 += '攻击 ' + (it.dc || 0) + '-' + it.dcMax + ' ';
             if (it.mcMax) line2 += '魔法 ' + (it.mc || 0) + '-' + it.mcMax + ' ';
             if (it.scMax) line2 += '道术 ' + (it.sc || 0) + '-' + it.scMax + ' ';
@@ -3362,8 +3374,9 @@ export class PlayScene extends Scene {
         this._renderNpcSay(text, msg.text || '', msg.npcId);
         dlg.appendChild(text);
 
-        // 买卖面板（原版 DSellDlg 独立窗口，替代挤在对话里的列表）
-        if (msg.shop === 'buy' || msg.shop === 'sell') {
+        // 买卖 / 修理面板（原版 DSellDlg 独立窗口；@repair 与 @s_repair 复用
+        // SpotDlgMode=dmRepair 的同一投放框，ClMain.pas:6235-6241）
+        if (['buy', 'sell', 'repair', 's_repair'].includes(msg.shop)) {
             this._showShopPanel(msg);
         }
 
@@ -3395,7 +3408,10 @@ export class PlayScene extends Scene {
         if (msg.shop === 'buy') {
             this._showBuyMenu(msg);
         } else {
-            this._showSellDlg(msg);
+            // sell / repair / s_repair 都是 DSellDlg 的投放框，只是 OK 时发的
+            // 消息和价格口径不同（原版 SpotDlgMode dmSell/dmRepair）。
+            this._showSellDlg(msg, (msg.shop === 'repair' || msg.shop === 's_repair')
+                ? msg.shop : null);
         }
     }
 
@@ -3502,9 +3518,15 @@ export class PlayScene extends Scene {
         this.conn.send('buyItem', { npcId, index: g.index, count: 1 });
     }
 
-    // 卖出：ok 框（原版 DSellDlg 投放框）+ 背包物品列表
-    _showSellDlg(msg) {
-        this.shopSellItem = null;   // 选中要卖的物品
+    _priceLabel() {
+        return this.shopRepairMode ? '修理费:' : '价格:';
+    }
+
+    // 卖出 / 修理：ok 框（原版 DSellDlg 投放框）+ 背包物品列表
+    // mode = null(卖出) | 'repair'(普通修理) | 's_repair'(特殊修理)
+    _showSellDlg(msg, mode = null) {
+        this.shopSellItem = null;   // 选中要卖 / 要修的物品
+        this.shopRepairMode = mode;
         const gui = this.manager.winManager.container;
         const panel = document.createElement('div');
         panel.style.cssText = 'position:absolute;left:260px;top:176px;width:140px;height:181px;'
@@ -3522,13 +3544,14 @@ export class PlayScene extends Scene {
         // 标题「价格: N 金币」（原版 DSellDlgDirectPaint：dmSell → '价格: ' + g_sSellPriceStr）
         this.shopPriceEl = document.createElement('div');
         this.shopPriceEl.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
-        this.shopPriceEl.textContent = '价格: ';
+        this.shopPriceEl.textContent = this._priceLabel() + ' ';
         panel.appendChild(this.shopPriceEl);
-        // 投放框 Spot (27,67) 61x52：拿起物品后点这里放入要卖的物品
+        // 投放框 Spot (27,67) 61x52：拿起物品后点这里放入要卖 / 要修的物品。
+        // 修理必须先卸下装备放进背包（原版 ClientRepairItem 只在 m_ItemList 找物品）。
         const spot = document.createElement('div');
         spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
             + 'display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
-        spot.title = '拿起物品后点这里放入要卖的物品';
+        spot.title = mode ? '把要修理的装备卸下放进背包，拿起后点这里放入' : '拿起物品后点这里放入要卖的物品';
         spot.addEventListener('click', () => {
             if (this.pickedItem) {
                 this._pickSellItem(this.pickedItem);
@@ -3583,21 +3606,36 @@ export class PlayScene extends Scene {
                 }
             });
         }
-        // 原版放进投放框后立刻问价（ClMain.pas:4085 g_boQueryPrice → SendQueryPrice），
-        // 回来之前先显示物品名占位，问到价格后覆盖成「价格: N 金币」。
-        this.shopPriceEl.textContent = '价格: …';
-        this.conn.send('querySellPrice', { npcId: this.shopNpcId, makeIndex: it.makeIndex });
+        // 原版放进投放框后立刻问价（ClMain.pas:4085-4091）：dmSell 发
+        // CM_MERCHANTQUERYSELLPRICE，dmRepair 发 CM_MERCHANTQUERYREPAIRCOST，
+        // 回来之前先显示占位，问到价格后覆盖成「价格: N 金币」。
+        const mode = this.shopRepairMode;
+        this.shopPriceEl.textContent = this._priceLabel() + ' …';
+        if (mode) {
+            this.conn.send('queryRepairCost', {
+                npcId: this.shopNpcId, makeIndex: it.makeIndex, mode,
+            });
+        } else {
+            this.conn.send('querySellPrice', { npcId: this.shopNpcId, makeIndex: it.makeIndex });
+        }
     }
 
     _sellOk(npcId) {
         if (!this.shopSellItem) return;
-        this.conn.send('sellItem', { npcId, makeIndex: this.shopSellItem.makeIndex });
+        const mode = this.shopRepairMode;
+        if (mode) {
+            this.conn.send('repairItem', {
+                npcId, makeIndex: this.shopSellItem.makeIndex, mode,
+            });
+        } else {
+            this.conn.send('sellItem', { npcId, makeIndex: this.shopSellItem.makeIndex });
+        }
     }
 
     _clearSellSpot() {
         this.shopSellItem = null;
         if (this.shopSpotEl) this.shopSpotEl.innerHTML = '';
-        if (this.shopPriceEl) this.shopPriceEl.textContent = '价格: ';
+        if (this.shopPriceEl) this.shopPriceEl.textContent = this._priceLabel() + ' ';
     }
 
     _closeShopPanel() {
@@ -3606,6 +3644,7 @@ export class PlayScene extends Scene {
         this.shopGoldEl = null;
         this.shopSellMode = false;
         this.shopSellItem = null;
+        this.shopRepairMode = null;
         // 关窗时圈里暂存的物品自然回到背包（原版 CloseDSellDlg → AddItemBag，
         // FState.pas:4984-4990）；这里从未从服务端移走，只需清暂存并刷新视图
         this.storagePending = null;

@@ -89,6 +89,10 @@ class NpcScript:
         # 是 ``TMerchant.GetItemPrice`` 在没有价格记录时的 StdMode 过滤条件。
         self.price_rate: int = 100
         self.item_types: list[int] = []
+        # 脚本头 ``(@buy @sell @repair @s_repair)`` 声明商人能力。原版
+        # LocalDB.pas:3240-3250 由此置 m_boBuy/m_boSell/m_boRepair/m_boS_repair，
+        # TMerchant.UserSelect 按标签开对应窗口、ClientRepairItem 再校验一次。
+        self.abilities: set[str] = set()
 
     def section(self, label: str) -> Section | None:
         sec = self.sections.get(label)
@@ -153,6 +157,10 @@ class NpcScript:
                             script.item_types.append(n)
                     except ValueError:
                         pass
+                elif line.startswith('('):
+                    # 能力声明头，如 ``(@buy @sell @repair @s_repair )``
+                    for tag in re.findall(r"@([A-Za-z_]+)", line):
+                        script.abilities.add(tag.lower())
                 continue
             if line.startswith("#"):
                 upper = line.upper()
@@ -250,6 +258,10 @@ class Result:
     moved_x: int = 0
     moved_y: int = 0
     shop_mode: str | None = None
+    # 修理模式（原版 ObjNpc.pas:1419-1465 UserSelect 对 @repair / @s_repair
+    # 发 RM_SENDUSERREPAIR / RM_SENDUSERSREPAIR → 客户端 SpotDlgMode=dmRepair
+    # + ShowShopSellDlg，ClMain.pas:6235-6241）："repair" / "s_repair"。
+    repair_mode: str | None = None
     # 仓库模式（原版 ObjNpc.pas:1560-1566 UserSelect 对 @storage/@getback 标签
     # 的处理 → SM_SENDUSERSTORAGEITEM 开投放框 / SM_SAVEITEMLIST 开列表）：
     # "deposit" = 存入（点背包物品直接发 storageStore），"getback" = 取出列表。
