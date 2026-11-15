@@ -1383,7 +1383,18 @@ export class PlayScene extends Scene {
                     if (msg.maxWeight !== undefined) e.maxWeight = msg.maxWeight;
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.gm !== undefined) e.gm = !!msg.gm;   // GM 标记（Ctrl+大地图传送用）
-                    if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
+                    if (msg.skills !== undefined) {
+                        e.skills = msg.skills;   // 技能快捷键更新
+                        // 修炼点（CurTrain/MaxTrain）实时刷新：原版 RM_MAGIC_LVEXP
+                        // 每 3s 推 CurTrain（ObjBase.pas:22294），技能页开着时可见
+                        // 2/10、3/10 递增；旧实现只在打开/翻页时渲染一次，
+                        // 开着面板打怪只会看到快照，从 1/10 直接跳 1/20。
+                        if (e === this.self && this.stateWin
+                                && this.stateWin.style.display === 'block'
+                                && this.statePage === 3) {
+                            this._refreshSkillPage();
+                        }
+                    }
                     // 战斗属性（幽灵盾/神圣战甲等 buff 改变 AC/MAC，F10 状态页实时刷新）
                     if (msg.ac !== undefined) e.ac = msg.ac;
                     if (msg.mac !== undefined) e.mac = msg.mac;
