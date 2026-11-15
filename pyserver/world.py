@@ -1543,7 +1543,14 @@ class GameWorld(WorldExtra):
             "type": msg_type,
             "map": {"name": game_map.name,
                     "title": self.map_titles.get(game_map.name, game_map.name),
-                    "width": game_map.width, "height": game_map.height},
+                    "width": game_map.width, "height": game_map.height,
+                    # MapInfo.txt 的连接行（src x,y -> dst）：大地图在入口点上
+                    # 标注下张地图名字。dst 标题取 [dst 名称] 定义，缺失用编号。
+                    "gates": [
+                        {"x": g.src_x, "y": g.src_y, "to": g.dst_map,
+                         "title": self.map_titles.get(g.dst_map, g.dst_map)}
+                        for g in self.gates_by_src.get(game_map.name, ())
+                    ]},
             "dayBright": self.day_bright,
             "darkLevel": self.dark_level(game_map.name),
             "underground": self.is_underground(game_map.name),

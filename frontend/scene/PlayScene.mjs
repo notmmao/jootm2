@@ -1087,7 +1087,9 @@ export class PlayScene extends Scene {
         //   ① 点中目标（怪/玩家/NPC）→ 强制攻击该目标（绕过「只能打怪」的筛选，NPC 由服务端拒绝）
         //   ② 没点中任何目标 → 朝鼠标方向空挥，并进入「按住持续挥刀」状态（松开左键/Shift 停）
         if (e.button === 0 && (e.shiftKey || this._shiftDown)) {
-            const target = this._actorAtScreen(mx, my, 'monster')
+            // 原版 ClMain.pas:2852-2858：名字带「(主人名)」的宝宝不进攻击目标
+            // （点自家宝宝落到拾取/移动分支）；本服按 masterId 识别。
+            const target = this._actorAtScreen(mx, my, 'monster', true)
                 || this._actorAtScreen(mx, my, 'player')
                 || this._actorAtScreen(mx, my, 'npc');
             if (target && target.id !== this.self.id) {
@@ -1110,7 +1112,7 @@ export class PlayScene extends Scene {
         // 贴图区域判定（原版 GetAttackFocusCharacter）：仅左键触发怪物攻击/NPC 对话/玩家攻击/拾取；
         // 右键只用于「跑」，点 NPC/怪不对话不攻击
         if (e.button === 0) {
-            const monster = this._actorAtScreen(mx, my, 'monster');
+            const monster = this._actorAtScreen(mx, my, 'monster', true);
             if (monster && monster.hp > 0) {
                 const d = this._dist(this.self, monster);
                 this.castTarget = monster.id;    // 锁定目标（原版 g_TargetCret，无高亮）
@@ -1227,9 +1229,10 @@ export class PlayScene extends Scene {
     }
 
     // 贴图区域命中实体（原版 GetAttackFocusCharacter：贴图中间 40×70 判定）
-    _actorAtScreen(mx, my, type) {
+    _actorAtScreen(mx, my, type, skipOwnSlave = false) {
         for (const e of this.entities.values()) {
             if (e.type !== type) continue;
+            if (skipOwnSlave && this._isOwnSlave(e)) continue;
             const sp = this._sprite(e);
             const layers = sp.getLayers(Date.now());
             if (!layers || !layers.length) continue;
@@ -1261,6 +1264,12 @@ export class PlayScene extends Scene {
             if (e.type === type && e.x === tx && e.y === ty) return e;
         }
         return null;
+    }
+
+    /** 自家召唤物（原版 ClMain.pas:2852 靠名字带「(主人名)」识别不攻击；
+     *  本服宝宝名字无括号，服务端显式下发 masterId）。 */
+    _isOwnSlave(e) {
+        return !!e && e.type === 'monster' && e.masterId === (this.self && this.self.id);
     }
 
     _groundAt(tx, ty) {
@@ -2229,6 +2238,31 @@ export class PlayScene extends Scene {
             else dot(e.x, e.y, '#7dd3fc');
         }
         dot(this.self.x, this.self.y, '#ffffff');
+        // 地图入口标注（MapInfo.txt 连接行 src x,y -> dst）：画黄色门点 +
+        // 「→ 下张地图名」。原版客户端大地图没有此标注，属本项目增强。
+        const gates = (sm0 && sm0.gates) || [];
+        if (gates.length) {
+            ctx.font = '11px SimSun,serif';
+            ctx.textBaseline = 'top';
+            for (const g of gates) {
+                const dx = Math.round(bx + g.x * kx * k);
+                const dy = Math.round(by + g.y * ky * k);
+                ctx.fillStyle = '#ffd24a';
+                ctx.fillRect(dx - 3, dy - 3, 7, 7);
+                ctx.strokeStyle = '#8a6d1c';
+                ctx.strokeRect(dx - 3.5, dy - 3.5, 8, 8);
+                const label = `→ ${g.title || g.to || '?'}`;
+                const tw = ctx.measureText(label).width;
+                // 标签默认画在门点右侧，超出画布右缘时改画左侧
+                let lx = dx + 10, ly = dy - 6;
+                if (lx + tw > cv.width - 4) lx = dx - 10 - tw;
+                ly = Math.max(2, Math.min(cv.height - 16, ly));
+                ctx.fillStyle = 'rgba(0,0,0,0.55)';
+                ctx.fillRect(lx - 2, ly - 1, tw + 4, 14);
+                ctx.fillStyle = '#ffe9a8';
+                ctx.fillText(label, lx, ly);
+            }
+        }
         // 与 HUD 左下角同一口径：优先中文地图名 title（如「比奇省」），
         // 服务端 name 是内部编号 "0"，直接拿来当标题会显示成数字。
         const sm = (this.snapshot && this.snapshot.map) || this.mapActor.map || {};
