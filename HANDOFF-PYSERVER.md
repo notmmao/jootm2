@@ -413,6 +413,14 @@ REDM2.DB 合并而来）。33 个正式技能里，差异只有三类，**全部
 （日志会打印 `[db] imported CSV: ... magics=33`）。部署到阿里云时如果沿用旧库，也要在服务器上
 对 `data/jootm2.db` 执行同样清表，否则线上仍是旧的快速修炼值。
 
+**（2026-11-16 补）**：上条「服务器也要清表」当时漏做了——线上 `火球术=[10,20,30]、灵魂火符
+power=8` 旧值实测存在。新增专用工具 `data/reimport_magics.py`（**只重建 magics 表**，
+accounts/characters 绝不碰；与 `db.py._import_csv` magics 段同逻辑）。已核实现状：本地默认库
+`data/jootm2.db` 干净（11-15 那次清表灌的就是它）、`jootm2-py.db` 已用新工具重灌 ✓；服务器库重灌 +
+`compose restart` 用 `docker exec -w /app jootm2 python /tmp/reim.py --db /app/data/jootm2.db
+--csv /app/gamedata/mud2/DB/Magic.csv`。**注意 `std_items`/`monsters` 同理也固化在库里**——
+§69/§72 等改 StdItems.csv 的轮次在线上同样可能未生效（本次用户只授权动 magics，未扩大）。
+
 **节奏影响**：修炼点回到原版后，技能升级比之前慢 3~16×。想保留快速体验就在
 `config/game_rates.json` 把 `magicTrain` 设成 >1（2.0 = 所需点数减半，0 = 不再升级），
 这属于阶段 b，不要改回 CSV。
@@ -742,3 +750,27 @@ tick 的移动权只归一个意图；仅当返回 False（目标已拉黑释放
 （gold 0→0 卡在震荡位），修复后 PASS（gold 0→50 直线踩格）。stash 对照
 确认用例能抓住旧 bug。回归：test_autopilot.py 39/0、
 test_autopilot_taoist.py 18/0。
+
+---
+
+## §84 模板三表改为每次启动从 CSV 重灌（2026-11-16，用户授权）
+
+**动机（用户）**：`StdItems.csv/Magic.csv` 等改了不生效——根因是 `seed_game_data`
+只在 `std_items` 空表时导入，`magics` 等固化在 SQLite；本地 `jootm2-py.db`、服务器
+`data/jootm2.db` 都实测滞留旧值（火球术 [10,20,30]、灵魂火符 power 8）。用户目的
+是**方便修改调整**，拍板方案=CSV 直接载入。
+
+**实现**（`pyserver/db.py seed_game_data`，仅入口一处，消费全走
+`load_*_templates`，无其他模块直接查这三表）：每次启动 `DELETE + INSERT` 从
+`gamedata/mud2/DB/*.csv` 重灌 `std_items/monsters/magics` 三张模板表；CSV 成为唯一
+事实源，表只是镜像。**accounts/characters 绝不触碰**。CSV 缺失/失败保留现有表，
+表也为空才落内置 defaults（冒烟场景）。分库/多库工具
+`scripts/switch_data.py` 的「切树先清表」不再必要但保留无害。
+
+**效果**：以后改这类 CSV → `rsync gamedata` → 重启容器即生效，无需再动数据库、
+无需专用重灌脚本（`data/reimport_magics.py` 归档可用）。注意 `std_items` 535/541、
+`monsters` 267/273 是 CSV 重复 Idx/名塌缩进主键，与原建库行为一致，非回归。
+
+**验证**：三场景探针（人为做旧的库拷贝被刷回 [50,150,300] 且 accounts/characters
+计数不变、空库正常导入、坏 CSV 路径保留原表）；test_pyserver 107/0、
+test_tick_systems 180/0。部署后线上以 `/api/version` + 容器内查 `magics` 复核。
