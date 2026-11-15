@@ -1716,8 +1716,9 @@ class GameWorld(WorldExtra):
                         t = a.template
                         # 原版火墙/宝宝击杀同样走主人的 CalcGetExp（ObjBase.pas:20848）；
                         # 经验取怪物实例值（复活僵尸会 div 2）
-                        self.add_exp(owner, calc_get_exp(
-                            owner.level, t.level if t else 1, a.exp))
+                        exp = calc_get_exp(owner.level, t.level if t else 1, a.exp)
+                        self.add_exp(owner, self.kill_exp(
+                            t.name if t else a.name, exp))
         self.combat_state["fire_walls"] = keep
 
     def _tick_pending_ranged_hits(self, now: int) -> None:
@@ -2155,8 +2156,10 @@ class GameWorld(WorldExtra):
                         t = enemy.template
                         # 宝宝击杀：主人按 CalcGetExp（ObjBase.pas:20845-20852），
                         # 经验取怪物实例值（复活僵尸会 div 2）
-                        self.add_exp(master, calc_get_exp(
-                            master.level, t.level if t else 1, enemy.exp))
+                        exp = calc_get_exp(master.level, t.level if t else 1,
+                                           enemy.exp)
+                        self.add_exp(master, self.kill_exp(
+                            t.name if t else enemy.name, exp))
                         self._gain_slave_exp(m, enemy)
             elif now >= m.next_move_at:
                 m.next_move_at = now + walk_interval

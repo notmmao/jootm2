@@ -1,0 +1,14 @@
+{
+  "_comment": "服务器统一倍率表，只用于调节奏（阶段 b）：1.0 = 按数据文件的原始值；0 = 该类关闭。修正私服魔改数据请改 MonItems/Magic.csv（阶段 a），不要在这里抵消。字段：exp=击杀经验倍率，gold=金币条目概率倍率，item=其他物品概率倍率，goldAmount=金币数量倍率，magicTrain=技能修炼速度倍率（2.0 = 所需点数减半）；monsters 按怪物名覆盖（可写 exp），items 按物品名覆盖（与全局相乘，概率封顶 100%）。",
+  "exp": 1.0,
+  "gold": 1.0,
+  "item": 1.0,
+  "goldAmount": 1.0,
+  "magicTrain": 1.0,
+  "monsters": {
+    "_comment": "示例：\"鹿\": {\"gold\": 2.0, \"item\": 2.0, \"goldAmount\": 1.5, \"exp\": 2.0}"
+  },
+  "items": {
+    "_comment": "示例：\"战神油\": 0.5"
+  }
+}

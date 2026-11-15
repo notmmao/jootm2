@@ -275,6 +275,8 @@ class CombatHandlers:
         exp = m.exp
         mon_level = m.template.level if m.template else 1
         exp = calc_get_exp(p.level, mon_level, exp)
+        # 统一倍率表：击杀经验（config/game_rates.json 的 exp，按怪物可覆盖）
+        exp = w.kill_exp(m.template.name if m.template else m.name, exp)
         party = w.party_of(p.id)
         if party is not None and len(party.member_ids) > 1:
             nearby = []

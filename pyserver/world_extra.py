@@ -362,9 +362,14 @@ class WorldExtra:
     def init_extra(self) -> None:
         envir = self.config.envir_dir
         self.drop_tables = load_drop_tables(envir)
-        # 掉落倍率集中表（config/drop_rates.json）：改这里就能整体调爆率，
-        # 不用去动 MonItems 里几百个 1/n 单条概率。
-        self.drop_rates = load_drop_rates(self.config.root / "config" / "drop_rates.json")
+        # 统一倍率表（config/game_rates.json）：金币/物品掉落与击杀经验，
+        # 改这里就能整体调节奏，不用去动 MonItems 里几百个 1/n 单条概率。
+        # 旧文件名 drop_rates.json 作为兼容回退。
+        rates_path = self.config.root / "config" / "game_rates.json"
+        if not rates_path.is_file():
+            rates_path = self.config.root / "config" / "drop_rates.json"
+        self.drop_rates = load_drop_rates(rates_path)
+        self.apply_magic_train_rate()
         self.unbind_items = load_unbind_list(envir)
         self.castle = load_castle(envir)
         self.guilds: dict[str, Guild] = {}
@@ -816,6 +821,28 @@ class WorldExtra:
             if exp < total:
                 return level
         return 101
+
+    def kill_exp(self, monster: str, exp: int) -> int:
+        """击杀经验倍率（``config/game_rates.json`` 的 ``exp``，可按怪物覆盖）。
+
+        只在**击杀结算**处调用；``add_exp`` 本身保持原样，测试与 GM 加经验
+        不受倍率影响。
+        """
+        rate = self.drop_rates.exp_for(monster)
+        if exp <= 0 or rate == 1.0:
+            return exp
+        if rate <= 0:
+            return 0
+        return max(1, int(round(exp * rate)))
+
+    def apply_magic_train_rate(self) -> None:
+        """按 ``magicTrain`` 折算技能升级所需修炼点。
+
+        升级判定（``_train_skill``）和客户端技能页都读 ``maxTrain``，只改模板
+        一处即可；启动时调用一次，改配置需重启。
+        """
+        for t in self.magic_templates.values():
+            t.maxTrain = [self.drop_rates.magic_need(v) for v in t.maxTrain]
 
     def add_exp(self, p, exp: int) -> None:
         """加经验 + 升级（对齐 ``ObjBase.pas:1844 GetExp``）。
