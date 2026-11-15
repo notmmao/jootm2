@@ -43,7 +43,7 @@ WS_FRAME_TIMEOUT = float(os.environ.get("JOOTM2_WS_FRAME_TIMEOUT", "10"))
 
 STATUS_TEXT = {
     200: "OK", 204: "No Content", 206: "Partial Content",
-    304: "Not Modified", 400: "Bad Request", 404: "Not Found",
+    301: "Moved Permanently", 304: "Not Modified", 400: "Bad Request", 404: "Not Found",
     416: "Range Not Satisfiable", 500: "Internal Server Error",
 }
 
@@ -368,12 +368,20 @@ class Server:
         return ver
 
     def _serve_file(self, req: Request, path: str, root: Path,
-                    prefix: str, default_name: str) -> Response:
+                    prefix: str, default_name: str,
+                    allow_gzip: bool = True,
+                    cache_override: str | None = None) -> Response:
+        """静态文件响应。``allow_gzip=False`` 用于静态站点：zlib 压缩在事件
+        循环里同步执行，单次冷压最慢 13.63ms（drops.html），并发首访会在同一个
+        loop iteration 里串行叠加；关掉后单次同步阻塞上限 4.21ms（实测见
+        HANDOFF-PYSERVER §60），不值得为省流量挤占游戏 tick。"""
         if not prefix:
             rel = default_name if path in ("/", "") else path
         else:
             rel = default_name if path == prefix else path[len(prefix):]
         rel = unquote(rel).lstrip("/")
+        if not rel:                      # "/site/" 这类目录路径 → 目录下的 index
+            rel = default_name
         try:
             root_abs = root.resolve()
             file = (root_abs / rel).resolve()
@@ -385,7 +393,8 @@ class Server:
         st = file.stat()
         size = st.st_size
         etag = f'"{st.st_size:x}-{st.st_mtime_ns:x}"'
-        ct, cache = content_type(file.name), cache_control(file.name)
+        ct = content_type(file.name)
+        cache = cache_override or cache_control(file.name)
         common = {
             "Content-Type": ct,
             "Accept-Ranges": "bytes",
@@ -409,7 +418,8 @@ class Server:
             headers = dict(common)
             headers["Content-Range"] = f"bytes {start}-{end}/{size}"
             zipped = None
-            if (req.headers.get("x-jootm2-gzip") == "1"
+            if (allow_gzip
+                    and req.headers.get("x-jootm2-gzip") == "1"
                     and file.suffix.lower() in RANGE_GZIP_EXTS
                     and count <= RANGE_GZIP_MAX):
                 try:
@@ -433,7 +443,7 @@ class Server:
 
         # 完整响应：可压缩类型走进程内 gzip 缓存
         zipped = None
-        if "gzip" in req.headers.get("accept-encoding", "").lower():
+        if allow_gzip and "gzip" in req.headers.get("accept-encoding", "").lower():
             zipped = self._gzip.get(file, st)   # HEAD 也要算出同样的 Content-Length
         headers = dict(common)
         if zipped is not None:
@@ -475,6 +485,18 @@ class Server:
         if _is_under(req.path, self.config.resources_prefix):
             return self._serve_file(req, req.path, self.config.resources_root,
                                     self.config.resources_prefix, "resources.json")
+        if _is_under(req.path, self.config.website_prefix):
+            # 数据库静态站点（scripts/gen_website.py 生成到 data/website）
+            if req.path == self.config.website_prefix:
+                # 页面里的链接都是相对路径；补斜杠，否则 base 变成站点根
+                return Response(301, {"Location": self.config.website_prefix + "/",
+                                      "Content-Length": "0"})
+            return self._serve_file(
+                req, req.path, self.config.website_root, self.config.website_prefix,
+                "index.html",
+                allow_gzip=False,
+                # 站点重新生成时文件名不变，immutable 会让浏览器一年内看不到新图
+                cache_override="public, max-age=60, must-revalidate")
         return self._serve_file(req, req.path, self.config.web_root, "", "index.html")
 
     # ---- WebSocket ------------------------------------------------------

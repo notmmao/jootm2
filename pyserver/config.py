@@ -23,6 +23,7 @@ DEFAULTS: dict[str, str] = {
     "web.root": "frontend",
     "resources.root": "resources",
     "resources.prefix": "/resources",
+    "website.root": "data/website",
     "gamedata.root": "gamedata",
     "world.width": "200",
     "world.height": "200",
@@ -36,6 +37,7 @@ _ENV_KEYS = {
     "db": "JOOTM2_DB",
     "web": "JOOTM2_WEB_ROOT",
     "resources": "JOOTM2_RESOURCES",
+    "website": "JOOTM2_WEBSITE",
     "gamedata": "JOOTM2_GAMEDATA",
     "root": "JOOTM2_ROOT",
 }
@@ -52,6 +54,7 @@ class ServerConfig:
     web_root: Path = PROJECT_ROOT / "frontend"
     resources_root: Path = PROJECT_ROOT / "resources"
     resources_prefix: str = "/resources"
+    website_root: Path = PROJECT_ROOT / "data" / "website"
     gamedata_root: Path = PROJECT_ROOT / "gamedata"
     world_width: int = 200
     world_height: int = 200
@@ -72,6 +75,11 @@ class ServerConfig:
         return self.gamedata_root / "Mir200" / "Map"
 
     @property
+    def website_prefix(self) -> str:
+        """数据库静态站点固定挂在 ``/site``（与游戏客户端共用端口）。"""
+        return "/site"
+
+    @property
     def notice_file(self) -> Path:
         return self.gamedata_root / "Mir200" / "Notice" / "Notice.txt"
 
@@ -80,7 +88,8 @@ class ServerConfig:
             f"port={self.port} db={self.db_file} tick={self.tick_ms}ms\n"
             f"  web       = {self.web_root}\n"
             f"  gamedata  = {self.gamedata_root}\n"
-            f"  resources = {self.resources_root}"
+            f"  resources = {self.resources_root}\n"
+            f"  website   = {self.website_root}"
         )
 
 
@@ -139,6 +148,7 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         web_root=_resolve(root, val("web.root", _ENV_KEYS["web"], "web", "frontend")),
         resources_root=_resolve(root, val("resources.root", _ENV_KEYS["resources"], "resources", "resources")),
         resources_prefix=val("resources.prefix", None, None, "/resources"),
+        website_root=_resolve(root, val("website.root", _ENV_KEYS["website"], "website", "data/website")),
         gamedata_root=_resolve(root, val("gamedata.root", _ENV_KEYS["gamedata"], "gamedata", "gamedata")),
         world_width=as_int("world.width", None, None, 200),
         world_height=as_int("world.height", None, None, 200),

@@ -229,6 +229,7 @@ def test_http_ws_helpers() -> None:
             "_gzip": GzipCache(), "_error": Server._error,
             "_asset_ver": ("", 0.0),
             "config": type("C", (), {"resources_root": root})(),
+            "_serve_file": lambda s, *a, **kw: Server._serve_file(s, *a, **kw),
         })()
         hdr = {"accept-encoding": "gzip, deflate"}
         get = Server._serve_file(stub, Request("GET", "/a.json", {}, hdr, b""),
@@ -273,6 +274,25 @@ def test_http_ws_helpers() -> None:
         check("gzip 分片解压后字节一致且体积变小",
               len(zr.body) < 2000 and gzip.decompress(zr.body) == wil[100:2100]
               and zr.headers.get("Content-Length") == str(len(zr.body)))
+
+        # 数据库静态站点：/site 前缀 → data/website，"/site/" 走目录 index.html
+        site = root / "site"
+        site.mkdir()
+        (site / "index.html").write_text("<h1>db</h1>", encoding="utf-8")
+        stub.config = type("C", (), {
+            "resources_root": root, "resources_prefix": "/resources",
+            "website_root": site, "website_prefix": "/site", "web_root": root,
+        })()
+        redir = Server.handle_http(stub, Request("GET", "/site", {}, {}, b""))
+        check("/site 补斜杠 301", redir.status == 301
+              and redir.headers.get("Location") == "/site/")
+        idx = Server.handle_http(stub, Request("GET", "/site/", {}, {}, b""))
+        check("/site/ 落到站点 index.html", idx.status == 200
+              and idx.headers.get("Content-Type", "").startswith("text/html"))
+        esc = Server.handle_http(stub, Request("GET", "/site/x.html", {}, {}, b""))
+        check("/site 不存在的页面 -> 404", esc.status == 404)
+        trav = Server.handle_http(stub, Request("GET", "/site/../a.json", {}, {}, b""))
+        check("/site 前缀阻止 .. 穿越", trav.status == 404)
         ver1 = Server.asset_version(stub)
         (root / "b.wil").write_bytes(b"x" * 32)
         stub._asset_ver = ("", 0.0)

@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--gamedata", help="gamedata 根目录")
     ap.add_argument("--web", dest="web", help="frontend 根目录")
     ap.add_argument("--resources", help="客户端资源根目录（Data/Map/Wav）")
+    ap.add_argument("--website", help="数据库静态站点根目录（默认 data/website，挂载在 /site）")
     ap.add_argument("--tick-ms", dest="tick_ms", type=int, help="游戏 tick 间隔（毫秒）")
     ap.add_argument("--no-resource-index", action="store_true",
                     help="启动时不重新生成 resources.json")
@@ -57,6 +58,8 @@ async def amain(args: argparse.Namespace) -> int:
     await server.start()
     print(f"[main] jootm2 (python) started on port {cfg.port}")
     print(f"[main]   client   : http://localhost:{cfg.port}/")
+    site_hint = "" if cfg.website_root.is_dir() else "  (未生成：先跑 python scripts/gen_website.py)"
+    print(f"[main]   website  : http://localhost:{cfg.port}{cfg.website_prefix}/{site_hint}")
     print(f"[main]   ws       : ws://localhost:{cfg.port}/ws")
     print(f"[main]   migration: {len(MIGRATED_TYPES)}/{len(ALL_TYPES)} message types ported")
     print("[main]   press Ctrl+C to stop", flush=True)

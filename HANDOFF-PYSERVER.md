@@ -1551,6 +1551,25 @@ end;
 
 ---
 
+## §60 服务端挂载数据库静态站点 /site（2026-11-15）
+
+- **需求**：`scripts/gen_website.py` 生成的静态站（`data/website/`，§55）不另起 `http.server`，直接由 `python -m pyserver` 在同端口提供，挂在 `/site`。
+- **实现**（`pyserver/net.py` + `config.py` + `__main__.py`）：
+  - 路由在资源前缀之后、前端静态之前：`/site`、`/site/`、`/site/...` → `_serve_file(req.path, config.website_root, config.website_prefix, "index.html")`；复用既有 MIME / ETag / 304 / HEAD / Range / 异步分块发送。裸 `/site` 先 301 到 `/site/`——页面内链接都是相对路径，少了尾斜杠浏览器 base 会变成站点根，CSS/图标全部 404。
+  - `_serve_file` 新增两个可选参数（默认行为不变，游戏侧零改动）：`allow_gzip=False` 关掉该路由的同步 zlib；`cache_override` 覆盖缓存头。另外目录路径（`rel` 为空）回落到 `default_name`，所以 `/site/` 能落到 `index.html`。
+  - 配置：`website.root`（properties / `JOOTM2_WEBSITE` / `--website`），前缀固定 `/site`（`ServerConfig.website_prefix` 属性）；未生成站点时 `/site` 返回 404，启动日志打印「(未生成：先跑 python scripts/gen_website.py)」。
+- **性能（用户硬性要求：不能影响主逻辑）**：
+  - 首版让 `/site` 走统一 gzip 缓存，实测 `drops.html`(1.9MB) 冷压一次同步阻塞 **13.63ms**，且压缩在事件循环里串行执行，多个首次访问的页面会在同一个 loop iteration 里叠加 —— 改为 `allow_gzip=False`。站点 HTML/PNG 共 8MB/59MB，关压缩换来的是每次请求同步阻塞上限 **4.21ms**（tick 间隔 100ms）。游戏侧压缩不受影响：`/main.mjs` 仍 `Content-Encoding: gzip`。
+  - 压测方法（诊断脚本在 `data/`，gitignore）：`data/site_load.py`（独立进程 keep-alive 压测）+ `data/site_tick_probe.py`（同进程包装 `service.tick` 记录间隔/耗时）。**压测进程必须独立**：同进程 16 个客户端线程会和服务端抢 GIL，把延迟算到站点头上（首版同进程测出的 244ms 最大间隔是假数据）。
+  - 最终数据（8 keep-alive 线程独立进程压 12s，1892 次请求 ≈158 req/s，混合 374 张 PNG）：tick 间隔中位 **138.2ms vs 空闲 139.8ms**、p99 **203.3 vs 197.8**、最大 **203.3 vs 197.8ms** —— 与空闲不可区分；站点额外服务端 CPU **4.55ms/请求**（已扣除空转 tick）。本机 tick 中位 ~138ms 是 Windows asyncio 计时器粒度（约 15.6ms）+ tick 本身耗时，不是本次引入的。
+- **缓存语义**：站点重新生成后文件名不变，PNG 默认规则是 `immutable` 一年，会让老访客一年看不到新地图渲染 → 该路由统一 `public, max-age=60, must-revalidate`。
+- **安全**：复用 `_serve_file` 的 `resolve()+is_relative_to()`，`/site/../pyserver/net.py` 与 URL 编码的 `%2e%2e` 均 404。
+- **部署**：部署 rsync 默认 `--exclude data`，所以静态站**不在**服务器上；需要时单独 `rsync -a data/website/ root@aliyun.notmmao.com:/root/jootm2/data/website/`（compose 已挂 `./data:/app/data`，无需重启）。也可以不部署——`/site` 404 不影响游戏。
+- **验证**：`test_pyserver.py` **99 PASS / 0 FAIL**（新增 4 条：`/site` 301 补斜杠、`/site/` 落到 index.html、未知页 404、前缀阻止 `..` 穿越）；curl 实测 `/site`(301→200, 208KB)、`/site/assets/style.css`、`/site/assets/maps/0.png`(200, 206 Range)、`/site/maps/0.html`、HEAD 200、游戏 `/` 200 且 `main.mjs` 仍 gzip。
+- 改动文件：`pyserver/net.py`、`pyserver/config.py`、`pyserver/__main__.py`、`scripts/test_pyserver.py`、本文 §60。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
