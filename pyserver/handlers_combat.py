@@ -309,6 +309,11 @@ class CombatHandlers:
         target = self.world.actor(_int(msg, "targetId", -1))
         if target is None or not target.alive:
             return
+        # 原版 IsProperTarget（ObjBase.pas:21508-21513）：玩家打有主的怪，
+        # 主人 = 自己 且攻击模式 ≠ 全体攻击(HAM_ALL) → False。本服没有
+        # 攻击模式开关 → 打自家宝宝一律无效（客户端本就不该发，这里兜底）。
+        if isinstance(target, Monster) and target.master_id == p.id:
+            return
         dist = p.distance_to(target)
         if isinstance(target, Player):
             if dist <= 1:
@@ -838,7 +843,8 @@ class CombatHandlers:
     def _push_around(self, p, level: int) -> int:
         pushed = 0
         for a in self.world.nearby(p.map, p.x, p.y, 1):
-            if not isinstance(a, Monster) or not a.alive or p.level <= a.level:
+            if (not isinstance(a, Monster) or not a.alive
+                    or p.level <= a.level or a.master_id == p.id):
                 continue
             gap = p.level - a.level
             if random.random() * 20 >= 6 + level * 3 + gap:
@@ -860,7 +866,8 @@ class CombatHandlers:
         for _ in range(max_steps):
             cx, cy = p.x + dx, p.y + dy
             a = self._find_target_at(p.map, cx, cy)
-            if not isinstance(a, Monster) or not a.alive or p.level <= a.level:
+            if (not isinstance(a, Monster) or not a.alive
+                    or p.level <= a.level or a.master_id == p.id):
                 break
             gap = p.level - a.level
             if random.random() * 20 >= 6 + lv * 3 + gap:
@@ -1054,6 +1061,11 @@ class CombatHandlers:
         # CretInNearXY：目标必须落在施法点 3x3 内，否则视为对地面施法（target=nil）
         if (target is not None and tx >= 0 and ty >= 0
                 and (abs(target.x - tx) > 1 or abs(target.y - ty) > 1)):
+            target = None
+        # 原版 IsProperTarget（ObjBase.pas:21508-21513）：自家宝宝不可作目标
+        # （攻击模式≠全体攻击）。目标作废 → 按对地施法处理，特效照放、无伤害，
+        # 与「打空」同一软失败路径。
+        if isinstance(target, Monster) and target.master_id == p.id:
             target = None
         if isinstance(target, Monster):
             p.target_id = target.id
@@ -1371,7 +1383,7 @@ class CombatHandlers:
             pwr = magic_power(p, t, lv)
             hit = 0
             for nb in w.nearby(p.map, tx, ty, 1):
-                if isinstance(nb, Monster) and nb.alive:
+                if isinstance(nb, Monster) and nb.alive and nb.master_id != p.id:
                     if self._direct_magic(p, nb, pwr, magic_id, now) > 0:
                         hit += 1
             w.send_system(p, f"{t.name} 击中了 {hit} 个目标。" if hit > 0 else "没有命中目标。")
@@ -1382,7 +1394,7 @@ class CombatHandlers:
             pwr = magic_power(p, t, lv)
             hit = 0
             for nb in w.nearby(p.map, p.x, p.y, 2):
-                if isinstance(nb, Monster) and nb.alive:
+                if isinstance(nb, Monster) and nb.alive and nb.master_id != p.id:
                     undead = nb.template.undead if nb.template else 0
                     part = pwr if undead == 1 else pwr // 10
                     if self._direct_magic(p, nb, part, magic_id, now) > 0:

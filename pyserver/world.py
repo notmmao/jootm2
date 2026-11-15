@@ -800,6 +800,10 @@ class Monster(Actor):
         o["name"] = filter_show_name(self.name)
         if self.master_id >= 0 and 0 <= self.slave_exp_level < len(SLAVE_COLORS):
             o["nameColor"] = SLAVE_COLORS[self.slave_exp_level]
+        if self.master_id >= 0:
+            # 原版客户端靠名字里的「名(主人名)」括号识别宝宝（ClMain.pas:2852），
+            # 本服宝宝名字不带括号 → 显式下发 masterId 供前端过滤误伤。
+            o["masterId"] = self.master_id
         # 尸体仍要作为实体下发给客户端（原版 SM_DEATH 保留 actor，画 ActDeath 帧）
         o["alive"] = self.alive
         o["corpse"] = (not self.alive and self.corpse_until > 0)
