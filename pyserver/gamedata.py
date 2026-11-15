@@ -273,6 +273,23 @@ def map_tile_stride(body_len: int, cells: int) -> int:
     return 12  # 尾部附加数据 / padding：按 12 字节读前 cells 个 tile
 
 
+def map_size(map_id: str, map_dir: Path) -> tuple[int, int] | None:
+    """只读 .map 头 4 字节拿宽高（大地图入口的房间/洞穴判定用）。
+
+    比一次性加载整张 ``MapGrid`` 便宜几个数量级——比奇省有 97 个入口，
+    每次快照都要判定目标图类型，不能把目标图全加载一遍。
+    """
+    path = next((p for p in (map_dir / f"{map_id}.map", map_dir / f"{map_id}.MAP")
+                 if p.is_file()), None)
+    if path is None:
+        return None
+    try:
+        w, h = struct.unpack_from("<HH", path.read_bytes()[:4])
+    except (OSError, struct.error):
+        return None
+    return (w, h) if w > 0 and h > 0 else None
+
+
 def read_map(map_id: str, map_dir: Path) -> MapGrid:
     """读 52 字节头 + tile 栅格；tile 按「列优先」(x 外层、y 内层) 存储。
 

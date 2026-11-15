@@ -29,6 +29,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
 from pyserver.util import U_ARMRINGL  # noqa: E402
+from pyserver import gamedata  # noqa: E402
 from pyserver.world import Monster  # noqa: E402
 
 PASS = 0
@@ -174,13 +175,18 @@ def main() -> None:
     check("野生怪 HP 不变", wild.hp == wild_hp, f"hp={wild.hp}/{wild_hp}")
     check("自己也不被治疗", p.hp == my_hp, f"hp={p.hp}/{my_hp}")
 
-    print("\n[7] 大地图入口数据（MapInfo.txt 连接行 → snapshot.gates）")
+    print("\n[7] 大地图入口只标洞穴/野外大图（房间入口过滤，目标图 max>=100）")
     snap = w.map_snapshot(p, "test")
     gates = snap["map"].get("gates") or []
-    check("比奇省(map 0) 有入口数据", len(gates) > 0, f"gates={len(gates)}")
-    palace = [g for g in gates if g["to"] == "0122"]
-    check("入口含 0→0122 皇宫", any(g["title"] == "皇宫" for g in palace),
-          f"first={palace[0] if palace else None}")
+    check("比奇省(map 0) 洞穴入口有数据且远少于全部入口",
+          0 < len(gates) < 97, f"gates={len(gates)}/97")
+    check("皇宫入口已过滤（0122 是 51x55 房间）",
+          all(g["to"] != "0122" for g in gates))
+    cave_ids = {g["to"] for g in gates}
+    check("剩余入口全部是大型图（w,h>=100）",
+          all(max(gamedata.map_size(m, w.config.map_dir) or (0, 0)) >= 100
+              for m in cave_ids),
+          f"to={sorted(cave_ids)}")
     check("入口格坐标与玩家可达点一致",
           all(isinstance(g["x"], int) and isinstance(g["y"], int) for g in gates))
 

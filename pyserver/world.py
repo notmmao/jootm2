@@ -18,6 +18,7 @@ from .config import ServerConfig
 from .db import Database
 from .gamedata import (
     Gate, MapGrid, MapInfo, MonGen, parse_map_info, parse_mini_map,
+    map_size,
     parse_mon_gen, parse_notice, parse_start_point, read_map, scan_available_maps,
 )
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
@@ -962,6 +963,18 @@ class GameWorld(WorldExtra):
             kept += 1
         print(f"[world] loaded {len(info.titles)} map defs, {kept} gates")
 
+        # 大地图入口只标「可探索区域」（洞穴/野外大图，用户约定：主城村庄
+        # 进房间的入口不显示）。判据 = 目标图 max(w,h) >= 100：房间图实测
+        # 最大 55（皇宫 51x55），洞穴/野外最小 200（D401 200x200），中间无
+        # 过渡，阈值取 100 稳分离。尺寸只读 .map 头 4 字节。
+        self.cave_maps: set[str] = set()
+        for _gs in self.gates_by_src.values():
+            for _g in _gs:
+                if _g.dst_map not in self.cave_maps:
+                    _s = map_size(_g.dst_map, config.map_dir)
+                    if _s and max(_s) >= 100:
+                        self.cave_maps.add(_g.dst_map)
+
         self.map_mini_index = parse_mini_map(config.envir_dir / "MiniMap.txt")
         print(f"[world] loaded {len(self.map_mini_index)} minimap entries")
         self.mon_gen_entries: list[MonGen] = parse_mon_gen(config.envir_dir / "MonGen.txt")
@@ -1544,12 +1557,14 @@ class GameWorld(WorldExtra):
             "map": {"name": game_map.name,
                     "title": self.map_titles.get(game_map.name, game_map.name),
                     "width": game_map.width, "height": game_map.height,
-                    # MapInfo.txt 的连接行（src x,y -> dst）：大地图在入口点上
-                    # 标注下张地图名字。dst 标题取 [dst 名称] 定义，缺失用编号。
+                    # MapInfo.txt 的连接行（src x,y -> dst）：大地图只标
+                    # 洞穴/野外大图入口（cave_maps），主城村庄进房间的
+                    # 入口不显示（用户约定）。dst 标题取 [dst 名称] 定义。
                     "gates": [
                         {"x": g.src_x, "y": g.src_y, "to": g.dst_map,
                          "title": self.map_titles.get(g.dst_map, g.dst_map)}
                         for g in self.gates_by_src.get(game_map.name, ())
+                        if g.dst_map in self.cave_maps
                     ]},
             "dayBright": self.day_bright,
             "darkLevel": self.dark_level(game_map.name),
