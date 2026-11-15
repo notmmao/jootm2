@@ -116,9 +116,16 @@ class Database:
     # ------------------------------------------------------------ 模板导入
 
     def seed_game_data(self, mud2_dir: Path) -> None:
-        if self.scalar("SELECT COUNT(*) FROM std_items") > 0:
+        """模板三表（std_items/monsters/magics）**每次启动都从 gamedata CSV 重灌**。
+
+        CSV 是唯一事实源，表只是它的镜像：改 CSV → 重启即生效，不再出现
+        「旧库把新值压住」的问题（HANDOFF §73 修炼点、§79 商品数值都踩过）。
+        只重建模板表，`accounts/characters` 等玩家数据绝不影响。
+        CSV 缺失或读取失败：保留现有表；表也为空才落内置 defaults（冒烟场景）。
+        """
+        if self._import_csv(mud2_dir):
             return
-        if not self._import_csv(mud2_dir):
+        if self.scalar("SELECT COUNT(*) FROM std_items") == 0:
             self._seed_defaults()
 
     def _import_csv(self, mud2_dir: Path) -> bool:
