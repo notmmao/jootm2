@@ -1746,8 +1746,13 @@ export class PlayScene extends Scene {
             case 'itemRemove':
                 this.groundItems.delete(msg.id);
                 break;
-            case 'bagUpdate':
+            case 'bagUpdate': {
                 if (this.self) {
+                    // 原版 AddItemBag（ClFunc.pas:165-171）：新获得的可用物品
+                    // （StdMode ≤ 3）优先放进快捷栏 0..5 空格，快捷栏满才进背包
+                    // 网格——否则背包网格 40 格显示全满时，买/捡的药水会落进
+                    // 不可见的第 41-46 格（服务端 MAXBAGITEM=46 才拒绝购买）。
+                    const prev = new Set((this.self.items || []).map(x => x.makeIndex));
                     this.self.gold = msg.gold;
                     this.self.items = msg.items || [];
                     if (msg.dress !== undefined) this.self.dress = msg.dress;
@@ -1761,6 +1766,28 @@ export class PlayScene extends Scene {
                     if (msg.maxHandWeight !== undefined) this.self.maxHandWeight = msg.maxHandWeight;
                     // 药水快捷栏 6 格（原版 ItemArr[0..5]）
                     if (msg.quickSlots) this.self.quickSlots = msg.quickSlots;
+                    // 登录首包不自动填充（服务端 quickSlots 已持久化玩家排布），
+                    // 之后每次更新：新增的可用物品自动入空快捷格（原版 AddItemBag）
+                    if (this._bagLoaded) {
+                        if (!Array.isArray(this.self.quickSlots)) this.self.quickSlots = [0, 0, 0, 0, 0, 0];
+                        const empty = [];
+                        for (let i = 0; i < 6; i++) {
+                            const mi = this.self.quickSlots[i] || 0;
+                            // 栏内引用指向已不存在的物品（喝掉的药水）→ 视为空格
+                            if (!mi || !this.self.items.some(x => x.makeIndex === mi)) {
+                                empty.push(i);
+                                this.self.quickSlots[i] = 0;
+                            }
+                        }
+                        for (const it of this.self.items) {
+                            if (!empty.length) break;
+                            if (prev.has(it.makeIndex) || (it.stdMode || 0) > 3) continue;
+                            const slot = empty.shift();
+                            this.self.quickSlots[slot] = it.makeIndex;
+                            this.conn.send('quickSlot', { slot, makeIndex: it.makeIndex });
+                        }
+                    }
+                    this._bagLoaded = true;
                 }
                 this._refreshBag();
                 this._refreshStateWin();
@@ -1772,6 +1799,7 @@ export class PlayScene extends Scene {
                     if (!still) this._clearSellSpot();
                 }
                 break;
+            }
             case 'duraChange': {
                 // 原版 SM_DURACHANGE → ClientGetDuraChange（ClMain.pas:5125/6132）：
                 // 按装备栏 slot 原地更新持久，不重建物品、不刷背包
