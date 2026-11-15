@@ -422,12 +422,14 @@ def test_shop_goods() -> None:
         names = [r[0] for r in cs.goods_rows() if r]
         check("比奇服装店卖 1 级布衣", "布衣(男)" in names and "布衣(女)" in names,
               str(names[:4]))
+        check("新手村服装店不卖中型盔甲", not any("中型" in n for n in names),
+              str(names))
 
-    # 村店/城店品类对比（用户第 15 轮反馈：新手村种类应该比主城少）。
-    # 本地 Market_Def 原版结论：不是「少」，是「品类分工 + 库存 + 倍率」：
-    # 边境村武器店(2Twe) 20 件 ≈ 比奇卫家店(2Bwe) 19 件（村多鹤嘴锄）；
-    # 边境村小店(4Tdu) 卖蜡烛/火把/卷轴/修复油/强效药，不卖小中量红蓝药；
-    # 边境村书店(5Tbo) 21 本且 %80 打折，比奇书店(5B) 23 本多集体隐身术/火墙。
+    # 村店/城店品类对比（用户第 15/16 轮反馈：新手村种类必须比主城少）。
+    # 2026-11-15 数据清理（docs/MAIN-CHANGELOG.md）：176 的 Market_Def 是通用
+    # 模板（比奇村/比奇城都 #CALL 同一份武器店.txt），村店所以改成独立精简表：
+    # 武器店只留入门五把+鹤嘴锄，服装店不卖中型，杂货店卖蜡烛/火把但不卖药。
+    # 比奇书店(5B) 回退为 176 基线的 7 本基础书，高级书只在边境村书店(5Tbo)出售。
     v_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Twe-0.txt"
     c_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-0103.txt"
     v_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Tdu-0.txt"
@@ -436,14 +438,42 @@ def test_shop_goods() -> None:
     if v_wea.is_file() and c_wea.is_file():
         vn = {r[0] for r in NpcScript.parse(read_lines(v_wea)).goods_rows()}
         cn = {r[0] for r in NpcScript.parse(read_lines(c_wea)).goods_rows()}
-        check("边境村武器店 ⊇ 比奇卫家店（多鹤嘴锄）", cn <= vn and "鹤嘴锄" in vn,
-              f"村独有={sorted(vn - cn)} 城独有={sorted(cn - vn)}")
+        check("边境村武器店只卖入门五把+鹤嘴锄",
+              vn == {"木剑", "青铜剑", "铁剑", "短剑", "匕首", "鹤嘴锄"},
+              f"村店={sorted(vn)}")
+        check("边境村武器店是比奇卫家店真子集", vn < cn,
+              f"城独有={sorted(cn - vn)}")
     if v_shop.is_file():
         sn = {r[0] for r in NpcScript.parse(read_lines(v_shop)).goods_rows()}
-        check("边境村小店有蜡烛/火把/回城卷（城药店没有）",
-              {"蜡烛", "火把", "回城卷"} <= sn, str(sorted(sn)))
-        check("边境村小店不卖小量红蓝药（城药店专属）",
-              "金创药(小量)" not in sn and "魔法药(小量)" not in sn, str(sorted(sn)))
+        check("边境村小店对齐 176：卷轴/护身符/修复油",
+              {"随机传送卷", "地牢逃脱卷", "行会回城卷", "护身符", "修复油"} <= sn,
+              str(sorted(sn)))
+        check("边境村小店卖蜡烛/火把（夜间视野）", {"蜡烛", "火把"} <= sn, str(sorted(sn)))
+        check("边境村小店只卖小量红蓝药", {"金创药(小量)", "魔法药(小量)"} <= sn
+              and not any("中量" in n or "强效" in n or "超级" in n or "包" in n
+                          and "药" in n for n in sn), str(sorted(sn)))
+    # 银杏新人村（map 0119 + map 0 银杏片区）与边界村同为新手村，同一分档口径
+    g_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Gwe-0.txt"
+    g_cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Gdr-0.txt"
+    g_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "7Gst-0.txt"
+    g_drug = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Gdu-0119.txt"
+    if g_wea.is_file():
+        gn = {r[0] for r in NpcScript.parse(read_lines(g_wea)).goods_rows()}
+        check("银杏村武器店只卖入门五把+鹤嘴锄",
+              gn == {"木剑", "青铜剑", "铁剑", "短剑", "匕首", "鹤嘴锄"},
+              f"村店={sorted(gn)}")
+    if g_cloth.is_file():
+        gc = {r[0] for r in NpcScript.parse(read_lines(g_cloth)).goods_rows()}
+        check("银杏村服装店不卖中型盔甲", not any("中型" in n for n in gc),
+              str(sorted(gc)))
+    if g_shop.is_file():
+        gs = {r[0] for r in NpcScript.parse(read_lines(g_shop)).goods_rows()}
+        check("银杏村杂货店卖蜡烛/火把、不卖药", {"蜡烛", "火把"} <= gs
+              and not any("药" in n for n in gs), str(sorted(gs)))
+    if g_drug.is_file():
+        gd = {r[0] for r in NpcScript.parse(read_lines(g_drug)).goods_rows()}
+        check("银杏村药店只卖小量红蓝药",
+              gd == {"金创药(小量)", "魔法药(小量)"}, str(sorted(gd)))
     if v_book.is_file() and c_book.is_file():
         vb = NpcScript.parse(read_lines(v_book))
         cb = NpcScript.parse(read_lines(c_book))
@@ -451,9 +481,13 @@ def test_shop_goods() -> None:
         cn2 = {r[0] for r in cb.goods_rows()}
         check("边境村书店打 %80 折（比奇 %100）", vb.price_rate == 80,
               f"rate={vb.price_rate}")
-        check("比奇书店比村书店多高级书（集体隐身术/火墙）",
-              {"集体隐身术", "火墙"} <= cn2 and not ({"集体隐身术", "火墙"} <= vn2),
-              f"村={len(vn2)} 城={len(cn2)}")
+        check("比奇书店只剩 176 基线的 7 本基础书",
+              cn2 == {"火球术", "治愈术", "基本剑术", "精神力战法",
+                      "大火球", "施毒术", "攻杀剑术"}, f"城={sorted(cn2)}")
+        check("边境村书店同样只卖 176 的 7 本基础书",
+              vn2 == {"火球术", "治愈术", "基本剑术", "精神力战法",
+                      "大火球", "施毒术", "攻杀剑术"}
+              and not ({"雷电术", "刺杀剑术"} & vn2), f"村={sorted(vn2)}")
 
     # 卖给 NPC 的原版定价（handlers_npc._sell_price）：
     # ClientSellItem(ObjNpc.pas:2156) = Round(GetItemPrice/2)；GetItemPrice:

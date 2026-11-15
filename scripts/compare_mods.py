@@ -17,6 +17,9 @@ NPC 出售（Market_Def / [goods]）
   N2 新增商品   —— 同名 NPC 在 176 不卖，且 Lv ≥10 或售价 ≥3000
   N3 私服独有 NPC —— current 有、176 没有同名 NPC
 
+技能（mud2/DB/Magic.csv）
+  M1 修炼点异常 —— L1Train/L2Train/L3Train 与 176 不同（决定技能升级快慢）
+
 用法：
   python scripts/compare_mods.py                 # 生成 docs/MODS-REPORT.md
   python scripts/compare_mods.py --out x.md
@@ -35,6 +38,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from pyserver.drop_rates import load_drop_rates  # noqa: E402
 from pyserver.gamedata import read_lines  # noqa: E402
 from pyserver.npc_script import NpcScriptEngine, load_script  # noqa: E402
 from pyserver.world_extra import load_npc_spawns  # noqa: E402
@@ -68,6 +72,11 @@ def load_monster_lvl(tree: Path) -> dict[str, int]:
     # 主树列名是 Level（旧注释里的 Lvl 是 REDM2 库字段名）
     return {r["Name"]: num(r.get("Level")) for r in load_csv(tree, "Monster")
             if r.get("Name")}
+
+
+def load_magic(tree: Path) -> dict[int, dict]:
+    return {num(r.get("MagId")): r for r in load_csv(tree, "Magic")
+            if r.get("MagName")}
 
 
 def parse_rate(s: str) -> float | None:
@@ -133,8 +142,12 @@ def spawn_maps(tree: Path) -> dict[str, set[str]]:
 
 # ---------------------------------------------------------------- NPC 商品
 
-def load_goods(tree: Path) -> dict[tuple[str, str], dict]:
-    """(地图, NPC 名) → {"script":…, "items":[(名, 价, NeedLv)]}。"""
+def load_goods(tree: Path) -> dict[tuple[str, str, int, int], dict]:
+    """(地图, NPC 名, x, y) → {"spawn":…, "items":[(名, 价)]}。
+
+    同名同图可能有多个 NPC（如比奇城的两个「铁匠铺老板」，一个只有对话、
+    一个卖装备），所以坐标必须进键，否则第一个会把后面的商店遮住。
+    """
     envir = tree / "Mir200" / "Envir"
     items = load_items(tree)
 
@@ -146,16 +159,34 @@ def load_goods(tree: Path) -> dict[tuple[str, str], dict]:
     world = SimpleNamespace(config=SimpleNamespace(envir_dir=envir),
                             item_template_by_name=tpl)
     engine = NpcScriptEngine(world)
-    out: dict[tuple[str, str], dict] = {}
+    out: dict[tuple[str, str, int, int], dict] = {}
     for s in load_npc_spawns(envir):
         if not s["merchant"]:
             continue
-        key = (s["map_name"], s["name"].strip())
+        key = (s["map_name"], s["name"].strip(), int(s.get("x", 0)),
+               int(s.get("y", 0)))
         if key in out:
             continue
         script = load_script(envir / "Market_Def", s["script_name"], s["map_name"])
         goods = engine.goods(SimpleNamespace(script=script)) if script else []
         out[key] = {"spawn": s, "items": [(g["name"], g["price"]) for g in goods]}
+    return out
+
+
+def pair_goods(main: dict, old: dict) -> list[tuple[tuple, dict, dict | None]]:
+    """按 (地图, NPC 名) 分组、坐标就近配对；176 没有对应 NPC 时 old 为 None。"""
+    pools: dict[tuple[str, str], list[tuple[tuple, dict]]] = collections.defaultdict(list)
+    for k, v in old.items():
+        pools[(k[0], k[1])].append((k, v))
+    out = []
+    for k in sorted(main):
+        cand = pools.get((k[0], k[1]), [])
+        match = None
+        if cand:
+            match = min(cand, key=lambda kv: ((kv[0][2] - k[2]) ** 2
+                                              + (kv[0][3] - k[3]) ** 2))
+            cand.remove(match)
+        out.append((k, main[k], match[1] if match else None))
     return out
 
 
@@ -168,13 +199,22 @@ class Row:
     detail: str
 
 
-def gold_expected(rows, monster: str) -> float:
-    return sum(rate * cnt for rate, item, cnt in rows if item == GOLD)
+def gold_expected(rows, monster: str, rates=None) -> float:
+    """金币期望值；传入 rates 时计入服务器统一倍率（概率 × 数量）。"""
+    total = 0.0
+    for rate, item, cnt in rows:
+        if item != GOLD:
+            continue
+        p = rate * cnt
+        if rates is not None:
+            p *= rates.probability(monster, GOLD) * rates.amount(monster)
+        total += p
+    return total
 
 
 def compare_drops(main: dict, old: dict, items: dict, lvl: dict,
                   maps: dict[str, set[str]],
-                  typo_map: dict[str, str]) -> list[Row]:
+                  typo_map: dict[str, str], rates=None) -> list[Row]:
     out: list[Row] = []
     old_any = collections.Counter(item for rows in old.values()
                                   for _r, item, _c in rows)
@@ -191,13 +231,14 @@ def compare_drops(main: dict, old: dict, items: dict, lvl: dict,
         a = main[mon]
         b = old.get(mon, [])
         where = where_of(mon)
-        ga, gb = gold_expected(a, mon), gold_expected(b, mon)
+        ga = gold_expected(a, mon, rates)
+        gb = gold_expected(b, mon)
         if ga and (gb == 0 and ga >= 200 or gb and ga >= 2 * gb and ga - gb >= 100):
             fmt = lambda rows: "、".join(f"{rate:.0e}×{cnt}" for rate, it, cnt in rows
                                          if it == GOLD) or "无"
             out.append(Row("G1 金币异常", where,
-                           f"current 期望 {ga:.0f} 金（{fmt(a)}） vs 176 {gb:.0f} 金"
-                           f"（{fmt(b)}），{ga / gb:.1f}×" if gb else
+                           f"current 期望 {ga:.0f} 金（原始 {fmt(a)}，已计倍率） vs "
+                           f"176 {gb:.0f} 金（{fmt(b)}），{ga / gb:.1f}×" if gb else
                            f"current 期望 {ga:.0f} 金（{fmt(a)}），"
                            + ("176 无该怪掉落文件" if mon not in old
                               else "176 该怪不掉金币")))
@@ -240,12 +281,12 @@ def compare_drops(main: dict, old: dict, items: dict, lvl: dict,
 
 def compare_goods(main: dict, old: dict, items: dict) -> list[Row]:
     out: list[Row] = []
-    for (mid, name), g in sorted(main.items()):
-        old_items = {n for n, _p in old.get((mid, name), {}).get("items", [])}
+    for (mid, name, x, y), g, o in pair_goods(main, old):
+        old_items = {n for n, _p in (o or {}).get("items", [])}
         for item, price in g["items"]:
             it = items.get(item, {})
             need = num(it.get("NeedLevel"))
-            where = f"{name}@{mid}"
+            where = f"{name}@{mid}({x},{y})"
             if need >= 20:
                 b = "176 也卖" if item in old_items else "176 不卖"
                 out.append(Row("N1 高等级商品", where,
@@ -256,13 +297,29 @@ def compare_goods(main: dict, old: dict, items: dict) -> list[Row]:
     return out
 
 
+def compare_magic(main: dict, old: dict) -> list[Row]:
+    cols = ("L1Train", "L2Train", "L3Train")
+    out: list[Row] = []
+    for mid in sorted(set(main) & set(old)):
+        a, b = main[mid], old[mid]
+        ca = [num(a.get(c)) for c in cols]
+        cb = [num(b.get(c)) for c in cols]
+        if ca == cb:
+            continue
+        ratios = "/".join(f"{y / x:.1f}×" if x else "—" for x, y in zip(ca, cb))
+        out.append(Row("M1 技能修炼点异常", f"{a['MagName']}（MagId {mid}）",
+                       f"main {ca[0]}/{ca[1]}/{ca[2]} vs 176 "
+                       f"{cb[0]}/{cb[1]}/{cb[2]}（{ratios}）"))
+    return out
+
+
 def extra_npcs(main: dict, old: dict) -> list[Row]:
-    old_names = {n for _m, n in old}
+    old_names = {k[1] for k in old}
     out = []
-    for (mid, name) in sorted(main):
+    for (mid, name, x, y) in sorted(main):
         if name not in old_names:
-            out.append(Row("N3 176 无同名 NPC（需人工判断）", f"{name}@{mid}",
-                           "176 无同名 NPC"))
+            out.append(Row("N3 176 无同名 NPC（需人工判断）",
+                           f"{name}@{mid}({x},{y})", "176 无同名 NPC"))
     return out
 
 
@@ -304,17 +361,24 @@ def main() -> None:
     bad_a = bad_drop_names(drops_a, items)
     bad_b = bad_drop_names(drops_b, old_items)
 
-    drop_rows = compare_drops(drops_a, drops_b, items, lvl, maps, typo_map)
+    rates_path = ROOT / "config" / "game_rates.json"
+    if not rates_path.is_file():
+        rates_path = ROOT / "config" / "drop_rates.json"
+    rates = load_drop_rates(rates_path)
+    drop_rows = compare_drops(drops_a, drops_b, items, lvl, maps, typo_map, rates)
     goods_rows = compare_goods(goods_a, goods_b, items)
     npc_rows = extra_npcs(goods_a, goods_b)
+    magic_a, magic_b = load_magic(MAIN), load_magic(OLD)
+    magic_rows = compare_magic(magic_a, magic_b)
 
     cats: dict[str, list[Row]] = collections.defaultdict(list)
-    for r in drop_rows + goods_rows + npc_rows:
+    for r in drop_rows + goods_rows + npc_rows + magic_rows:
         cats[r.category].append(r)
 
     order = ["G1 金币异常", "G2 基线从未掉落", "G2b 176 名称笔误",
              "G3 同怪新增", "G3 掉率暴涨", "G4 低阶怪掉高阶物",
-             "N1 高等级商品", "N2 新增商品", "N3 176 无同名 NPC（需人工判断）"]
+             "N1 高等级商品", "N2 新增商品", "N3 176 无同名 NPC（需人工判断）",
+             "M1 技能修炼点异常"]
     cats["G3 同怪新增"].sort(key=lambda r: r.detail)
     counts = {k: len(cats.get(k, [])) for k in order}
     missing = [(m, len({i for _r, i, _c in b} - {i for _r, i, _c in drops_a.get(m, [])}))
@@ -334,6 +398,9 @@ def main() -> None:
         f"- MonItems 行数：current {total_rows} vs 176 {old_rows}",
         f"- 怪物掉落文件：current {len(drops_a)} vs 176 {len(drops_b)}",
         f"- 商人：current {len(goods_a)} vs 176 {len(goods_b)}",
+        f"- 技能：current {len(magic_a)} vs 176 {len(magic_b)}",
+        f"- 金币期望已计入服务器倍率：gold {rates.gold} × goldAmount "
+        f"{rates.gold_amount}（config/game_rates.json）",
         "",
         "## 汇总",
         "",

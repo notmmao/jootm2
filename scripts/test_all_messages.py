@@ -767,8 +767,10 @@ def run_success_paths() -> int:
         try:
             lv0, exp0 = p.level, p.exp
             service._grant_exp(p, victim)
+            # 击杀经验还要乘统一倍率（config/game_rates.json），期望值同源计算
+            want = w.kill_exp("骷髅", calc_get_exp(p.level, 10, 100))
             check("单人击杀经验带等级惩罚（原版 CalcGetExp）",
-                  p.exp == exp0 + calc_get_exp(p.level, 10, 100), results)
+                  p.exp == exp0 + want, results)
         finally:
             w.remove_actor(victim.id)
         # 实例经验（原版 m_dwFightExp）：出生从模板写入实例，杀怪结算读实例值。
@@ -791,9 +793,9 @@ def run_success_paths() -> int:
         try:
             lv, e0 = p.level, p.exp
             service._grant_exp(p, zilx)
+            want = w.kill_exp("僵尸4", calc_get_exp(lv, 10, 100))
             check("复活僵尸击杀经验取实例值（200→100，非模板 200）",
-                  zilx.exp == 100
-                  and p.exp - e0 == calc_get_exp(lv, 10, 100), results)
+                  zilx.exp == 100 and p.exp - e0 == want, results)
         finally:
             w.remove_actor(zilx.id)
         # 组队：2 人同图 ≤12 格，经验 ×1.3 后按等级比例分（ObjBase.pas:15564/15594）
@@ -810,8 +812,8 @@ def run_success_paths() -> int:
             w.add_actor(victim2, p.map)
             try:
                 service._grant_exp(p, victim2)
-                # 组队期望动态计算：先 CalcGetExp 惩罚，再 ×1.3、按等级比例分
-                exp_after = calc_get_exp(p.level, 10, 100)
+                # 组队期望动态计算：先 CalcGetExp 惩罚 × 统一倍率，再 ×1.3、按等级比例分
+                exp_after = w.kill_exp("骷髅", calc_get_exp(p.level, 10, 100))
                 total = round(exp_after * 1.3)
                 check("组队 2 人：总经验 ×1.3 后按等级比例分配（非平分）",
                       p.exp - old[p.id][1] == round(total / (p.level + mate.level) * p.level)

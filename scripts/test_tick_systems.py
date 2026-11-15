@@ -621,6 +621,30 @@ def test_drop_rates(w, p):
     check("数量倍率按怪物覆盖", r.amount("鹿") == 2.5 and r.amount("鸡") == 1.0)
     check("倍率 0 永不命中", not DropRates(item=0).hit("鸡", "鸡肉", 1, 10))
     check("倍率极大时封顶必中", DropRates(item=1e6).hit("鸡", "鸡肉", 1, 1000))
+    check("经验倍率默认 1", DropRates().exp_for("鸡") == 1.0)
+    check("经验倍率按怪物覆盖", DropRates(
+        exp=2.0, monsters={"鸡": {"exp": 0.5}}).exp_for("鸡") == 0.5)
+    check("修炼速度默认 1", DropRates().magic_need(100) == 100)
+    check("修炼速度 2.0 需求减半", DropRates(magic_train=2.0).magic_need(100) == 50)
+    check("修炼速度 0.5 需求翻倍", DropRates(magic_train=0.5).magic_need(100) == 200)
+    check("修炼速度 0 关闭升级", DropRates(magic_train=0).magic_need(100) == 0)
+    check("修炼点 0 原样返回", DropRates(magic_train=2.0).magic_need(0) == 0)
+    tpl0 = w.magic_templates[1]
+    raw_train = list(tpl0.maxTrain)
+    prev_rates = w.drop_rates
+    w.drop_rates = DropRates(magic_train=2.0)
+    w.apply_magic_train_rate()
+    check("模板修炼需求按倍率折算",
+          tpl0.maxTrain == [w.drop_rates.magic_need(v) for v in raw_train],
+          f"{raw_train} -> {tpl0.maxTrain}")
+    w.drop_rates = prev_rates
+    tpl0.maxTrain = raw_train
+    prev = w.drop_rates
+    w.drop_rates = DropRates(exp=2.0, monsters={"鸡": {"exp": 0}})
+    check("击杀经验 ×2", w.kill_exp("鹿", 10) == 20)
+    check("按怪物经验 ×0", w.kill_exp("鸡", 10) == 0)
+    check("经验 0 原样返回", w.kill_exp("鹿", 0) == 0)
+    w.drop_rates = prev
 
     gm = p.map or w.default_map
     t = SimpleNamespace(name="鸡", race=51, appr=160)
