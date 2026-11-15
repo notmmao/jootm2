@@ -501,3 +501,21 @@ npc_home_quest 21 / hosted_fixes 12）全绿。
    **同行（Ry）掉落物画在尸体之上**；其余怪 Level=0，同行尸体盖住物品是
    原版行为。实现：渲染快照给沃玛系尸体/濒死实体带 `drawRow: y-1`，
    MapActor 按行分桶用 drawRow、屏幕锚点仍用 e.y。
+
+## §76 大地图入口标注 + 误伤宝宝豁免（2026-11-15，f2e7800..b15f558）
+
+1. **大地图入口显示下张地图名**（增强，原版客户端无此标注）：map_snapshot
+   的 map 对象新增 `gates`（来自 MapInfo.txt 连接行 `src x,y -> dst x,y`，
+   标题取 `[dst 名称]` 定义），大地图在入口格画黄色门点 + 「→ 目的地图名」
+   （右侧放不下自动画左侧）。
+2. **误伤宝宝豁免**（原版 IsProperTarget，ObjBase.pas:21508-21513）：玩家打
+   有主的怪，主人 = 自己且攻击模式 ≠ HAM_ALL(全体) → False。本服无攻击
+   模式开关 → 近战 attack / 点目标法术（自家宝宝目标作废 = 对地软失败，
+   特效照放无伤害）/ 范围法术（爆裂火焰 23/33、地狱雷光 24）/ 野蛮冲撞
+   （_push_around/_rush_rush）一律跳过 `master_id == p.id`。客户端点击攻击
+   路径（普通左键 + Shift 强攻）按 masterId 过滤自家宝宝 —— 点宝宝落到
+   拾取/移动分支，治「捡东西点到宝宝挥刀」。原版客户端靠宝宝名字里的
+   「名(主人名)」括号识别（ClMain.pas:2852-2858），本服宝宝名无括号 →
+   Monster.brief_json 显式下发 masterId。
+
+**验证**：`scripts/test_slave_protection.py` 9/0；既有六套回归全绿。
