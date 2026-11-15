@@ -1471,10 +1471,12 @@ end;
 - NPC：`npc.wil` 站姿帧 = `getNpcOffset(appr)` + `npcAction(appr)`（appr 23→MA51，24/25→MA52，其余 MA50）stand dir=4；`NPC_PLACEHOLDER_APPR` 集合同样从 actorData.mjs 解析并回退 appr=0。24 种 Appr 全提取。
 
 **地图渲染图（`render_maps.py`，对齐 Delphi MapUnit/PlayScn）**：
-- 图层：`wBkImg & 0x7FFF - 1` → `Tiles.wil`（**仅偶数 i,j**，`PlayScn.pas:562-564`，每 2×2 格采样一次再放大 2× 到 1 像素/格）；`wMidImg - 1` → `SmTiles.wil`（全格）；`wFrImg & 0x7FFF - 1` → `GetObjs(btArea, idx)`（area 0=`Objects.wil`，否则 `Objects{area+1}.wil`，`MShare.pas:783`，全格，按 0.7 权重混合）。彩块近似 = 整帧 α 加权平均色。
-- 刷新点：MonGen 行 → 怪物图标（站姿 dir=4，透明 PNG），地图标记加 1px 黑色描边（α=0xC8）保证深色地形可见；站点表格图标用 `halo=False`。图标尺寸 = `min(18, max(10, min(w,h)//50))`。
-- 已知口径：室内小图（肉店/皇宫等）bg 数据全是 `0x8000`（纯阻挡位、无 tile 帧），渲染出来是深灰底，与原客户端 `Fill(0)` 加光照后的观感差距属数据缺失而非渲染 bug；比奇省等大图正常。
-- 性能：176 树 445 张图里 374 张有 .map，全量渲染约 35s；`--skip-existing-maps` 复用已有 PNG（重建页面约 4s）。
+- 数据布局：`.map` tile 是**列优先** `i = x*height + y`（`MapUnit.pas:182` `FileSeek(52 + x*height*12 + y*12)`），PNG 是行优先——首版把列优先数组直接当行优先输出，整张图转置（比奇省海水从西南跑到东北，用户第一轮就发现了）。
+- 大图（区域/洞穴，w*h>4000）：1 像素/格彩块近似。背景 `wBkImg & 0x7FFF - 1` → `Tiles.wil`（**仅偶数 i,j**，`PlayScn.pas:562-564`）；`wMidImg` → `SmTiles.wil`、`wFrImg` → `GetObjs(btArea)`（`MShare.pas:783`）**每格都画**（`PlayScn.pas:586/1143`）。颜色 = 整帧 α 加权平均色；按「原始值→颜色」查表后再跑主循环（49 万格约 4s，否则 8 分钟）。
+- 小图（室内/房间，w*h≤4000）：**逐帧真实合成**，输出长边约 1400px。Tiles 帧 96×64 画在 (x*48,y*32)；SmTiles 48×32 画在 (x*48,y*32)；Objects 帧**底边对齐格底** (x*48, (y+1)*32 - 帧高)（`PlayScn.pas:1170` `mmm := m + UNITY - Height`），按 y 行序绘制。正确性靠游戏内实拍核对：衣服店 0106 / 药店 0108 / 皇宫 0122 的截图与渲染图一致（家具、地板、栏杆全部对位）。性能技巧：帧像素先拆「不透明连续段 + 半透明散点」，段用切片拷贝；`wil_extract.frame_rgba` 的 8 位索引色改用整行 `str.translate`（C 层）+ 每帧缓存。
+- 刷新点：MonGen 行 → 怪物图标（站姿 dir=4，透明 PNG），地图标记加 1px 黑色描边（α=0xC8）；站点表格图标用 `halo=False`。图标尺寸 = `min(18, max(10, min(w,h)//50))`（小图按画布自适应）。
+- 数据缺文件（用户第三问「杂货店 8000」）：MapInfo 登记 445 张图，其中 **71 张在客户端资源里没有 .map**（8000~系列租屋、T000x、部分 1.80 地图等）。这是资源包本身缺文件，不是站点引用错误：服务端 Warp 到这些图同样没有地形。站点在列表里标「缺 .map」并在说明里点明数量，详情页显示「缺少 .map 文件，无法渲染」。
+- 性能：176 树 374 张有 .map 的图全量渲染约 3 分钟；`--skip-existing-maps` 复用已有 PNG（重建页面约 4s）。比奇省渲染图与官方小地图 `mmap.wil` 帧（MiniMap.txt 1-based，比奇省=第 101 项）按 70×70 网格做 8 种朝向匹配：正确朝向平均色差 18.5，其余朝向 ≥30，用于确认方向修复。
 
 **NPC 与售卖物**：数据源 `Npcs.txt`/`MerChant.txt`（列义同 `world_extra.load_npc_spawns`），同名的多个坐标合并为一个 NPC 页。商品直接调服务端 `pyserver.npc_script.load_script(Market_Def/Npc_Def, script, map)` + `NpcScriptEngine.goods`（含 Gee `#CALL` 子脚本回退），所以价格与游戏内完全同链路：`Round(Price×1.1)` 再乘脚本倍率（`ObjNpc.pas CheckItemPrice/GetUserPrice`）。实测 165 条 NPC 记录 → 101 个 NPC，61 个有 `[goods]`，共 587 条商品。
 
@@ -1482,7 +1484,7 @@ end;
 
 **数据口径要点**：StdItems 分类按 StdMode（5/6=武器；10..26,52..54=装备；0..3,7,31,40=消耗品；4=书；其余杂项，字典在脚本顶部）；药水类 Ac/Mac 是**回血/回魔值**不是防御（首版误显示"防 20-0"已修）；需求列 Need 0=等级/1=攻击/2=魔法/3=道术（对齐 `handlers_items.py:268-277` 原版语义）；技能 Job 0/1/2=战/法/道。地图尺寸读 resources/Map/*.map 52 字节头。
 
-**验证**：176 树生成 662 物品/39 技能/469 怪/445 图/4262 刷怪行/299 掉落表/165 NPC/101 NPC 页，1017 页 17MB；浏览器实测 index/items/skills/monsters/maps/map-detail/npcs/npc-detail/mon/dist/drops 页面截图正常；比奇省渲染图 700×700 保留道路/城池/水系，怪物标记（鹿/鸡等）透明背景+描边可辨认；NPC「罗家铺子老板」21 件商品价格核对（金创药(小量) 88=80×1.1、轻型盔甲 3300=3000×1.1）。搜索+分类 tab 联合过滤（items 搜"剑"→16 行，叠"装备"→0 行符合预期）。176 数据里 17 个站点图名对应的洞窟（尸魔洞/骨魔洞等）本图集没有，属预期。
+**验证**：176 树生成 662 物品/39 技能/469 怪/445 图/4262 刷怪行/299 掉落表/165 NPC/101 NPC 页，1017 页 17MB；浏览器实测 index/items/skills/monsters/maps/map-detail/npcs/npc-detail/mon/dist/drops 页面截图正常；比奇省渲染图 700×700 与官方 mmap.wil 小地图逐格比对朝向一致（海水西南、河流南北），室内图与游戏内实拍一致；怪物标记（鹿/鸡等）透明背景+描边可辨认；71 张缺 .map 的地图标红提示；NPC「罗家铺子老板」21 件商品价格核对（金创药(小量) 88=80×1.1、轻型盔甲 3300=3000×1.1）。搜索+分类 tab 联合过滤（items 搜"剑"→16 行，叠"装备"→0 行符合预期）。176 数据里 17 个站点图名对应的洞窟（尸魔洞/骨魔洞等）本图集没有，属预期。
 
 **用法**：`python scripts/gen_website.py`（当前生效树，默认全量重渲染地图）· `--skip-existing-maps`（复用已渲染图，快速重建页面）· `--tree gamedata`（私服主树）· `--out website --open`。单独渲染地图：`python scripts/render_maps.py --only 0 --out /tmp/maps`。
 
