@@ -6,7 +6,7 @@ check [757] 1
 goto @Q707
 break
 #IF
-checkmonmap 01152 1
+checkmonmap 01132 1
 #SAY
 你还没有抓到怪物,已经没有时间了 \
 快点行动吧,祝你好运 \ \

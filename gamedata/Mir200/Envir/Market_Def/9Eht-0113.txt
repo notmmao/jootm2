@@ -9,8 +9,17 @@ break
 check [756] 1
 #ACT
 goto @Q706
-#ELSEACT
+break
+#IF
+checkjob taoist
+#ACT
+set [756] 1
+goto @Q706
+break
+#IF
+#ACT
 goto @normal
+break
 [@Q707]
 你是不是已经拿到了书? \
 如果你拿到了治愈术就(双击鼠标左键) \

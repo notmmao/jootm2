@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .gamedata import read_lines
-from .util import delphi_round
+from .util import BAG_SIZE, delphi_round
 
 MAX_DEPTH = 64
 
@@ -260,6 +260,12 @@ class NpcScriptEngine:
     def __init__(self, world):
         self.world = world
         self._subs: dict[str, NpcScript | None] = {}   # QuestDiary #CALL 子脚本缓存
+        # 脚本 PARAM1/PARAM2/PARAM3（原版 NPC 的 m_sParam1/m_nParam2/m_nParam3，
+        # ObjNpc.pas nSC_PARAM1..3：存在 NPC 实例上，供 MonGen 用）。
+        self._npc_params: dict[int, dict] = {}
+
+    def _params(self, npc) -> dict:
+        return self._npc_params.setdefault(npc.id, {"map": "", "x": 0, "y": 0})
 
     def execute(self, p, npc, start_label: str) -> Result:
         script = npc.script if npc else None
@@ -420,6 +426,18 @@ class NpcScriptEngine:
         if n == "random":
             k = c.int_at("param")
             return k <= 0 or int(random.random() * k) == 0
+        # ---- 测验房三条件（原版 ObjNpc.pas:7153-7175）--------------------
+        if n == "checkmonmap":
+            # 地图上怪数 >= n 才通过；地图不存在原版 FindMap=nil 直接通过。
+            map_id = c.param.strip()
+            if self.world.get_or_load_map(map_id) is None:
+                return True
+            return self.world.count_map_monsters(map_id) >= c.int_at("tag", 1)
+        if n == "checkhum":
+            # 地图上玩家数 >= n 才通过（GetMapHuman(sParam1) < n → False）。
+            return self.world.count_map_humans(c.param.strip()) >= c.int_at("tag", 1)
+        if n == "checkbaggage":
+            return len(p.bag) < BAG_SIZE
         return True
 
     def _run_actions(self, p, npc, acts: list[Cmd], r: Result) -> str | None:
@@ -459,6 +477,29 @@ class NpcScriptEngine:
             return None
         elif n == "break":
             return "BREAK"
+        # ---- 测验房动作（原版 ObjNpc.pas:7799-7865）----------------------
+        elif n == "param1":
+            self._params(npc)["map"] = c.param.strip()
+        elif n == "param2":
+            self._params(npc)["x"] = c.int_at("param")
+        elif n == "param3":
+            self._params(npc)["y"] = c.int_at("param")
+        elif n == "mongen":
+            # 原版：x = Random(range*2+1) + (Param2 - range)，y 同理（:7860-7861），
+            # 逐只 RegenMonsterByName(Param1 地图, x, y, 怪名)（:7862）。模板不存在
+            # 时原版静默失败（如沉默版 9Ehw-0114 的「暗之沃玛护卫」是死引用）。
+            pr = self._params(npc)
+            name, count, rng = c.param.strip(), c.int_at("tag", 1), c.int_at("extra")
+            if pr.get("map") and name:
+                for _ in range(max(count, 0)):
+                    ox = random.randint(0, rng * 2) + pr["x"] - rng
+                    oy = random.randint(0, rng * 2) + pr["y"] - rng
+                    self.world.regen_monster_by_name(pr["map"], ox, oy, name)
+        elif n == "monclear":
+            self.world.clear_map_monsters(c.param.strip())
+        elif n == "timerecall":
+            # 原版 :7800-7806：记录玩家当前 map/x/y，nParam1 分钟后 SpaceMove 回去。
+            self.world.start_time_recall(p, c.int_at("param", 1))
         elif n == "close":
             r.closed = True
             return "BREAK"

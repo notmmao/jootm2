@@ -391,6 +391,10 @@ class Player(Actor):
     # 原版 m_boDeath：死亡后客户端停在黑白屏，不自动回城；重登时按
     # UsrEngn.pas:576-600 回出生点并给 HP=14。
     dead: bool = False
+    # 脚本 TimeRecall（原版 m_boTimeRecall/m_sMoveMap/m_dwTimeRecallTick，
+    # ObjBase.pas:634-638）：{"map","x","y","expire"}，到期 SpaceMove 回记录点；
+    # 主动换图自动取消（ObjBase.pas:23616）。
+    time_recall: dict | None = None
 
     def bag_item(self, make_index: int) -> dict | None:
         return next((it for it in self.bag
@@ -1072,22 +1076,106 @@ class GameWorld(WorldExtra):
                 pos = self._free_near(game_map, entry.x, entry.y, entry.range_)
                 if pos is None:
                     continue
-                m = Monster(id=self.new_id(), name=t.name,
-                            x=pos[0], y=pos[1], dir=4,
-                            hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
-                            level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
-                            template=t, spawn_x=pos[0], spawn_y=pos[1],
-                            respawn_interval_ms=entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
-                m.exp = t.exp
-                init_meat_quality(m)
-                self._init_race_traits(m, t)
-                self.add_actor(m, game_map)
+                self._spawn_monster(game_map, t, pos[0], pos[1],
+                                    entry.interval_min * 60_000 if entry.interval_min > 0 else 0)
                 spawned += 1
         if spawned:
             print(f"[world] map={game_map.name} {game_map.width}x{game_map.height}, "
                   f"spawned monsters={spawned}")
         game_map.mon_spawned = True
         return spawned
+
+    def _spawn_monster(self, game_map: GameMap, t, x: int, y: int,
+                       respawn_interval_ms: int = 0) -> Monster:
+        m = Monster(id=self.new_id(), name=t.name,
+                    x=x, y=y, dir=4,
+                    hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
+                    level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
+                    template=t, spawn_x=x, spawn_y=y,
+                    respawn_interval_ms=respawn_interval_ms)
+        m.exp = t.exp
+        init_meat_quality(m)
+        self._init_race_traits(m, t)
+        self.add_actor(m, game_map)
+        return m
+
+    def regen_monster_by_name(self, map_id: str, x: int, y: int, name: str) -> bool:
+        """原版 ``UserEngine.RegenMonsterByName``（NPC 脚本 MonGen / MakeSlave）：
+        按名字查模板刷一只；模板或地图不存在静默失败（返回 False）。"""
+        t = self.monster_templates.get(name)
+        if t is None:
+            return False
+        game_map = self.get_or_load_map(map_id)
+        if game_map is None:
+            return False
+        pos = None
+        # 落点自指定格起环形全扫描（原版 MonGen 玩家语境下怪挤在测验小屋，
+        # 随机尝试会在高密度时漏放；环形扫描保证只要还有空格就能放下）。
+        for radius in range(0, 13):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    px, py = x + dx, y + dy
+                    if (game_map.inside(px, py) and game_map.can_walk(px, py)
+                            and not game_map.occupied(px, py)):
+                        pos = (px, py)
+                        break
+                if pos is not None:
+                    break
+            if pos is not None:
+                break
+        if pos is None:
+            return False
+        self._spawn_monster(game_map, t, pos[0], pos[1])
+        return True
+
+    def count_map_monsters(self, map_id: str) -> int:
+        gm = self.maps.get(map_id)
+        if gm is None:
+            return 0
+        return sum(1 for a in gm.actors.values()
+                   if isinstance(a, Monster) and a.alive)
+
+    def count_map_humans(self, map_id: str) -> int:
+        return sum(1 for p in self.players_by_name.values()
+                   if p.map is not None and p.map.name == map_id)
+
+    def start_time_recall(self, p: Player, minutes: int) -> None:
+        """原版 ``TPlayObject`` 脚本 ``TimeRecall``（ObjNpc.pas:7800-7806）：
+        记录玩家当前 map/x/y，n 分钟后 SpaceMove 送回。取消点只有两处：
+        到期执行本身、重登（新 Player 对象字段重置）；脚本 ``map`` 换图
+        **不**取消（原版取消在 BaseObjectMove，回城类传送才走它）。"""
+        p.time_recall = {"map": p.map.name if p.map else "",
+                         "x": p.x, "y": p.y,
+                         "expire": now_ms() + max(minutes, 0) * 60_000}
+
+    def _tick_time_recall(self, p: Player, now: int) -> None:
+        """原版 ObjBase.pas:6440-6443：到期 SpaceMove 回记录点。"""
+        tr = p.time_recall
+        if not tr or now < int(tr["expire"]):
+            return
+        p.time_recall = None
+        if self.space_move(p, tr["map"], int(tr["x"]), int(tr["y"])) is not None:
+            if p.session is not None:
+                p.session.send_json(self.map_snapshot(p, "changeMap"))
+                self.broadcast_entity_add(p)
+                self.space_move_show(p)
+
+    def clear_map_monsters(self, map_id: str) -> int:
+        """原版脚本 ``MonClear``（MapMonster 清怪）：直接移除活怪（无尸体无掉落）。"""
+        gm = self.maps.get(map_id)
+        if gm is None:
+            return 0
+        removed = 0
+        for a in [a for a in gm.actors.values()
+                  if isinstance(a, Monster) and a.alive]:
+            gm.remove(a.id)
+            self.actors.pop(a.id, None)
+            self.broadcast_around(gm, {"type": "entityRemove", "id": a.id},
+                                  a.x, a.y, SIGHT_RANGE)
+            removed += 1
+        return removed
 
     # ---- 地图 -----------------------------------------------------------
 
@@ -1499,6 +1587,7 @@ class GameWorld(WorldExtra):
             if getattr(a, "dead", False):
                 continue
             if isinstance(a, Player):
+                self._tick_time_recall(a, now)
                 self._regen(a, now)
                 self._expire_buffs(a, now)
                 self._apply_poison(a, now)

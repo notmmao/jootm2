@@ -9,8 +9,17 @@ break
 check [756] 1
 #ACT
 goto @Q706
-#ELSEACT
+break
+#IF
+checkjob wizard
+#ACT
+set [756] 1
+goto @Q706
+break
+#IF
+#ACT
 goto @normal
+break
 [@Q707]
 你不是已经收到书了吗？如果已收到书，\
 请双击那本火球术书（双击鼠标的左键），\

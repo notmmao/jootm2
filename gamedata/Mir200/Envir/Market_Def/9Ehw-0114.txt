@@ -45,7 +45,23 @@ check [204] 1
 #ACT
 goto @test
 break
-#ELSESAY
+#IF
+check [203] 1
+#ACT
+break
+#SAY
+来这么偏僻的地方？\
+你叫什么名字？<$USERNAME>？怎么是这么个名字？\
+我现在有事很忙，你走吧\ \
+ <关 闭/@exit>
+#IF
+checkjob warrior
+#ACT
+set [756] 1
+goto @Q706
+break
+#IF
+#SAY
 来这么偏僻的地方？\
 你叫什么名字？<$USERNAME>？怎么是这么个名字？\
 我现在有事很忙，你走吧\ \
