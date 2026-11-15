@@ -3084,6 +3084,13 @@ export class PlayScene extends Scene {
             // 消耗品/技能书：重量（+ 书需要等级）
             if (it.weight) line1 += '重量' + it.weight;
             if (std === 4 && it.needLevel) line3 += '需要等级 ' + it.needLevel;
+        } else if (std === 25) {
+            // 护身符/毒药粉（StdMode 25）：耐久 100 = 1 张（UseAmulet 每次扣
+            // count*100，Magic.pas:81-144），原版客户端按 Dura/100 显示剩余张数
+            if (it.durabilityMax > 0) {
+                line1 += '剩余 ' + Math.floor((it.durability || 0) / 100) + '/'
+                    + Math.floor(it.durabilityMax / 100) + ' 张';
+            }
         } else if ([5, 6, 10, 11, 15, 19, 20, 21, 22, 23, 24, 26, 30, 52, 54].includes(std)) {
             // 装备：重量 + 持久 + 攻击/魔法/道术/防御/魔御 + 需要等级
             if (it.weight) line1 += '重量' + it.weight;
