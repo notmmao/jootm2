@@ -34,6 +34,13 @@ MAX_FRAME_BYTES = 1 << 20
 MAX_BODY_BYTES = 1 << 20
 CHUNK = 64 * 1024
 
+# 半开连接探活：服务端主动发 ping，浏览器 WebSocket 原生自动回 pong（前端零改动）。
+# 连续 WS_IDLE_TIMEOUT 秒收不到任何帧即视为掉线，走 on_disconnect 清场；
+# 托管时客户端本来不发消息，靠 ping/pong 才不会被误踢。
+WS_PING_INTERVAL = float(os.environ.get("JOOTM2_WS_PING_INTERVAL", "15"))
+WS_IDLE_TIMEOUT = float(os.environ.get("JOOTM2_WS_IDLE_TIMEOUT", "45"))
+WS_FRAME_TIMEOUT = float(os.environ.get("JOOTM2_WS_FRAME_TIMEOUT", "10"))
+
 STATUS_TEXT = {
     200: "OK", 204: "No Content", 206: "Partial Content",
     304: "Not Modified", 400: "Bad Request", 404: "Not Found",
@@ -475,19 +482,35 @@ class Server:
     async def _ws_loop(self, reader: asyncio.StreamReader,
                        writer: asyncio.StreamWriter, session: WsSession) -> None:
         fragments = bytearray()
+        idle = 0.0
+
+        async def read(n: int) -> bytes:
+            # 帧体读到一半卡住时放弃整个连接：wait_for 取消 readexactly 后，
+            # 已消费的字节不会保留，继续解析只会错位。
+            return await asyncio.wait_for(reader.readexactly(n), WS_FRAME_TIMEOUT)
+
         try:
             while True:
-                head = await reader.readexactly(2)
+                try:
+                    head = await asyncio.wait_for(
+                        reader.readexactly(2), WS_PING_INTERVAL)
+                except asyncio.TimeoutError:
+                    idle += WS_PING_INTERVAL
+                    if idle >= WS_IDLE_TIMEOUT:
+                        return          # 半开连接当作掉线，交给 finally 清场
+                    session._put(ws_frame(b"", opcode=9))
+                    continue
+                idle = 0.0            # pong / 任意客户端帧都算活着
                 fin, opcode = bool(head[0] & 0x80), head[0] & 0x0F
                 masked, n = bool(head[1] & 0x80), head[1] & 0x7F
                 if n == 126:
-                    n = struct.unpack(">H", await reader.readexactly(2))[0]
+                    n = struct.unpack(">H", await read(2))[0]
                 elif n == 127:
-                    n = struct.unpack(">Q", await reader.readexactly(8))[0]
+                    n = struct.unpack(">Q", await read(8))[0]
                 if n > MAX_FRAME_BYTES:
                     raise ValueError("frame too large")
-                mask = await reader.readexactly(4) if masked else b""
-                payload = bytearray(await reader.readexactly(n)) if n else bytearray()
+                mask = await read(4) if masked else b""
+                payload = bytearray(await read(n)) if n else bytearray()
                 if mask:
                     for i in range(len(payload)):
                         payload[i] ^= mask[i & 3]
@@ -510,7 +533,8 @@ class Server:
                 text = fragments.decode("utf-8", errors="replace")
                 fragments = bytearray()
                 self.service.on_message(session, text)
-        except (asyncio.IncompleteReadError, ConnectionError, OSError, ValueError):
+        except (asyncio.IncompleteReadError, asyncio.TimeoutError,
+                ConnectionError, OSError, ValueError):
             pass
         finally:
             self.service.on_disconnect(session)

@@ -181,6 +181,7 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "tradeConfirm": {"type": "tradeConfirm"},
         "tradeCancel": {"type": "tradeCancel"},
         "butch": {"type": "butch", "actorId": -1, "x": p.x, "y": p.y, "dir": 0},
+        "autopilot": {"type": "autopilot", "action": "status"},
         "backToSelect": {"type": "backToSelect"},
         "logout": {"type": "logout"},
     }

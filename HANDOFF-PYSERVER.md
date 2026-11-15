@@ -1454,6 +1454,92 @@ end;
 
 ---
 
+## §55 传奇数据库静态站点生成器（2026-11-15）
+
+**需求**：仿 ruchu8 做一个数据查询站，纯静态 HTML、数据变化一键重生成；内容覆盖技能（按职业）/物品（武器·装备·消耗品·书·杂项）/怪物属性/怪物分布/地图/掉落；补图标。
+
+**新增四个脚本**（全部纯标准库，不入运行时）：
+- `scripts/gen_website.py`：一键生成。数据源 = `--tree` 指定的 gamedata 树（默认读 `gamedata.root` 生效指针），产物默认 `data/website/`（gitignore 内）。1017 个页面：index（全局检索）/items（分类 tab+搜索+排序）/skills（战法道分组）/monsters/每怪详情（分布+掉落）/maps/每图详情（渲染图+刷怪+NPC+出入口）/npcs/每个 NPC 详情（位置+售卖商品）/dist（怪物分布总表）/drops（按怪+按物双向）。列表页客户端过滤（`assets/app.js`，无框架）。
+- `scripts/website_assets.py`：CSS/JS/页面外壳常量。
+- `scripts/wil_extract.py`：WIL/WIX→PNG 纯 Python 移植（照抄 `frontend/gfx/wil.mjs` 的帧解码：8 位索引色·共享 256 色调色板 / 16 位 RGB565，调色板从 `frontend/gfx/palette.mjs` 的 base64 读单一数据源）。
+- `scripts/render_maps.py`：`.map` → PNG 地形渲染图 + 怪物刷新点标记（见下节），也可独立 CLI 批量/单张渲染。
+
+**图标四条来源**（全部本地生成，**不再借用 ruchu8 任何图片**；用户明确其地图带水印）：
+- 物品：`Items.wil` 帧号 = StdItems `Looks`。427 种 Looks 提取出 367（60 个空帧/1x1 占位，页面显示灰格）。
+- 技能：`MagIcon.wil` 帧号 = **`Effect × 2`**（不是 MagId！依据 Delphi 客户端 `MirClient/FState.pas:3658` `icon := pm.Def.btEffect * 2`）。32 种 Effect 全提取。
+- 怪物：按客户端同款规则取站姿帧——`getMonImgLib(appr)` 选 MonN.wil、`getMonOffset(appr)` 偏移、stand 段 `dir=4` 首帧（动作表与 `RACE_ACTION` 在脚本里直接正则解析 `frontend/actor/actorData.mjs`，避免手抄漂移）。141 种 Appr 提取出 118；缺的 23 个（appr 60/64/75-79/85/87/94-99/104-108/167-169）是本地缺对应 Mon WIL 帧，页面显示占位。
+- NPC：`npc.wil` 站姿帧 = `getNpcOffset(appr)` + `npcAction(appr)`（appr 23→MA51，24/25→MA52，其余 MA50）stand dir=4；`NPC_PLACEHOLDER_APPR` 集合同样从 actorData.mjs 解析并回退 appr=0。24 种 Appr 全提取。
+
+**地图渲染图（`render_maps.py`，对齐 Delphi MapUnit/PlayScn）**：
+- 图层：`wBkImg & 0x7FFF - 1` → `Tiles.wil`（**仅偶数 i,j**，`PlayScn.pas:562-564`，每 2×2 格采样一次再放大 2× 到 1 像素/格）；`wMidImg - 1` → `SmTiles.wil`（全格）；`wFrImg & 0x7FFF - 1` → `GetObjs(btArea, idx)`（area 0=`Objects.wil`，否则 `Objects{area+1}.wil`，`MShare.pas:783`，全格，按 0.7 权重混合）。彩块近似 = 整帧 α 加权平均色。
+- 刷新点：MonGen 行 → 怪物图标（站姿 dir=4，透明 PNG），地图标记加 1px 黑色描边（α=0xC8）保证深色地形可见；站点表格图标用 `halo=False`。图标尺寸 = `min(18, max(10, min(w,h)//50))`。
+- 已知口径：室内小图（肉店/皇宫等）bg 数据全是 `0x8000`（纯阻挡位、无 tile 帧），渲染出来是深灰底，与原客户端 `Fill(0)` 加光照后的观感差距属数据缺失而非渲染 bug；比奇省等大图正常。
+- 性能：176 树 445 张图里 374 张有 .map，全量渲染约 35s；`--skip-existing-maps` 复用已有 PNG（重建页面约 4s）。
+
+**NPC 与售卖物**：数据源 `Npcs.txt`/`MerChant.txt`（列义同 `world_extra.load_npc_spawns`），同名的多个坐标合并为一个 NPC 页。商品直接调服务端 `pyserver.npc_script.load_script(Market_Def/Npc_Def, script, map)` + `NpcScriptEngine.goods`（含 Gee `#CALL` 子脚本回退），所以价格与游戏内完全同链路：`Round(Price×1.1)` 再乘脚本倍率（`ObjNpc.pas CheckItemPrice/GetUserPrice`）。实测 165 条 NPC 记录 → 101 个 NPC，61 个有 `[goods]`，共 587 条商品。
+
+**CSS 坑（本轮修复，影响全站所有表格）**：`table{overflow:hidden}` 会让表格成为 sticky 的滚动容器，粘性表头被下推 48px 并盖住首行（Chrome 实测：`th` top 应为 208 实为 256，首行永远看不见）。去掉 `overflow:hidden`、给首/末 `th` 单独加圆角即可；`thead th` 的 `position:sticky;top:48px` 保留。
+
+**数据口径要点**：StdItems 分类按 StdMode（5/6=武器；10..26,52..54=装备；0..3,7,31,40=消耗品；4=书；其余杂项，字典在脚本顶部）；药水类 Ac/Mac 是**回血/回魔值**不是防御（首版误显示"防 20-0"已修）；需求列 Need 0=等级/1=攻击/2=魔法/3=道术（对齐 `handlers_items.py:268-277` 原版语义）；技能 Job 0/1/2=战/法/道。地图尺寸读 resources/Map/*.map 52 字节头。
+
+**验证**：176 树生成 662 物品/39 技能/469 怪/445 图/4262 刷怪行/299 掉落表/165 NPC/101 NPC 页，1017 页 17MB；浏览器实测 index/items/skills/monsters/maps/map-detail/npcs/npc-detail/mon/dist/drops 页面截图正常；比奇省渲染图 700×700 保留道路/城池/水系，怪物标记（鹿/鸡等）透明背景+描边可辨认；NPC「罗家铺子老板」21 件商品价格核对（金创药(小量) 88=80×1.1、轻型盔甲 3300=3000×1.1）。搜索+分类 tab 联合过滤（items 搜"剑"→16 行，叠"装备"→0 行符合预期）。176 数据里 17 个站点图名对应的洞窟（尸魔洞/骨魔洞等）本图集没有，属预期。
+
+**用法**：`python scripts/gen_website.py`（当前生效树，默认全量重渲染地图）· `--skip-existing-maps`（复用已渲染图，快速重建页面）· `--tree gamedata`（私服主树）· `--out website --open`。单独渲染地图：`python scripts/render_maps.py --only 0 --out /tmp/maps`。
+
+---
+
+## §56 升级特效位置修正 + 战士被动技能修炼核查（2026-11-15）
+
+**用户反馈两问**：① 人物升级特效对不对、位置是不是不太对；② 战士基本剑术/攻杀/刺杀的等级怎么提升。
+
+### ① 升级特效：资源与时序都对，位置错了（已修）
+
+对照本地 Delphi 源码逐项核对，特效本身 **没有问题**：
+- `ClMain.pas:4825-4833` `SM_LEVELUP → DrawEffectHum(8)`；`ClMain.pas:6731-6735` `NewMagic(g_MySelf,-1,999,...,mtExplosion,False,80)` + `PlaySound(s_meltstone)`。
+- `PlayScn.pas:1538-1546` 999 分支：`ImgLib=g_WChrSelImages`、`MagExplosionBase=4`、`NextFrameTime=80`、`ExplosionFrame=14`、一次性不重复、加色混合（`TMagicEff.DrawEff` 用 `DrawBlend`）。
+- 项目实现 `PlayScene.mjs::_spawnLevelupFx` / `_renderEffects` 的 chrsel 帧 4 起 14 帧 × 80ms + `lighter`、按自身 `stats.level` 跳变触发、`SoundManager` 同步播 meltStone，帧号/时长/混合/音效/一次性全部对得上。
+
+**位置错在**：旧实现按「图片几何中心对齐格中心再上移 20px」绘制（`- tex.height/2 - 20`）。292×350 的光效图里光柱下缘在 y≈300、扇形在 y≈250~350，这样算出来图片底部落在角色脚底下方约 155px —— 无头实测截图显示角色站在光柱中段，光柱和扇形一直穿到脚下很远，像扎进地面。
+
+**权威定位依据**：选角场景 `IntroScn.pas:1485-1541` 里光效图与人物立绘几乎同左上覆盖（第一个角色 `ex-bx=19`、`ey-by=6`，第二个角色同样是 +19/+6）；WIL 实测 ChrSel 光效帧 292×350、人物立绘帧 60 是 300×360，两者同尺寸，人物脚底正好在立绘 y≈350 —— 即**光效图底部 = 人物脚底**。原版 999 分支把 `m_nTargetX+260 / m_nTargetY-55`（投掷目标格残留值，未投掷恒 0）当屏幕坐标传给 `TMagicEff.Create`，是私服作者 2020 年加的坏实现，不该照抄。
+
+**改动**（`frontend/scene/PlayScene.mjs`）：levelup 分支 `sy` 改为 `screenY(y) + 16 - tex.height`，`sx` 保持 `screenX(x) + 24 - tex.width/2`；WIL 自带 `px/py=7/-44` 是选角场景占位锚点，继续不套用。等效把光效整体上移 155px，光柱下端接角色头顶、扇形包住全身。
+
+**验证**：`D:/Python39/python.exe` Playwright 无头连 8080，GM `@等级` 触发跳变抓 16 帧，修复前扇形在角色脚下 ~155px、修复后正好罩住角色；测试后已把角色等级恢复为 4。`scripts/test_all_messages.py` 91 PASS / 0 FAIL。
+
+### ② 战士三个被动技能：机制正确，无需改动（说明用）
+
+对照 `M2Server/ObjBase.pas:21817-21850`（`TrainSkill` / `CheckMagicLevelup`）、`22283-22365`（`_Attack` 加点）、`Magic.pas:722-728`，项目 `handlers_combat.py::_can_train / _train_skill / _train_sword_skills` 口径一致：
+- **加点只在命中后**：基本剑术(3) 每次物理命中 `Random(3)+1`；攻杀(7) 只在 `bo21`（攻杀/烈火发动那一击）`Random(3)+1`；刺杀(12)/半月(25)/烈火(26) 每次命中 `+1`；刺杀/半月扫到的副目标不加。
+- **双重门槛**：`btLevel < 3` 且 `TrainLevel[btLevel] <= 人物等级`（`needLevel` 数组）才开始累积；点数到 `MaxTrain[btLevel]` 即扣点升级，并下发 `stats.skills` 让技能页 `train/maxTrain` 与等级同步刷新。命中加成 `world.py::hit_point` 实时读 `skills[].level`，升级即刻生效。
+- 176 生效库实测数据：基本剑术 人物 7/11/16 级 · 100/400/800 点；攻杀 19/22/24 级 · 400/800/1600 点；刺杀 25/27/29 级 · 600/1200/1800 点。
+- 三个都属 `IsWarrSkill`，按 F 键施放本来无效；攻杀是服务端每 `7-lv` 刀随机发动，刺杀需开关（`castMagic 12` 切换，登录时若已学会会自动开启）。
+- **用户角色当前 4 级、只学会基本剑术**：低于 7 级门槛时打怪**一点都不会涨**，这是原版数据口径不是 bug；攻杀/刺杀还需先学技能书（学书本身也卡 `needLevel[0]` = 19/25 级）。
+
+---
+
+## §57 在线托管 AutoPilot：计划定稿 + 步骤 0 半开连接修复（2026-11-15）
+
+- **需求定位（用户明确）**：托管是「在线代打」，不是离线挂机；登出 / 退出角色 / 断线立即停止，不 24h 离线升级。本期砍掉 LLM / 密钥 / sidecar、断线自动重连、每小时经验上限、加速时钟与教练台；策略用管理员预置默认档，任何手动操作自动暂停。计划全文 `docs/AUTOPILOT-PLAN.md`（≤50 行）。
+- **硬约束**：AutoPilot 挂 WsSession / Player 内存对象，**绝不落库**；停止点唯一 = `service.py:197 on_disconnect`（登出 `_logout:562` / 退回选角 `_back_to_select:571` / 断线 `net.py:516 finally` 全部汇合）。可持久化「选了哪一档」偏好，不可持久化「托管中」运行状态；重登必须玩家显式再开。
+- **本轮修复**：原 `net.py:_ws_loop` 无主动探活、无读超时，TCP 半开（手机息屏 / 切 Wi-Fi / 直接关页面）时 `on_disconnect` 不触发，服务端以为人还在线，「断线即停」是假的。现加 `WS_PING_INTERVAL=15s` 主动 ping（浏览器 WebSocket 原生自动回 pong，**前端零改动**）、`WS_IDLE_TIMEOUT=45s` 连续无帧即 `return` 走 finally 清场、`WS_FRAME_TIMEOUT=10s` 防半帧挂死；三者支持环境变量覆盖（`JOOTM2_WS_*`，便于测试与调优）。帧体 `readexactly` 统一走 `asyncio.wait_for`，超时直接放弃连接以免 StreamReader 错位。
+- **验证**：新增 `scripts/test_ws_idle_timeout.py`（动态空闲端口 + 独立临时库，避免撞本机已有实例），短超时 1s/3s 起服务：登录后静默 5s → 在线列表清空、连接被关；对照「会回 pong 的客户端」5s 后仍在线，证明正常在线 / 未来托管不会被误踢。`test_all_messages.py` 91 PASS / 0 FAIL，`py_compile` 与 `git diff --check` 通过。
+- 改动文件：`pyserver/net.py`、`scripts/test_ws_idle_timeout.py`、`docs/AUTOPILOT-PLAN.md`、本文 §57。步骤 1（默认策略档 + AutoPilot 内核）/ 2（游戏内开关 + HUD）待实施。
+
+---
+
+## §58 在线托管 AutoPilot：功能主体完成（2026-11-15 夜）
+
+- **新增 `pyserver/autopilot.py`**（约 400 行，纯标准库）：三档默认策略 `安全/均衡/效率`（血线、危险度、拾取价格、刺杀开关）+ 按等级段练级路线（选怪加权/HUD 建议）+ 8 方向 BFS 寻路（限 1600 节点）+ 选怪效用评分 + 喝药/拾取/背包满回城/死亡/3 分钟零经验熔断。`AutoPilotManager._pilots` 是唯一状态容器，**不写 DB、不写 Player 字段**（Player 是 slots dataclass，动态挂属性会炸）。
+- **接入点**：`service.py` 新增第 47 个 WS 类型 `autopilot`（同步 `MIGRATED_TYPES` / `_handlers` / `test_all_messages.py::messages_for` 三处）；`on_message` 收到 `MANUAL_TYPES`（move/attack/pickup/useItem/NPC/交易/仓库等）立即 `pause`；`on_disconnect` 开头 `autopilot.on_disconnect(p)`；`tick()` 在 `world.tick(now)` 后同 now 驱动 `autopilot.tick(now)`；REST `GET /api/autopilot` 只读快照；GM `@托管 [安全|均衡|效率]`。
+- **不加速、不绕过校验**：所有动作直接调现有 handler `_move/_attack/_pickup/_use_item/_cast_magic`，pilot 自己控 540ms 走路节拍与 `1400-min(370,lv*14)`ms 攻速，并遵守 `_move` 的 350ms 换图锁。前端零协议改动即可在 WS 广播里看到托管角色正常打怪。
+- **关键坑（已修）**：怪物模板 `level` 只用于经验惩罚，**不代表强度**——1 级新手打的就是 10 级稻草人 / 13 级多钩猫，模板里 lv≤6 的只有 5 种（鸡、蝙蝠、雪球等）。最初按 `lv <= 玩家等级+3` 硬过滤，导致新手开托管一只怪都选不到、数分钟后熔断停机。现改为按 `t.dc` / `t.hp` 判危险度，等级差只做 0.5/0.8 降权。另修了 BFS 路径缓存 key 误绑玩家坐标导致每 tick 重算的问题。
+- **前端**：`PlayScene.mjs` 加 `#autoPilotBtn`（P 键等价）、`#autoPilotPreset` 三档下拉、`#autoPilotStatus` 一行状态条；`autopilotState` 回包驱动渲染；Digit1-6 / F1-8 与点击游戏画面立即 `pause`；方向键/Tab/F9 等 UI 与聊天键故意排除，避免翻聊天记录误停。档位偏好只存 `localStorage['jootm2.autopilotPreset']`，服务端不落库。
+- **验证**（全部 3.10 服务端 + 3.9 Playwright）：`test_all_messages.py` 91/0；`test_autopilot.py` 25/0（虚拟时钟：开启→寻路→击杀→拾取→节拍→低血喝药→聊天不打断→手动接管→再开启→死亡停→断线停→落库→重登不恢复→无 DB 字段→熔断）；`test_autopilot_ws.py` 16/0（真实 WS + REST + 断线重登）；`test_autopilot_ui.py` 8/0（浏览器 HUD 截图 `docs/autopilot-hud.png`）；`--soak 60` 真实挂机 1→2 级 / 9 杀 / HP 满 / 未停机；`test_ws_idle_timeout.py` 未退化。`node --check` / `py_compile` / `git diff --check` 通过。
+- 改动文件：`pyserver/autopilot.py`(新)、`pyserver/service.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_all_messages.py`、`scripts/test_autopilot.py`(新)、`scripts/test_autopilot_ws.py`(新)、`scripts/test_autopilot_ui.py`(新)、`docs/AUTOPILOT-PLAN.md`、`docs/autopilot-hud.png`(新)、本文 §58。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |

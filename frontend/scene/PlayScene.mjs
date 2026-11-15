@@ -26,6 +26,15 @@ const WALK_INTERVAL = 540;   // 走（左键）
 const RUN_INTERVAL = 360;    // 跑（右键）
 const RUSH_INTERVAL = 360;   // 冲撞（野蛮冲撞）：对齐原版 ActRushLeft/Right 3 帧×120ms=360ms/格
 
+// 在线托管：按下这些「会产生手动游戏消息」的键立即接管（服务端收到对应
+// 消息也会兜底暂停）。鼠标点击游戏画面由 _onMouseDown 处理。
+// 方向键在本项目只用于聊天板滚动、Tab/V/Esc/F9~F11 是 UI 窗口，
+// 都不算手动游戏动作，特意排除，免得看背包/翻聊天记录时把托管停掉。
+const AUTO_TAKEOVER_KEYS = new Set([
+    'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
+    'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8',
+]);
+
 // 玩家攻击动画时长（HA.hit：6 帧 × 85ms = 510ms），动作完成才允许下一次攻击
 const ATTACK_ANIM_MS = 510;
 // 玩家施法动画时长（HA.spell：6 帧 × 60ms = 360ms，原版 ActSpell），与攻击动作区分
@@ -502,8 +511,55 @@ export class PlayScene extends Scene {
         // 背包窗口（F9）/ 状态窗口（F10）—— 原版 DItemBag / DStateWin
         this._buildStateWin();
         this._buildBag();
+
+        // ---- 在线托管 AutoPilot（一期）--------------------------------
+        // 极简入口：右上角一个开关 + 档位下拉，托管时屏幕上方一行状态。
+        // 执行逻辑全在服务端，这里只发开关/档位消息并展示状态回包。
+        this._auto = {
+            active: false, paused: false, preset: this._loadAutoPreset(),
+            status: '', reason: '', route: '', kills: 0, presetNames: {},
+        };
+        const autoBar = document.createElement('div');
+        autoBar.style.cssText = 'position:absolute;left:592px;top:126px;width:200px;'
+            + 'height:22px;display:flex;gap:4px;pointer-events:auto;font-size:12px;';
+        this._autoBtn = document.createElement('div');
+        this._autoBtn.id = 'autoPilotBtn';
+        this._autoBtn.style.cssText = 'width:82px;height:22px;box-sizing:border-box;'
+            + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        this._autoBtn.title = '开启/关闭自动托管（P）';
+        this._autoBtn.addEventListener('click', () => this._toggleAutopilot());
+        autoBar.appendChild(this._autoBtn);
+        this._autoSel = document.createElement('select');
+        this._autoSel.id = 'autoPilotPreset';
+        this._autoSel.style.cssText = 'width:78px;height:22px;box-sizing:border-box;'
+            + 'font-family:SimSun,serif;font-size:12px;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        for (const [id, label] of [['safe', '安全'], ['balanced', '均衡'],
+                                   ['efficient', '效率']]) {
+            const opt = document.createElement('option');
+            opt.value = id; opt.textContent = label;
+            this._autoSel.appendChild(opt);
+        }
+        this._autoSel.value = this._auto.preset;
+        this._autoSel.title = '托管策略档';
+        this._autoSel.addEventListener('change', () => this._changeAutoPreset(this._autoSel.value));
+        autoBar.appendChild(this._autoSel);
+        root.appendChild(autoBar);
+
+        this._autoStatusEl = document.createElement('div');
+        this._autoStatusEl.id = 'autoPilotStatus';
+        this._autoStatusEl.style.cssText = 'position:absolute;left:170px;top:96px;'
+            + 'width:460px;height:20px;line-height:20px;text-align:center;font-size:12px;'
+            + 'color:#ffe9a8;background:rgba(0,0,0,.58);border:1px solid rgba(180,150,80,.55);'
+            + 'text-shadow:1px 1px 0 #000;pointer-events:none;display:none;';
+        root.appendChild(this._autoStatusEl);
+        this._renderAuto();
+        // 重进游戏时向服务端问一次：托管状态不落库，正常一定是「未开启」。
+        this.conn.send('autopilot', { action: 'status' });
+
         // 进游戏给一次快捷键提示（原版靠玩家口口相传，这里直接列出，避免"不知道怎么打开"）
-        this._log('[提示] Tab 大地图 / V 小地图 / Esc 系统菜单 / F9 背包 / F10 状态 / F11 技能', '#e8d9b0');
+        this._log('[提示] Tab 大地图 / V 小地图 / Esc 系统菜单 / F9 背包 / F10 状态 / F11 技能 / P 自动托管', '#e8d9b0');
     }
 
     /**
@@ -540,6 +596,83 @@ export class PlayScene extends Scene {
         }
         btn.addEventListener('click', () => action());
         return btn;
+    }
+
+    // ---- 在线托管 AutoPilot（一期）：只做开关/档位/状态展示 --------------
+    // 硬约束：托管实例只存在于服务端内存、绑真人会话；断线即停且不落库。
+    // 前端只保存「上次选了哪一档」这个偏好，重进游戏永远是未开启状态。
+    _loadAutoPreset() {
+        try { return localStorage.getItem('jootm2.autopilotPreset') || 'balanced'; }
+        catch { return 'balanced'; }
+    }
+
+    _saveAutoPreset(key) {
+        try { localStorage.setItem('jootm2.autopilotPreset', key); } catch { /* 隐私模式 */ }
+    }
+
+    _toggleAutopilot() {
+        if (!this._auto) return;
+        if (this._auto.active) this.conn.send('autopilot', { action: 'off' });
+        else this.conn.send('autopilot', { action: 'on', preset: this._auto.preset });
+    }
+
+    _changeAutoPreset(key) {
+        if (!this._auto) return;
+        this._auto.preset = key;
+        this._saveAutoPreset(key);
+        if (this._auto.active) this.conn.send('autopilot', { action: 'preset', preset: key });
+        this._renderAuto();
+    }
+
+    /** 手动动作立即接管：本地状态先停，服务端收到动作消息也会兜底暂停。 */
+    _takeOverAuto() {
+        if (!this._auto || !this._auto.active) return;
+        this._auto.active = false;
+        this._auto.paused = true;
+        this._auto.reason = '手动操作，已接管';
+        this._renderAuto();
+        this.conn.send('autopilot', { action: 'pause' });
+    }
+
+    _onAutoState(msg) {
+        const a = this._auto;
+        if (!a) return;
+        a.active = !!msg.active;
+        a.paused = !!msg.paused;
+        a.preset = msg.preset || a.preset;
+        a.status = msg.status || '';
+        a.reason = msg.reason || '';
+        a.route = msg.route || '';
+        a.kills = msg.kills || 0;
+        if (Array.isArray(msg.presets) && msg.presets.length) {
+            a.presetNames = {};
+            for (const pr of msg.presets) a.presetNames[pr.id] = pr.name;
+        }
+        if (msg.ok === false && msg.reason) this._log(`[托管] ${msg.reason}`, '#c04040');
+        this._saveAutoPreset(a.preset);
+        this._renderAuto();
+    }
+
+    _renderAuto() {
+        const a = this._auto;
+        if (!a || !this._autoBtn || !this._autoStatusEl) return;
+        this._autoBtn.textContent = a.active ? '停止 [P]' : '托管 [P]';
+        this._autoBtn.style.color = a.active ? '#ffd0d0' : '#ffe9a8';
+        this._autoSel.value = a.preset;
+        const fallback = { safe: '安全', balanced: '均衡', efficient: '效率' };
+        const name = a.presetNames[a.preset] || fallback[a.preset] || a.preset;
+        let text = '';
+        if (a.active) {
+            text = `托管中 · ${name}档 · ${a.status || '搜索中'} · 手动操作自动接管`;
+        } else if (a.paused) {
+            text = `托管已暂停 · ${a.reason || '手动接管'} · 按 P 恢复`;
+        }
+        if (text) {
+            this._autoStatusEl.textContent = text;
+            this._autoStatusEl.style.display = 'block';
+        } else {
+            this._autoStatusEl.style.display = 'none';
+        }
     }
 
     /** 音效开关（原版 TogglePlaySoundEffect）→ 交给 SoundManager（含 BGM 与持久化）。 */
@@ -744,6 +877,9 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { this._shiftDown = true; return; }
+        // P：在线托管开关。其余动作键按下时立刻接管（不 return，原按键功能照常生效）。
+        if (e.code === 'KeyP') { e.preventDefault(); this._toggleAutopilot(); return; }
+        if (AUTO_TAKEOVER_KEYS.has(e.code)) this._takeOverAuto();
         // Tab：打开地图 → 切换大地图/小地图 → 关闭（原版 TAB 打开地图、切换大小地图、关闭地图）
         if (e.code === 'Tab') { e.preventDefault(); this._cycleMapView(); return; }
         // V：小地图 关闭 → 半透明 → 不透明 → 关闭（原版 ViewMiniMapStyle，HUD 按钮上的提示也是 V）
@@ -883,6 +1019,8 @@ export class PlayScene extends Scene {
             this._closeTopWindow();
             return;
         }
+        // 托管中点击游戏画面 = 手动接管（服务端收到 move/attack/pickup 也会兜底暂停）
+        this._takeOverAuto();
         // 选中（拿起）物品时点击画面 → 扔到对应格子（原版 DropItem）
         if (this.pickedItem) {
             const { tx, ty } = this._gridFromMouse(e);
@@ -1491,6 +1629,10 @@ export class PlayScene extends Scene {
             case 'chat':
                 // 聊天板是白色底（底板自带），普通聊天用黑色字
                 this._log(`${msg.name}: ${msg.text}`, '#000000');
+                break;
+            case 'autopilotState':
+                // 服务端权威状态：开启/暂停/停止/击杀数/策略档都由这一条同步
+                this._onAutoState(msg);
                 break;
             case 'systemMessage':
                 // 原版 AddSysMsg 是 clGreen（深绿 #008000，白底上可读）；
@@ -3775,7 +3917,8 @@ export class PlayScene extends Scene {
         // 用【人物选择场景】解除石化的光特效：ImgLib=g_WChrSelImages、
         // MagExplosionBase=4、ExplosionFrame=14、NextFrameTime=80。
         // 原版绘制坐标 g_MySelf.m_nTargetX+260 / m_nTargetY-55 依赖投掷目标
-        // 残留值（未投掷恒 0，特效落在屏幕左上），这里改为以角色为中心绘制。
+        // 残留值（未投掷恒 0，特效落在屏幕左上），这里按「光效图底部 = 角色
+        // 脚底」绘制（见 _renderEffects 的 levelup 分支，依据选角场景同左上覆盖）。
         this._spawnFx({ kind: 'levelup', x: this.self.x, y: this.self.y });
     }
 
@@ -3997,8 +4140,13 @@ export class PlayScene extends Scene {
             } else if (fx.kind === 'levelup') {
                 // 升级光效：chrsel 帧 4 起 14 帧 × 80ms（原版 MagExplosionBase=4 /
                 // ExplosionFrame=14 / NextFrameTime=80，PlayScn.pas:1540-1545）。
-                // 这批图 292×350、WIL 自带锚点 px/py 是通用占位值（7/-44），
-                // 不作偏移，以角色所在格中心为基准居中绘制（人形锚点略上移）。
+                // 定位依据：这批图 292×350，在选角场景（IntroScn.pas:1485-1541）
+                // 与 300×360 的人物立绘几乎同左上覆盖（ex-bx=19 / ey-by=6），
+                // 光柱下端与扇形底部正好落在立绘里人物的头顶/脚底。原版 999
+                // 分支把 g_MySelf.m_nTargetX+260 / m_nTargetY-55（投掷目标格的
+                // 残留值，未投掷恒 0）当屏幕坐标用，特效会飞到屏幕左上，是坏实现。
+                // 这里按「图片底部 = 角色脚底」对齐、水平以角色格中心居中；
+                // WIL 自带锚点 px/py=7/-44 是选角场景的占位值，不套用。
                 const ft = 80;
                 const frames = 14;
                 const rel = Math.floor(elapsed / ft);
@@ -4006,7 +4154,7 @@ export class PlayScene extends Scene {
                 const tex = this._fxTexture({ lib: 'chrsel', base: 4 }, rel);
                 if (tex) {
                     const sx = this.mapActor.screenX(fx.x) + 24 - tex.width / 2;
-                    const sy = this.mapActor.screenY(fx.y) + 16 - tex.height / 2 - 20;
+                    const sy = this.mapActor.screenY(fx.y) + 16 - tex.height;
                     ctx.save();
                     ctx.globalCompositeOperation = 'lighter';   // 原版 DrawBlend
                     ctx.drawImage(tex.canvas, sx, sy);

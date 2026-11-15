@@ -17,6 +17,8 @@ from typing import Any, Callable
 
 from .config import GM_ACCOUNTS, ServerConfig
 from .db import Database
+from .autopilot import (DEFAULT_PRESET, MANUAL_TYPES, PRESETS, AutoPilotManager,
+                        normalize_preset)
 from .handlers_combat import COMBAT_TYPES, CombatHandlers
 from .handlers_items import ITEM_TYPES, ItemHandlers
 from .handlers_npc import NPC_TYPES, NpcHandlers
@@ -35,7 +37,7 @@ MAX_CHARS_PER_ACCOUNT = 2
 MIGRATED_TYPES = frozenset({
     "ping", "login", "register", "listCharacters", "createCharacter",
     "deleteCharacter", "enterGame", "noticeOk", "move", "say", "logout",
-    "backToSelect", "butch",
+    "backToSelect", "butch", "autopilot",
 }) | ITEM_TYPES | NPC_TYPES | COMBAT_TYPES | SOCIAL_TYPES
 
 PENDING_TYPES: frozenset[str] = frozenset()
@@ -95,6 +97,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         self.started_at = now_ms()
         self.pending_hits: Counter[str] = Counter()
         self._reported_pending: set[str] = set()
+        # 在线托管：进程内实例，绝不落库；on_disconnect 是唯一清理点。
+        self.autopilot = AutoPilotManager(self)
         self._handlers: dict[str, Callable[[Any, dict], None]] = {
             # 账号 / 角色 / 场景主干
             "ping": self._ping,
@@ -110,6 +114,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "logout": self._logout,
             "backToSelect": self._back_to_select,
             "butch": self._butch,
+            "autopilot": self._autopilot,
             # 物品 / 背包 / 装备 / 快捷栏
             "pickup": self._pickup,
             "useItem": self._use_item,
@@ -175,12 +180,22 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             return
         # 原版 m_boDeath：死亡后停在黑白屏，只能聊天 / 返回角色选择 / 退出，
         # 不能走动、攻击、施法、吃药、买东西（服务端一并拦，防止绕过客户端）。
+        owner = None
         if msg_type not in ("ping", "login", "register", "listCharacters",
                             "createCharacter", "deleteCharacter", "enterGame",
                             "noticeOk", "say", "logout", "backToSelect"):
-            dead_owner = self.find_by_session(session)
-            if dead_owner is not None and getattr(dead_owner, "dead", False):
+            owner = self.find_by_session(session)
+            if owner is not None and getattr(owner, "dead", False):
                 return
+        # 在线托管「手动优先」：收到任何手动游戏动作立即暂停（服务端为准，
+        # 前端另有一份停发/提示）。托管自身是直接调 handler 而非走 on_message，
+        # 因此不会误伤自己的动作；聊天/社交不在 MANUAL_TYPES 里，边聊天边托管
+        # 不会被打断。
+        if msg_type in MANUAL_TYPES:
+            if owner is None:
+                owner = self.find_by_session(session)
+            if owner is not None:
+                self.autopilot.pause(owner)
         handler = self._handlers.get(msg_type)
         if handler is not None:
             try:
@@ -198,6 +213,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         p = self.find_by_session(session)
         if p is None:
             return
+        # 托管生命周期的唯一清理点：登出 / 退回选角 / 断线全部汇合于此。
+        # 只清内存实例，不写任何状态到库，重登必须玩家显式再开一次。
+        self.autopilot.on_disconnect(p)
         self.persist(p)
         self.world.remove_player(p)
         self.world.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},
@@ -438,6 +456,42 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 session.send_json(world.map_snapshot(p, "changeMap"))
                 world.broadcast_entity_add(p)
 
+    # ---- 在线托管（一期：策略档开关，无 LLM）----------------------------
+    def _autopilot(self, session: Any, msg: dict) -> None:
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        action = str(msg.get("action") or "status").lower()
+        raw = msg.get("preset")
+        preset = normalize_preset(raw) if raw is not None else None
+        cur = self.autopilot.get(p)
+        if action in ("off", "stop") or (action == "toggle" and cur is not None
+                                         and cur.active):
+            self.autopilot.disable(p, "已手动关闭托管")
+            return
+        if action == "pause":
+            self.autopilot.pause(p)
+            return
+        if action == "status":
+            self.autopilot.push_state(p)
+            return
+        if action == "preset":
+            key = preset or (cur.preset if cur else DEFAULT_PRESET)
+            if cur is not None and cur.active:
+                cur.preset = key
+                cur.set_status(f"策略切换 · {PRESETS[key]['name']}档",
+                               now_ms(), force=True)
+                self.world.send_system(p, f"[托管] 已切换为{PRESETS[key]['name']}档。")
+            else:
+                # 未开启时只回显档位偏好（偏好由前端 localStorage 保存，服务端不落库）
+                self.autopilot.push_state(p, preset=key)
+            return
+        # action == on / toggle（当前未开启）
+        key = preset or (cur.preset if cur else DEFAULT_PRESET)
+        ok, why = self.autopilot.enable(p, key)
+        if not ok:
+            self.autopilot.push_state(p, preset=key, reason=why, ok=False)
+
     def _say(self, session: Any, msg: dict) -> None:
         p = self.find_by_session(session)
         text = _str(msg, "text")
@@ -456,7 +510,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     # ---- GM @命令（原版 ObjBase.pas CmdXXX 系列，权限 >= 6）-------------
 
     _GM_HELP = ("GM命令: @移动 [地图] x y  @金 数量  @等级 n  "
-                "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  @帮助")
+                "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  "
+                "@托管 [安全|均衡|效率]  @帮助")
 
     def _gm_command(self, p, line: str) -> None:
         w = self.world
@@ -555,6 +610,15 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if cmd in ("满", "full"):
             p.hp, p.mp = p.max_hp, p.max_mp
             w.send_stats(p)
+            return
+        if cmd in ("托管", "auto", "autopilot"):
+            cur = self.autopilot.get(p)
+            if cur is not None and cur.active:
+                self.autopilot.disable(p, "已通过命令关闭托管")
+            else:
+                key = (normalize_preset(args[0]) if args else
+                       (cur.preset if cur else DEFAULT_PRESET))
+                self.autopilot.enable(p, key)
             return
         w.send_system(p, "未知命令。" + self._GM_HELP)
 
@@ -710,7 +774,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             self.persist(p)
 
     def tick(self) -> None:
-        self.world.tick(now_ms())
+        now = now_ms()
+        self.world.tick(now)
+        # 托管与共用同一个 now：动作节拍与怪物 AI / 回血在同一个 tick 内对齐。
+        self.autopilot.tick(now)
 
     # ---- REST -----------------------------------------------------------
 
@@ -744,6 +811,12 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             if text:
                 world.broadcast_all({"type": "systemMessage", "text": "[公告] " + text})
             return encode({"ok": True})
+        if path == "/api/autopilot":
+            pilots = self.autopilot.snapshot()
+            return encode({"count": len(pilots), "pilots": pilots,
+                           "presets": [{"id": k, "name": v["name"],
+                                        "desc": v["desc"]}
+                                       for k, v in PRESETS.items()]})
         if path == "/api/migration":
             return encode({
                 "implementation": "python-stdlib",
