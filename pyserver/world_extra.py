@@ -1082,11 +1082,15 @@ class WorldExtra:
             return False
         if tx < 0 or ty < 0 or not target.can_walk(tx, ty):
             tx, ty = self.random_walk_pos(target)
-        self.broadcast_around(p.map, {"type": "entityRemove", "id": p.id}, p.x, p.y)
-        self.change_map(p, map_id, tx, ty)
+        # 原版随机卷轴/回城卷 EatUseItems（ObjBase.pas:20573/20590）→ SpaceMove：
+        # 两段特效与宝宝跟随传送完全一致——离地 SM_SPACEMOVE_HIDE（magic 250-259
+        # 10 帧 + s_spacemove_out）+ 现身 SM_SPACEMOVE_SHOW（magic 260 + 音 110）。
+        # 旧实现只发 entityRemove+changeMap，没有这两段，所以卷轴传送「瞬移无特效」。
+        self.space_move(p, map_id, tx, ty)
         if p.session is not None:
             p.session.send_json(self.map_snapshot(p, "changeMap"))
         self.broadcast_entity_add(p)
+        self.space_move_show(p)
         return True
 
     # ---- 行会 / 攻城 ----------------------------------------------------
