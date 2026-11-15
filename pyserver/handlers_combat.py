@@ -28,6 +28,12 @@ MAX_MAGIC_LEVEL = 3
 RC_ANIMAL = 50
 
 # 原版组队经验加成（TPlayObject.GainExp，ObjBase.pas:15564）：按组内**有效人数**
+
+# 护身符类技能的 (CheckAmulet nType, nCount)（Magic.pas:81-144 / :318 / :426-427）：
+# 6 施毒术吃毒药粉（Shape<=2），13~19 吃 1 张护身符（Shape=5），
+# 30 召唤神兽吃 5 张。缺失 = boSpellFail 硬失败（无特效 + MAGICFIREFAIL）。
+_AMULET_NEED = {6: (2, 1), 13: (1, 1), 14: (1, 1), 15: (1, 1), 16: (1, 1),
+                17: (1, 1), 18: (1, 1), 19: (1, 1), 30: (1, 5)}
 # n（同图、非死亡、12 格内的成员）取 bonus[n]，2 人 1.3、3 人 1.4 … 11 人 2.2；
 # 再按等级比例分给每个人（dwExp / sumlv * 个人等级，ObjBase.pas:15594）。
 # boHighLevelKillMonFixExp=True 的「平均分配」分支默认关闭（M2Share.pas:2141）。
@@ -986,6 +992,11 @@ class CombatHandlers:
 
         if p.mp < cost:
             w.send_system(p, "魔法值不足。")
+            # 原版 TPlayObject.DoSpell（ObjBase.pas:21864）MP 不足 Exit=False，
+            # ClientSpellXY（:9234-9237）DoSpell 失败同样广播 RM_MAGICFIREFAIL
+            # ——周围人看到挥手放下，无飞行特效。
+            w.broadcast_around(p.map, {"type": "spellFail", "casterId": p.id},
+                               p.x, p.y, SIGHT_RANGE)
             return
 
         # ---- 蓄力/冲撞：ClientSpellXY 里先扣 MP 再判定（ObjBase.pas:9098/9119）----
@@ -1024,6 +1035,10 @@ class CombatHandlers:
         # 施法半径 8 格（Magic.pas:266）：|dx|/|dy| 超 8 直接放弃，MP 已经扣掉。
         if tx >= 0 and ty >= 0 and (abs(p.x - tx) > 8 or abs(p.y - ty) > 8):
             w.send_stats(p)
+            # 原版 MagicManager.DoSpell（Magic.pas:266-268）半径外 exit=False →
+            # ClientSpellXY 广播 RM_MAGICFIREFAIL（ObjBase.pas:9236）。
+            w.broadcast_around(p.map, {"type": "spellFail", "casterId": p.id},
+                               p.x, p.y, SIGHT_RANGE)
             return
         if tx >= 0 and ty >= 0 and not is_heal_magic(magic_id):
             cast_dir = direction_from(p.x, p.y, tx, ty)
@@ -1051,15 +1066,39 @@ class CombatHandlers:
             bp = self._blocked_point(p, target)
             if bp is not None:
                 cast_tx, cast_ty, blocked = bp[0], bp[1], True
-        cast = {"type": "spellCast", "casterId": p.id, "magicId": magic_id,
-                "effect": t.effect, "targetX": cast_tx, "targetY": cast_ty}
-        if blocked:
-            cast["blocked"] = True
+        # 原版 MagicManager.DoSpell（Magic.pas:270）：RM_SPELL 施法**动作**在
+        # 扣完 MP、进 case 分发前无条件广播（无特效）。
+        cast = {"type": "spellCast", "casterId": p.id, "magicId": magic_id}
         w.broadcast_around(p.map, cast, p.x, p.y, SIGHT_RANGE)
 
-        success = self._resolve_magic(p, t, skill, lv, now, magic_id,
+        # 护身符硬失败预检（原版 case 6 / 13~19 开头 ``boSpellFail := True`` +
+        # CheckAmulet，Magic.pas:318-427/427：缺失 → 函数尾 :714 exit，不发
+        # RM_MAGICFIRE，DoSpell=False → ClientSpellXY 广播 RM_MAGICFIREFAIL）。
+        # 其余失败（打空 / 抗魔 / 没目标）原版只是 boTrain=False，特效照放。
+        amulet_need = _AMULET_NEED.get(magic_id)
+        if amulet_need is not None and self._find_amulet(p, *amulet_need) is None:
+            if magic_id == 6:
+                w.send_system(p, "没有毒药粉。")
+            elif amulet_need[1] > 1:
+                w.send_system(p, f"护身符不足 {amulet_need[1]} 张。")
+            else:
+                w.send_system(p, "没有护身符。")
+            w.broadcast_around(p.map, {"type": "spellFail", "casterId": p.id},
+                               p.x, p.y, SIGHT_RANGE)
+            self._finish_cast(p, t, skill, lv, now, 0, False)
+            return
+
+        # 原版 ClientSpellXY（ObjBase.pas:9234-9237）：RM_MAGICFIRE 只在
+        # boSpellFire（各 case，Magic.pas:496/716/1067）里发；软失败（打空 /
+        # 抗魔 / 没目标）特效照放，resolve 返回值只是 boTrain（加不加熟练度）。
+        trained = self._resolve_magic(p, t, skill, lv, now, magic_id,
                                       tx, ty, target, blocked)
-        self._finish_cast(p, t, skill, lv, now, 0, success)
+        fire = {"type": "magicFire", "casterId": p.id, "magicId": magic_id,
+                "effect": t.effect, "targetX": cast_tx, "targetY": cast_ty}
+        if blocked:
+            fire["blocked"] = True
+        w.broadcast_around(p.map, fire, p.x, p.y, SIGHT_RANGE)
+        self._finish_cast(p, t, skill, lv, now, 0, trained)
 
     # ------------------------------------------------------------------
     # MagicManager.DoSpell 的分支（Magic.pas:278-713），逐条对照

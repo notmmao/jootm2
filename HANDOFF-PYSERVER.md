@@ -1584,6 +1584,20 @@ end;
 - **测试**：新增 `scripts/test_durability.py` **16 PASS / 0 FAIL**（磨损量、1.03 节流、到 0 损毁、衣服固定+循环 1/8 双段、显示值节流、伤害 0 不磨、攻击命中磨损、被怪击磨损）；全量回归 `test_pyserver` 99/0、`test_tick_systems` 169/0、`test_autopilot` 32/0、`test_all_messages` 91/0。
 - 改动文件：`pyserver/world.py`、`pyserver/service.py`、`pyserver/handlers_combat.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_durability.py`（新增）、本文 §61。
 
+## §62 施法特效门控 + 灯光跟随（2026-11-15）
+
+- **用户报告**：① 道士没护身符放不出灵魂火符（正确），但客户端渲染了飞行特效；② 没蓝放不出，也渲染了特效；③ 灯光照亮的位置不是人物所在处，像鼠标点击处，托管跑路寻怪时特别明显。
+- **施法链路对齐**（GameOfMir）：
+  - `Magic.pas:270`：RM_SPELL（施法**动作**）在扣完 MP、进 case 分发前无条件广播——无特效字段。
+  - `ObjBase.pas:21864`：TPlayObject.DoSpell MP 不足 Exit=False（不扣 MP）→ ClientSpellXY :9234-9237 广播 RM_MAGICFIREFAIL。
+  - `Magic.pas:426-427/485/714`：case 6/13~19 开头 `boSpellFail:=True` + CheckAmulet（6=毒药粉 Shape≤2、13~19=护身符 Shape=5、30=5 张）——缺失则函数尾 exit：**不发 RM_MAGICFIRE**，DoSpell=False → RM_MAGICFIREFAIL。护身符够但打空/抗魔/没目标只是 `boTrain:=False`（boSpellFire 默认 True）→ **特效照放**。
+  - 根因：pyserver 把动作+特效合在 `spellCast` 一条消息里、且在护身符校验之前广播。
+  - 修法（`pyserver/handlers_combat.py`）：`spellCast` 只带动作；新增 `magicFire`（特效，含 effect/targetX/targetY/blocked）在 `_resolve_magic` 之后广播；`_AMULET_NEED` 预检（6/13~19/30）缺失 → 广播 `spellFail` + 系统提示，MP 照扣（对齐原版先 DamageSpell）；没蓝路径补广播 `spellFail`（不扣 MP）；施法半径超限也补 `spellFail`。
+  - 前端（`PlayScene.mjs`）：`spellCast` 只播 pose；新增 `case 'magicFire'`（原特效代码）与 `case 'spellFail'`（施法者复位 stand，对齐 UseMagicFireFail ClMain.pas:2496）。
+- **灯光跟随修复**：多光源遮罩画在 `screenX(L.x)+shiftX`，而角色精灵锚在 `sx(e.x)+offsetX`——实体快照以前不带 shiftX/shiftY（恒 0），镜头匀速追赶时（托管跑路）逻辑格与画出来的角色差好几格，光圈落在逻辑格（=移动目标方向，用户看成「鼠标点击的地方」）。修法：快照带上 `shiftX/shiftY=ox/oy`（self 用 _viewX 过渡补偿、怪用 _moveAt 插值补偿，原版 AddLight 同样带 m_nShiftX/Y）。
+- **验证**：新增 `scripts/test_spell_fx.py` **11 PASS / 0 FAIL**（没蓝→spellFail 不扣 MP；没护身符→spellCast+spellFail 无 magicFire 且 MP 照扣；有护身符→magicFire；火球空挥→magicFire 照放）；全量回归 99/169/91/16/32 全绿；`node --check` 通过。
+- 改动文件：`pyserver/handlers_combat.py`、`frontend/scene/PlayScene.mjs`、`scripts/test_spell_fx.py`（新增）、本文 §62。
+
 ---
 
 ## §62 静态站按数据树各存一份 + 切树同步换站（2026-11-15）

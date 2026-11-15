@@ -1600,11 +1600,18 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'spellCast': {
+                // 原版 RM_SPELL → SM_SPELL（Magic.pas:270）：只播施法**动作**，
+                // 飞行特效由成功 case 的 RM_MAGICFIRE（magicFire 消息）驱动。
                 const c = this.entities.get(msg.casterId);
                 // 施法动作（HA.spell 段，与普通攻击 hit 段不同）；怪物施法者不覆盖——
                 // 神兽吐火等由 attack 消息设置攻击动画（ActAttack 两足站立喷火），避免被 spell→stand 回退覆盖
                 if (c && c.type === 'player') { c._action = 'spell'; c._actionAt = Date.now(); }
-                // 施法特效：飞行弹道（火球/灵魂火符/雷击飞向目标点）
+                break;
+            }
+            case 'magicFire': {
+                // 原版 RM_MAGICFIRE → UseMagicFire（ClMain.pas:2475）：施法特效，
+                // 只有服务端确认放出的技能才播（护身符缺失/没蓝走 spellFail）
+                const c = this.entities.get(msg.casterId);
                 const vfx = MAGIC_VFX[msg.magicId];
                 const tx = msg.targetX ?? (c ? c.x : 0);
                 const ty = msg.targetY ?? (c ? c.y : 0);
@@ -1646,6 +1653,13 @@ export class PlayScene extends Scene {
                     // 定点命中（爆裂/冰咆哮/圣言/治愈等）：直接在目标点播放
                     this._spawnFx({ kind: 'hit', fx: vfx.hit, x: tx, y: ty });
                 }
+                break;
+            }
+            case 'spellFail': {
+                // 原版 RM_MAGICFIREFAIL → UseMagicFireFail（ClMain.pas:2496）：
+                // 施法失败（没蓝 / 护身符缺失）挥手放下，无任何特效
+                const c = this.entities.get(msg.casterId);
+                if (c && c.type === 'player') { c._action = 'stand'; c._actionAt = Date.now(); }
                 break;
             }
             case 'fireWall': {
@@ -3836,6 +3850,10 @@ export class PlayScene extends Scene {
                 // Hibyte(cdir)）：服务端按 U_RIGHTHAND 蜡烛/火把下发 3，否则 1；
                 // NPC 是 TNormNpc.m_nLight=2。供 m_LightMap 收集多光源。
                 light: e.light != null ? e.light : (isSelf ? 1 : 0),
+                // 光源跟随精灵的像素位移（原版 AddLight 带 m_nShiftX/Y）：
+                // 镜头匀速追赶时（托管跑路最明显）逻辑格和画出来的角色会差
+                // 好几格，光圈必须落在画出来的位置而不是逻辑格上。
+                shiftX: ox, shiftY: oy,
                 layers: sp.getLayers(now),
             };
             (e._corpse || e._action === 'die' ? corpses : entities).push(snap);
