@@ -421,3 +421,69 @@ REDM2.DB 合并而来）。33 个正式技能里，差异只有三类，**全部
 已提交（`be6c3f1`）。
 
 ---
+
+## §74 高级之家测验任务跑通 + 托管六问题修复（2026-11-15）
+
+### 高级武士/法师/道士之家（新手测验送第一本技能书）
+
+**原版语义**（本地 Delphi 源码逐条核对）：
+- `MonGen`（ObjNpc.pas:7856-7862）：x = Random(range*2+1) + (Param2-range)，
+  逐只 `RegenMonsterByName(Param1地图, x, y, 怪名)`（UsrEngn.pas:1359）；
+  `MonClear` 清图怪；`CheckMonMap`（:7153）图上怪数 ≥ n；`CheckHum`（:7163）
+  图上玩家数 ≥ n；`CheckBaggage`（:7168）背包有空位。
+- `TimeRecall`（ObjNpc.pas:7800-7806）：记录当前 map/x/y，n 分钟后 SpaceMove
+  送回（ObjBase.pas:6440-6443）。取消点只有到期执行与重登；脚本 `map` 换图
+  **不**取消——原版取消在 `BaseObjectMove:23614-23616`（回城类才走它），
+  change_map 里加取消会让进测验房瞬间解除限时，已踩过又回退。
+- 流程：756（已引导）→ 7 级 → 传测验房杀怪 → 屋内 NPC `checkmonmap` 不过 →
+  `give` 免费第一本书（战士=基本剑术/道士=治愈术/法师=火球术）+ `set 757` →
+  引导去比奇书店买后续书。测验链(756/757)与命运链(204-210)在 @main 互斥，
+  756/757 优先——做了测验的战士永远 Q707，这是原版设计。
+
+**实现**（`ccf0895`）：
+- `npc_script.py` 补 7 条命令：`mongen/monclear/checkmonmap/checkhum/
+  checkbaggage/param1-3/timerecall`；Param 存 NPC 实例，TimeRecall 存
+  `Player.time_recall`，world tick 到期 SpaceMove 送回。
+- `world.py`：`regen_monster_by_name`（落点自指定格环形全扫描，测验小屋
+  密度高，随机尝试会漏放）、`clear_map_monsters/count_map_monsters/
+  count_map_humans/start_time_recall/_tick_time_recall`；`spawn_monsters`
+  抽出 `_spawn_monster` 复用。
+- 入口：本数据集 756 无任何设置点（新手引导 NPC 缺失，全库仅 3 处 check），
+  按原版意图补在三之家 @main 末尾（`ccf0895`）：本职业未开始测验 →
+  `set 756 + goto @Q706`；命运链 204-210 玩家优先走原分支，203 阶段
+  （卫家店→铁匠铺途中）维持 busy 文本（需要 `#ACT break` 短路，不然
+  busy 文案后面还会接测验分支）。
+- 数据笔误修正：`9Eht-01132.txt` 的 `checkmonmap 01152` → `01132`
+  （法师房，复制粘贴错误；不改就永远「无怪」直通给书）。
+- 死引用：战士测验怪「暗之沃玛护卫」Monster DB 无模板（全库仅脚本一处
+  引用）——按原版 RegenMonsterByName 语义静默失败 → 空房 → checkmonmap
+  不过 → 直通送书，任务仍闭环。**未造怪未改文案**。
+
+**验证**：`scripts/test_npc_home_quest.py` 21/0（入口/checkhum 拦截/
+刷怪 40/屋内给书/包满拒发/TimeRecall 送回/战士死引用闭环/职业与命运链守卫）。
+
+### 托管六问题（`9f0c782`..`1cd059f`，4 个提交）
+
+1. **捡拾死循环**（a 去捡没捡到→b 反方向→a 掉头）：根因是落点格被活物
+   占位（怪站金币上）→ exact 寻路不可达 → 拉黑 10s → 换目标 → 循环。
+   `_choose_loot` 现在跳过「被**别的**活物占位」的掉落（自己站的不算，
+   那是捡拾位），等怪走开再捡。
+2. **没靠近就攻击 / 3. 道士打自己召唤物**：同一根因——托管选怪没排除
+   `master_id >= 0` 的召唤物。`_choose_target/_nearest_monster/缓存目标/
+   _nearby_threat` 全部跳过。
+4. **随机卷轴/回程无特效**：`use_scroll` 缺两段 SpaceMove 特效
+   （spaceMoveHide/show），只发 entityRemove+changeMap。已改走
+   `space_move` + `space_move_show`，与宝宝跟随传送完全一致。
+5. **护身符数量**：护身符/毒药粉 StdMode 25 耐久 100=1 张（UseAmulet 每次扣
+   count*100），前端 `_itemDesc` 加 std 25 分支显示「剩余 N/M 张」。
+6. **怪物不打宝宝**：`_resolve_target` 只扫 players。现在保留目标与扫描
+   都含召唤物（master_id≥0），宝宝打怪走 `Struck → SetTargetCreat` 语义
+   记仇转火；普通怪打宝宝走通用近战结算，远程怪伤害公式兼容 Monster
+   目标，延迟飞矢结算对宝宝扣血。守卫（112）仍只管红名玩家（原版
+   TGuard 语义）。道士练级从此有真肉盾。
+
+**验证**：`scripts/test_hosted_fixes.py` 12/0；六套回归
+（autopilot 39 / death_drop 26 / durability 16 / spell_fx 11 /
+npc_home_quest 21 / hosted_fixes 12）全绿。
+
+---
