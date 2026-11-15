@@ -295,6 +295,13 @@ export class PlayScene extends Scene {
         this._canvas.addEventListener('mousedown', this._mdHandler);
         document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
         document.addEventListener('mousemove', this._mmHandler);
+
+        // 升级光效 14 帧一次性预取。WIL 的 getTexture 是异步的，边播边取会
+        // 留下整帧空白（用户反馈「闪得厉害」）；原版 GetCachedImage 是同步
+        // 内存取图。放在 enter() 之后，避开上面 abortPending('enter-game')
+        // 把登录阶段的在飞请求掐断；1.5s 后再补一次只重发仍为 null 的帧。
+        this._prefetchLevelupFx();
+        setTimeout(() => this._prefetchLevelupFx(true), 1500);
     }
 
     // ---- HUD（对齐原版 TFrmDlg：DBottom 底板 Prguse[1] 800×251 @ y=349）----
@@ -1281,14 +1288,28 @@ export class PlayScene extends Scene {
                 // 跳过自己：self 持有 enterGame 快照里的完整对象（toPlayerJson），
                 // 不能被 toBriefJson 的简化实体覆盖，否则 self 与 entities[id] 引用分离。
                 if (msg.entity && this.self && msg.entity.id !== this.self.id) {
-                    // 换图/后进入视野时直接看到的是已经躺好的尸体（原版 ActDeath 静止帧）
-                    if (msg.entity.corpse) {
-                        msg.entity._corpse = true;
-                        msg.entity._action = 'death';
-                        msg.entity._actionAt = Date.now();
+                    const cur = this.entities.get(msg.entity.id);
+                    if (msg.entity.corpse && cur && cur._corpse) {
+                        // 已有尸体（死亡消息刚处理完，或挖肉后 skeleton 变化）：
+                        // 只就地更新字段，**不要替换对象**。_sprite 按对象引用
+                        // 缓存（:3874），替换会新建 ActorSprite，已加载的尸体帧
+                        // 全丢 → 尸体消失一瞬再出现（用户反馈的视效异常）。
+                        cur._corpse = true;
+                        cur.alive = false;
+                        cur.skeleton = !!msg.entity.skeleton;
+                        cur._action = 'death';
+                        cur._dieUntil = 0;
+                        this._sprite(cur).prefetchDeathFrame(cur);
+                    } else {
+                        // 换图 / 后进视野时直接看到的是已经躺好的尸体（原版 GetDefaultFrame）
+                        if (msg.entity.corpse) {
+                            msg.entity._corpse = true;
+                            msg.entity._action = 'death';
+                            msg.entity._actionAt = Date.now();
+                        }
+                        this.entities.set(msg.entity.id, msg.entity);
+                        if (msg.entity.corpse) this._sprite(msg.entity).prefetchDeathFrame(msg.entity);
                     }
-                    this.entities.set(msg.entity.id, msg.entity);
-                    if (msg.entity.corpse) this._sprite(msg.entity).prefetchDeathFrame(msg.entity);
                     this._registerSound(msg.entity);
                 }
                 break;
@@ -1444,7 +1465,13 @@ export class PlayScene extends Scene {
                             this._spawnDamageNumber(cur.x, cur.y, 'MISS', 0, '#ff5050');
                             return;
                         }
-                        cur._action = 'struck'; cur._actionAt = Date.now();
+                        // 命中帧延迟 170ms，期间目标可能已经死了：尸体绝不能再播
+                        // 受击动作。否则渲染循环 ATTACK_ANIM_MS 后会把 'struck'
+                        // 归位成 'stand'，表现就是「怪死了又站起来」（托管攻速快
+                        // 时几乎必现）。伤害飘字与命中特效照常保留。
+                        if (!cur._corpse && cur.alive !== false) {
+                            cur._action = 'struck'; cur._actionAt = Date.now();
+                        }
                         // 伤害飘字
                         this._spawnDamageNumber(cur.x, cur.y, msg.damage, msg.magicId);
                         // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
@@ -1508,11 +1535,25 @@ export class PlayScene extends Scene {
                 // 「怪不动、头顶一根空血条、走开才消失」（用户反馈）。
                 const e = this.entities.get(msg.id);
                 if (e) {
-                    e._action = 'die';
-                    e._actionAt = Date.now();
                     e._corpse = true;
                     e.alive = false;
-                    e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
+                    // 原版 Actor.pas:1430-1434 的 SM_DEATH 把 StartFrame 直接
+                    // 定格到 ActDie 末帧，**怪物不播倒地动画**（只有玩家自己
+                    // SM_NOWDEATH 播完整 ActDie，见 :1436-1441；特殊类
+                    // TStoneMonster 才播，AxeMon.pas:2158）。
+                    // 旧实现给所有怪播 1400ms，可服务端紧接着下发的
+                    // entityAdd(corpse) 会替换实体对象，动画约 150ms 就被
+                    // 腰斩、sprite 重建导致纹理缓存全丢（尸体消失一瞬再出现），
+                    // 正是「怪物死后视效不对」的根因。这里前后统一为静止帧。
+                    if (e.type === 'player') {
+                        e._action = 'die';
+                        e._actionAt = Date.now();
+                        e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
+                    } else {
+                        e._action = 'death';
+                        e._actionAt = Date.now();
+                        e._dieUntil = 0;
+                    }
                     this._sprite(e).prefetchDeathFrame(e);
                     if (msg.animal) {
                         // 原版 m_boAnimal 覆盖的不只是鸡鹿羊狼：毒蜘蛛/蝎子/
@@ -3723,6 +3764,13 @@ export class PlayScene extends Scene {
         const corpses = [];
         const tBuild = performance.now();
         for (const e of this.entities.values()) {
+            // 尸体不该有任何动作：攻击/移动消息的延迟回调可能把 _action 改成
+            // struck / walk，随后被下面的归一逻辑切成 stand（「死了又站起来」）。
+            // 非玩家尸体一律强制定格静止帧（原版 SM_DEATH 定格 ActDie 末帧）。
+            if (e._corpse && e.type !== 'player' && e._action !== 'death') {
+                e._action = 'death';
+                e._dieUntil = 0;
+            }
             // 动物尸体：倒地动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
             if (e._corpse && e._dieUntil && now >= e._dieUntil) {
                 e._action = 'death';
@@ -3919,6 +3967,16 @@ export class PlayScene extends Scene {
         // 原版绘制坐标 g_MySelf.m_nTargetX+260 / m_nTargetY-55 依赖投掷目标
         // 残留值（未投掷恒 0，特效落在屏幕左上），这里按「光效图底部 = 角色
         // 脚底」绘制（见 _renderEffects 的 levelup 分支，依据选角场景同左上覆盖）。
+        if (!this.self) return;
+        // 连升两级 / stats 重复回包时不叠加第二份 lighter 光效（会过曝+闪），
+        // 直接把正在播的那一份重置重播。
+        const cur = this.effects.find(f => f.kind === 'levelup');
+        if (cur) {
+            cur.startAt = Date.now();
+            cur.x = this.self.x;
+            cur.y = this.self.y;
+            return;
+        }
         this._spawnFx({ kind: 'levelup', x: this.self.x, y: this.self.y });
     }
 
@@ -3933,15 +3991,53 @@ export class PlayScene extends Scene {
         });
     }
 
-    _fxTexture(fxDef, frame) {
+    /**
+     * 预取升级光效 chrsel[4..17]（MagExplosionBase=4 / ExplosionFrame=14）。
+     * 与 boot.mjs 的登录阶段后台预热不同：这里在进游戏后发，不会被
+     * cancelWarm / abortPending 掐断。force 只重发仍为 null 的帧。
+     */
+    _prefetchLevelupFx(force = false) {
+        const lib = getLib('chrsel');
+        if (!lib) return;
+        for (let f = 0; f < 14; f++) {
+            const idx = 4 + f;
+            const key = 'chrsel/' + idx;
+            if (this._fxCache.get(key)) continue;      // 已就绪，不覆盖
+            if (!force && this._fxCache.has(key)) continue;
+            this._fxCache.set(key, null);               // 占位，防止重复请求
+            lib.getTexture(idx)
+                .then(t => { if (t) this._fxCache.set(key, t); })
+                .catch(() => {});
+        }
+    }
+
+    /**
+     * 取特效帧贴图。WIL getTexture 异步，首帧只能写 null 占位；序列特效
+     * (total>1) 当前帧未就绪时借用最近的已加载帧，避免整帧空白导致闪烁。
+     */
+    _fxTexture(fxDef, frame, total = 0) {
         const idx = fxDef.base + frame;
         const key = fxDef.lib + '/' + idx;
-        if (this._fxCache.has(key)) return this._fxCache.get(key);
-        const lib = getLib(fxDef.lib);
-        if (lib) {
-            lib.getTexture(idx).then(t => this._fxCache.set(key, t || null));
+        const tex = this._fxCache.get(key);
+        if (tex) return tex;
+        if (!this._fxCache.has(key)) {
+            this._fxCache.set(key, null);
+            const lib = getLib(fxDef.lib);
+            if (lib) {
+                lib.getTexture(idx)
+                    .then(t => { if (t) this._fxCache.set(key, t); })
+                    .catch(() => {});
+            }
         }
-        this._fxCache.set(key, null);
+        if (total > 1) {
+            for (let d = 1; d < total; d++) {
+                for (const f of [frame - d, frame + d]) {
+                    if (f < 0 || f >= total) continue;
+                    const near = this._fxCache.get(fxDef.lib + '/' + (fxDef.base + f));
+                    if (near) return near;
+                }
+            }
+        }
         return null;
     }
 
@@ -4151,7 +4247,7 @@ export class PlayScene extends Scene {
                 const frames = 14;
                 const rel = Math.floor(elapsed / ft);
                 if (rel >= frames) continue;   // 一次性播放完移除
-                const tex = this._fxTexture({ lib: 'chrsel', base: 4 }, rel);
+                const tex = this._fxTexture({ lib: 'chrsel', base: 4 }, rel, frames);
                 if (tex) {
                     const sx = this.mapActor.screenX(fx.x) + 24 - tex.width / 2;
                     const sy = this.mapActor.screenY(fx.y) + 16 - tex.height;
