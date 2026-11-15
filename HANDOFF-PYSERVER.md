@@ -1699,3 +1699,33 @@ end;
   `frontend/scene/PlayScene.mjs`、`scripts/test_death_drop.py`、本文 §65。
 
 ---
+
+## §66 托管挖肉 + 技能修炼点显示答疑（2026-11-15）
+
+- **托管挖肉**（commit cb482f4）：`PRESETS` 加 `butch` 开关——safe/balanced
+  开、efficient 关。新状态机方法 `_butch_corpses`/`_choose_butch`：**视野内
+  没有可打的活怪时**（`_choose_target`/`_nearest_monster` 都为 None）找最近
+  可挖尸体（`w.butchable` + 未变骷髅 + 未挖空 + corpse_until 未过），锁
+  15s（一只要挖 3~10 刀 × 600ms），走到 2 格内按 700ms 节拍发
+  `srv._butch`（服务端校验 ≤2 格 / 600ms 间隔 / bag_looted 后空手）。
+  注意 `w.nearby` 只返回活物，**尸体必须直接扫 `p.map.actors`**。
+  熔断进展信号从「仅经验」扩为「经验 ∨ 背包数 ∨ 金币」——纯挖肉不涨经验，
+  否则新手挖肉赚钱 3 分钟被误停。
+- **测试坑（scripts/test_autopilot.py §12，39/0）**：
+  1. `spawn()` 默认稻草人（race 不可挖）——加 `name="鸡"` 参数；
+  2. 服务端 `_butch` 的 `corpse_until <= now_ms()` 按真实墙钟，测试虚拟时钟
+     的 1000 会被判「尸体已过期」拒收——`kill_monster` 必须传真实 `now_ms()`；
+  3. advance 的 100ms/step 远快于真实墙钟，服务端 600ms 出刀节流（真实
+     时钟）永远不满足——把 `pyserver.service.now_ms` 打补丁为
+     「真实起点 + 虚拟偏移」，两边节拍一致。
+- **技能修炼点显示（0 代码改动，答疑）**：main 库（gamedata/mud2 java 遗留
+  数据）基本剑术 maxTrain=[10,20,30] / needLevel=[7,11,16]；176 库
+  [100,400,800]。7 级 lv0 攒点满 10 升 1 级时 `_train_skill` 按
+  `train -= need` **结转余量**（原版 CheckMagicLevelup），一次命中 +1~3 可能
+  直接从 8→11 → 升级后 train=1 → 面板 1/10 → 1/20，0/20 只存在于升级瞬间
+  （1 秒节流推送），用户两次观察正好跨过——机制正常非 bug。176 真值是
+  100/400/800；当前指针在 main（`python scripts/switch_data.py use 176` +
+  重启回 1.76 数值）。
+- 改动文件：`pyserver/autopilot.py`、`scripts/test_autopilot.py`、本文 §66。
+
+---
