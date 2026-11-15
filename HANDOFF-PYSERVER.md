@@ -535,3 +535,32 @@ npc_home_quest 21 / hosted_fixes 12）全绿。
 
 **验证**：test_slave_protection.py 扩到 12/0（新增治疗宝宝/野生怪不可疗）；
 spell_fx 11、hosted_fixes 12、autopilot 39 全绿。
+
+## §78 召唤术熟练度与重复召唤对齐原版（2026-11-15）
+
+**原版语义**（Magic.pas / ObjBase.pas 逐条核对）：
+- 熟练度：`boTrain := MagMakeSlave(...) 成功`——**只有实际造出新宝宝**
+  （m_SlaveList.Count < nMaxMob，默认 1）那次施法才 TrainSkill(Random(3)+1)
+  （受人物等级门槛约束）。宝宝活着时施法不造新 → MakeSlave 返回 nil →
+  不加熟练度。
+- 护身符在造宝宝**之前**消耗（13~19 共用段 :432-435 扣 1 张、神兽 :541-542
+  扣 5 张）——宝宝活着时再放**护身符也照样扣**。
+- 宝宝存活期间再施放：骷髅（17，MagMakeSlave :1387-1421）**什么都不做**，
+  旧骷髅原地保留；神兽（30，MagMakeSinSuSlave :1382-1384）走
+  **RecallSlave**（ObjBase.pas:21940-21958）把旧神兽 SpaceMove 到主人
+  **面前一格**（GetFrontPosition）——这是「把跑远的宝宝叫回来」的原版玩法。
+
+**本服 bug**（§65 遗留）：旧实现先 `remove_summon(old)` 删旧宝宝再造新的
+→ 每次施法都「免费刷新满血宝宝」+ 每次都加熟练度，与原版完全不符。
+
+**修复**：
+- handlers_combat.py：宝宝存活 → 骷髅直接 return False（旧宝宝保留）；
+  神兽 `w._slave_space_move(old, p, front=True)` 召回面前（复用宝宝跟随
+  瞬移的两段特效消息，落点改 GetFrontPosition 语义）；两分支都 return
+  False 不加熟练度。护身符消耗保持在召唤尝试之前。
+- world.py `_slave_space_move` 加 `front` 参数（False=跟随落背后格
+  GetBackPosition，True=召回落面前格 GetFrontPosition）。
+
+**验证**：test_slave_protection.py 扩到 21/0（召唤首放加熟练度、存活期
+再放旧宝宝同 id 保留/不加熟练度/神兽召回身边）；spell_fx 11、
+hosted_fixes 12 全绿。
