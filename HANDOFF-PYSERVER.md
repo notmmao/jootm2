@@ -519,3 +519,19 @@ npc_home_quest 21 / hosted_fixes 12）全绿。
    Monster.brief_json 显式下发 masterId。
 
 **验证**：`scripts/test_slave_protection.py` 9/0；既有六套回归全绿。
+
+## §77 治愈术治疗自家宝宝（2026-11-15）
+
+§76 的误伤豁免写过头：castMagic 目标解析里对自家宝宝无条件作废，治愈术
+点宝宝 → 目标被清 → 回退自疗。原版治疗系走 IsProperFriend
+（ObjBase.pas:24192-24196）：玩家施放者对 `m_Master = Self` 的宝宝**恒 True**
+（Magic.pas case 2 治愈术直接调它，:307；群体治疗 :593 同）。修复：
+- 豁免加 `not is_heal_magic(magic_id)` 条件，只拦攻击系；
+- 治愈术（2）：接受自家宝宝目标，宝宝没有 inc_healing 池 → 按
+  RM_MAGHEALING（SendDelayMsg 800ms 即时加血）直接加 hp 并广播 stats；
+- 群体治疗（29）：目标集合补上主人=自己的宝宝；
+- 野生怪/别人的宝宝仍不可治疗（IsProperFriend=False，无人回血）。
+前端无需改：magicTarget 悬停本来不过滤宝宝，F 键治愈悬停宝宝即带 targetId。
+
+**验证**：test_slave_protection.py 扩到 12/0（新增治疗宝宝/野生怪不可疗）；
+spell_fx 11、hosted_fixes 12、autopilot 39 全绿。
