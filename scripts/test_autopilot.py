@@ -23,7 +23,7 @@ from pyserver.autopilot import (DEFAULT_PRESET, PRESETS, STUCK_MS,  # noqa: E402
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
-from pyserver.world import Monster  # noqa: E402
+from pyserver.world import GameMap, Monster  # noqa: E402
 from pyserver.world_extra import GroundItem  # noqa: E402
 
 
@@ -220,6 +220,75 @@ def main() -> int:
         srv.autopilot.get(p2).last_progress_at = 1000
         advance(srv, STUCK_MS // 100 + 20, start=1000)
         check("长时间零经验自动停机", srv.autopilot.get(p2) is None)
+
+        print("\n=== 9. 长距离移动会跑（不是一路走）===")
+        clear_monsters(srv, p2)
+        p2.hp = p2.max_hp
+        srv.autopilot.enable(p2, "balanced", now=2000)
+        pilot3 = srv.autopilot.get(p2)
+        run_from = (p2.x, p2.y)
+        spawn(srv, p2, 8, 0)
+        s.messages.clear()
+        now = 2000
+        stamps = []
+        for _ in range(40):
+            now += 100
+            srv.autopilot.tick(now)
+            stamps.append(pilot3.last_move_at)
+        end = now
+        moves = [m for m in s.messages if m.get("type") == "move"]
+        runs = [m for m in moves if m.get("run") is True]
+        check("长距离移动发 run=true", len(runs) >= 1,
+              f"move={len(moves)} run={len(runs)}")
+        check("确实跑到了远处", (p2.x, p2.y) != run_from,
+              f"{run_from} → {(p2.x, p2.y)}")
+        gaps = sorted({b - a for a, b in zip(stamps, stamps[1:]) if b > a})
+        check("跑步节拍快于 540ms 走", gaps and min(gaps) <= 400,
+              f"移动间隔={gaps[:4]}")
+
+        print("\n=== 10. 主动走向远处掉落物 ===")
+        clear_monsters(srv, p2)
+        for gid in list(srv.world.ground_items):
+            del srv.world.ground_items[gid]
+        base = (p2.x, p2.y)
+        lx, ly = base[0] + 5, base[1]
+        if not (p2.map.can_walk(lx, ly) and not p2.map.occupied(lx, ly)):
+            lx, ly = base[0] + 4, base[1]
+        srv.world.add_ground_item(GroundItem(
+            srv.world.new_id(), None, 90, lx, ly, 0, p2.map))
+        gold_before = p2.gold
+        srv.autopilot.enable(p2, "balanced", now=end + 1000)
+        end = advance(srv, 80, start=end + 1000, step=100)
+        check("主动走过去捡起 4~5 格外的金币", p2.gold > gold_before,
+              f"gold {gold_before} → {p2.gold} · pos {base} → {(p2.x, p2.y)}")
+
+        print("\n=== 11. 隔墙不卡住、换目标 ===")
+        clear_monsters(srv, p2)
+        for gid in list(srv.world.ground_items):
+            del srv.world.ground_items[gid]
+        srv.autopilot.enable(p2, "balanced", now=end + 1000)
+        pilot4 = srv.autopilot.get(p2)
+        # GameMap 是 slots dataclass，实例属性不可写；临时在类上打补丁造一整行墙。
+        orig_can_walk = GameMap.can_walk
+        wall_y = p2.y + 1
+        GameMap.can_walk = (lambda self, x, y: False if y == wall_y
+                            else orig_can_walk(self, x, y))
+        try:
+            behind = spawn(srv, p2, 0, 3)     # 整行墙之后，完全不可达
+            spawn(srv, p2, 4, 0)             # 同侧可达
+            s.messages.clear()
+            exp_wall = p2.exp
+            end = advance(srv, 60, start=end + 1000, step=100)
+            down_moves = [m for m in s.messages
+                          if m.get("type") == "move" and m.get("dir") in (3, 4, 5)]
+            check("墙后目标被拉黑换目标", behind.id in pilot4.unreachable,
+                  f"unreachable={list(pilot4.unreachable)[:4]}")
+            check("没有反复朝墙撞", len(down_moves) <= 3,
+                  f"朝墙方向 move {len(down_moves)} 次")
+            check("转而击杀同侧可达怪", p2.exp > exp_wall,
+                  f"exp {exp_wall} → {p2.exp}")
+        finally:
+            GameMap.can_walk = orig_can_walk
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):

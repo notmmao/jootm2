@@ -4,9 +4,13 @@
 
 * **绑真人会话**：实例只存在于 ``GameService`` 的内存字典里，绝不写
   ``characters`` 表；``on_disconnect`` 是唯一清理点，重登必须显式再点一次。
-* **不加速**：走路 540ms、攻速 ``1400 - min(370, level*14)`` ms，与手动客户端
-  完全一致；所有动作都走既有 handler（``_move`` / ``_attack`` / ``_pickup`` /
-  ``_use_item`` / ``_cast_magic``），不绕过任何距离、时间锁与伤害校验。
+* **不加速**：走路 540ms / 跑 360ms、攻速 ``1400 - min(370, level*14)`` ms，
+  与手动客户端完全一致；所有动作都走既有 handler（``_move`` / ``_attack`` /
+  ``_pickup`` / ``_use_item`` / ``_cast_magic``），不绕过任何距离、时间锁与
+  伤害校验。长距离移动按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去。
+* **主动拾取**：掉落物不再只在路过时顺手捡，按价值/距离选目标主动走过去。
+* **寻路**：8 方向 A*，与 ``world.try_move`` 用同一套阻挡判定；找不到路就
+  把目标列入短时黑名单换目标，绝不退化成「朝墙直线撞」。
 * **手动优先**：手动游戏消息在 ``GameService.on_message`` 处立即暂停托管。
 * **单 loop 友好**：纯内存同步逻辑，无线程、无 IO、无阻塞；每 tick 最多
   一次扫描 + 一个动作。
@@ -15,38 +19,42 @@
 """
 from __future__ import annotations
 
-from collections import deque
+import heapq
 from dataclasses import dataclass, field
 from typing import Any
 
-from .world import (BAG_SIZE, Monster, Player, direction_delta, direction_toward,
-                    now_ms)
+from .world import (BAG_SIZE, Monster, Player, direction_delta, now_ms)
 
 # ---- 节拍（与前端 PlayScene.mjs 一致）------------------------------------
-WALK_INTERVAL_MS = 540           # PlayScene.mjs:25 WALK_INTERVAL
+WALK_INTERVAL_MS = 540           # PlayScene.mjs:26 WALK_INTERVAL
+RUN_INTERVAL_MS = 360            # PlayScene.mjs:27 RUN_INTERVAL（右键跑）
+RUN_MIN_DIST = 3                 # 距离 >=3 格用跑，贴身逼近仍用走
 PICKUP_INTERVAL_MS = 300
 POTION_INTERVAL_MS = 1000
 STATE_PUSH_MS = 1500
 STUCK_MS = 180_000              # 零经验熔断：大图从城里走到野外可能要 1~2 分钟，
                                 # 设太短会把「正在赶路」误判成卡死
-PATH_MAX_NODES = 1600
+PATH_MAX_NODES = 6000           # A* 单次扫描上限（100ms tick 内纯内存可承受）
+LOOT_LOCK_MS = 8000             # 拾取目标锁定时长，避免多件掉落间来回抖动
+UNREACHABLE_MS = 10_000         # 不可达目标黑名单时长（怪会移动，不能永久拉黑）
+BLOCKED_LIMIT = 4               # 连续被挡几步就换目标，别原地磨墙
 
 # ---- 默认策略档（管理员预置，玩家只选档）--------------------------------
 PRESETS: dict[str, dict] = {
     "safe": {
-        "name": "安全", "level_delta": 0, "sight": 9,
+        "name": "安全", "level_delta": 0, "sight": 9, "loot_sight": 6,
         "potion_hp": 0.70, "retreat_hp": 0.42, "max_target_dc": 12,
         "pickup_min_price": 0, "thrust": False,
         "desc": "只打不高于自身等级的怪，血线 70% 就喝药",
     },
     "balanced": {
-        "name": "均衡", "level_delta": 3, "sight": 12,
+        "name": "均衡", "level_delta": 3, "sight": 12, "loot_sight": 8,
         "potion_hp": 0.55, "retreat_hp": 0.28, "max_target_dc": 18,
         "pickup_min_price": 0, "thrust": True,
         "desc": "默认档，允许高 3 级的怪，血线 55% 喝药",
     },
     "efficient": {
-        "name": "效率", "level_delta": 8, "sight": 12,
+        "name": "效率", "level_delta": 8, "sight": 12, "loot_sight": 10,
         "potion_hp": 0.45, "retreat_hp": 0.20, "max_target_dc": 26,
         "pickup_min_price": 50, "thrust": True,
         "desc": "接受高 8 级的怪、只捡值钱物品，药水用得更省",
@@ -104,40 +112,54 @@ def attack_interval_ms(level: int) -> int:
 
 
 def _walkable(game_map, x: int, y: int) -> bool:
-    if not game_map.inside(x, y):
-        return False
-    if not game_map.can_walk(x, y) and not game_map.is_door(x, y):
-        return False
-    return not game_map.occupied(x, y)
+    """必须与 ``world.try_move`` 完全一致：inside + can_walk + 无活物占位。
+
+    旧实现给「can_walk=False 但 is_door=True」开了例外，可 try_move 开门后
+    仍会因 can_walk=False 拒绝移动 —— 寻路以为有路、实际走不动，正是
+    「隔着墙卡住」的一个来源。
+    """
+    return (game_map is not None and game_map.inside(x, y)
+            and game_map.can_walk(x, y) and not game_map.occupied(x, y))
 
 
 def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int) -> list[int]:
-    """8 方向 BFS，返回走到「目标相邻格」的方向序列；找不到返回空列表。
+    """8 方向 A*（切比雪夫启发），返回走到「目标格或其相邻格」的方向序列。
 
-    只做本图寻路，不跨门导航；限制节点数，避免大图里一次 tick 卡住 loop。
+    只做本图寻路；找不到返回空列表，调用方据此**换目标**而不是直线撞墙。
+    启发式让大图绕墙比朴素 BFS 少扫一个量级，节点上限保护 100ms tick。
     """
     if game_map is None or max(abs(sx - tx), abs(sy - ty)) <= 1:
         return []
     start = (sx, sy)
+
+    def heuristic(x: int, y: int) -> int:
+        return max(abs(x - tx), abs(y - ty))
+
+    best: dict[tuple[int, int], int] = {start: 0}
     prev: dict[tuple[int, int], tuple[int, tuple[int, int]]] = {}
-    seen = {start}
-    queue = deque([start])
+    heap = [(heuristic(sx, sy), 0, start)]
     goal: tuple[int, int] | None = None
-    while queue and len(seen) < PATH_MAX_NODES:
-        cx, cy = queue.popleft()
+    scanned = 0
+    while heap and scanned < PATH_MAX_NODES:
+        _, g, (cx, cy) = heapq.heappop(heap)
+        if g > best.get((cx, cy), 1 << 30):
+            continue
+        scanned += 1
         for d in range(8):
             dx, dy = direction_delta(d)
             nx, ny = cx + dx, cy + dy
-            pos = (nx, ny)
-            if pos in seen or not _walkable(game_map, nx, ny):
+            if not _walkable(game_map, nx, ny):
                 continue
-            seen.add(pos)
-            prev[pos] = (d, (cx, cy))
+            ng = g + 1
+            if ng >= best.get((nx, ny), 1 << 30):
+                continue
+            best[(nx, ny)] = ng
+            prev[(nx, ny)] = (d, (cx, cy))
             if max(abs(nx - tx), abs(ny - ty)) <= 1:
-                goal = pos
-                queue.clear()
+                goal = (nx, ny)
+                heap.clear()
                 break
-            queue.append(pos)
+            heapq.heappush(heap, (ng + heuristic(nx, ny), ng, (nx, ny)))
     if goal is None:
         return []
     out: list[int] = []
@@ -171,6 +193,9 @@ class AutoPilot:
     last_state_at: int = 0
     pushed_status: str = ""
     target_id: int = 0
+    loot_id: int = 0
+    loot_until: int = 0
+    unreachable: dict[int, int] = field(default_factory=dict)  # 怪 id → 黑名单过期时刻
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
     blocked_steps: int = 0
@@ -259,16 +284,35 @@ class AutoPilot:
                 continue
             self.last_pickup_at = now
             srv._pickup(p.session, {"type": "pickup", "itemId": gi.id})
+            if gi.id == self.loot_id:      # 捡完立刻释放拾取目标锁
+                self.loot_id = 0
+                self.loot_until = 0
             self.set_status("拾取中", now)
             return
 
-    # ---- 战斗：选怪 → 寻路 → 攻击 --------------------------------------
+    # ---- 目标决策：掉落物 → 选怪 → 寻路 → 攻击 --------------------------
     def _fight(self, srv, w, p, cfg, now: int) -> None:
+        # 过期黑名单清理：怪会走动，不可达不能永久拉黑。
+        for tid, expire in list(self.unreachable.items()):
+            if expire <= now:
+                del self.unreachable[tid]
+
+        # 贴身威胁优先：被怪追着打的时候别跑去捡东西送死。
+        loot = None if self._nearby_threat(w, p) else self._choose_loot(w, p, cfg, now)
+        if loot is not None:
+            d = max(abs(p.x - loot.x), abs(p.y - loot.y))
+            if d <= 1:
+                self.set_status("拾取中", now)   # _pickup 本 tick 已跑过
+                return
+            label = "金币" if loot.is_gold() else "物品"
+            self._step_to(srv, w, p, loot.x, loot.y,
+                          ("loot", loot.id), f"捡{label}", now)
+
         route = route_for(p.level)
         target = self._choose_target(w, p, cfg, route, now)
         if target is None:
-            # 视野内没怪 → 朝全图最近的合格怪走（步子仍受 540ms 节拍限制）
-            far = self._nearest_monster(w, p, cfg)
+            # 视野内没怪 → 朝全图最近的合格怪走（步子仍受走/跑节拍限制）
+            far = self._nearest_monster(w, p, cfg, now)
             if far is None:
                 self.set_status("附近没有可打的怪 · 等待刷新", now)
                 return
@@ -288,18 +332,62 @@ class AutoPilot:
             elif now - self.last_attack_at < 200:
                 self.set_status(f"打怪中 · {target.name}", now)
         else:
-            self._step(srv, w, p, target, now)
+            self._step_to(srv, w, p, target.x, target.y,
+                          ("monster", target.id), f"前往 {target.name}", now)
+
+    def _nearby_threat(self, w, p) -> bool:
+        """两格内有活怪贴身 / 正在锁定我就先战斗。"""
+        for a in w.nearby(p.map, p.x, p.y, 2):
+            if (isinstance(a, Monster) and a.alive
+                    and (a.target_id == p.id or p.distance_to(a) <= 1)):
+                return True
+        return False
+
+    def _choose_loot(self, w, p, cfg, now: int):
+        """主动拾取目标：按价值/距离评分，锁定 8s 避免多件掉落间来回抖动。"""
+        sight = cfg.get("loot_sight", 8)
+        if self.loot_until > now:
+            gi = w.ground_item(self.loot_id)
+            if (gi is not None and gi.map is p.map
+                    and self.unreachable.get(gi.id, 0) <= now
+                    and max(abs(p.x - gi.x), abs(p.y - gi.y)) <= sight + 2
+                    and _want_pickup(w, gi, cfg)):
+                return gi
+        best, best_score = None, -1.0
+        for gi in w.ground_items.values():
+            if gi.map is not p.map or not _want_pickup(w, gi, cfg):
+                continue
+            if self.unreachable.get(gi.id, 0) > now:
+                continue
+            d = max(abs(p.x - gi.x), abs(p.y - gi.y))
+            if d > sight:
+                continue
+            if not gi.is_gold() and len(p.bag) >= BAG_SIZE:
+                continue
+            t = None if gi.is_gold() else _template(w, gi.item)
+            value = 80 if gi.is_gold() else max(1, t.price if t else 1)
+            score = value / (1.0 + d * 0.7)
+            if gi.id == self.loot_id:
+                score *= 1.3
+            if score > best_score:
+                best, best_score = gi, score
+        self.loot_id = best.id if best is not None else 0
+        self.loot_until = now + LOOT_LOCK_MS if best is not None else 0
+        return best
 
     def _choose_target(self, w, p, cfg, route, now: int):
         cached = w.actor(self.target_id)
         if (isinstance(cached, Monster) and cached.alive and cached.map is p.map
                 and p.distance_to(cached) <= cfg["sight"] + 2
+                and self.unreachable.get(cached.id, 0) <= now
                 and now - self.last_scan_at < 600):
             return cached
         self.last_scan_at = now
         best, best_score = None, -1.0
         for a in w.nearby(p.map, p.x, p.y, cfg["sight"]):
             if not isinstance(a, Monster) or not a.alive:
+                continue
+            if self.unreachable.get(a.id, 0) > now:
                 continue
             t = a.template
             if t is None or any(k in a.name for k in AVOID_NAMES):
@@ -326,13 +414,15 @@ class AutoPilot:
                 best, best_score = a, score
         return best
 
-    def _nearest_monster(self, w, p, cfg):
+    def _nearest_monster(self, w, p, cfg, now: int):
         best, best_d = None, 10 ** 9
         gm = p.map
         if gm is None:
             return None
         for a in gm.actors.values():
             if not isinstance(a, Monster) or not a.alive or a.template is None:
+                continue
+            if self.unreachable.get(a.id, 0) > now:
                 continue
             if any(k in a.name for k in AVOID_NAMES):
                 continue
@@ -346,36 +436,67 @@ class AutoPilot:
                 best, best_d = a, d
         return best
 
-    def _step(self, srv, w, p, target, now: int) -> None:
-        if now - self.last_move_at < WALK_INTERVAL_MS:
-            return
+    def _step_to(self, srv, w, p, tx: int, ty: int, key: tuple,
+                 label: str, now: int) -> bool:
+        """走到目标点（相邻即可）；返回 False = 目标不可达、已换目标。
+
+        距离 >=3 格按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去；逼近时
+        仍用走。路径 A* 与 ``try_move`` 共用阻挡判定，找不到路**绝不退化成
+        direction_toward 朝墙直线撞**，而是短时拉黑目标重新选。
+        """
+        dist = max(abs(p.x - tx), abs(p.y - ty))
+        if dist <= 1:
+            return True
+        running = dist >= RUN_MIN_DIST or len(self.path) >= 2
+        interval = RUN_INTERVAL_MS if running else WALK_INTERVAL_MS
+        if now - self.last_move_at < interval:
+            return True
         if now_ms() - getattr(p, "map_change_at", 0) < 350:
-            return                       # 与手动共用换图短锁
-        # 缓存只绑「目标 + 所在图」，不绑玩家坐标：路径是一串方向，走一步
-        # pop 一步；目标移动 / 换图 / 被挡才重算 BFS。
-        key = (target.id, target.x, target.y, p.map.name if p.map else "")
-        if not self.path or self.path_key != key:
-            self.path = bfs_path(p.map, p.x, p.y, target.x, target.y)
-            self.path_key = key
-        d = self.path.pop(0) if self.path else \
-            direction_toward(p.x, p.y, target.x, target.y, p.dir)
+            return True                      # 与手动共用换图短锁
+        # 缓存只绑「目标 + 坐标 + 所在图」，不绑玩家坐标：路径是一串方向，
+        # 走一步 pop 一步；目标移动 / 换图 / 被挡才重算。
+        path_key = key + (tx, ty, p.map.name if p.map else "")
+        if not self.path or self.path_key != path_key:
+            self.path = bfs_path(p.map, p.x, p.y, tx, ty)
+            self.path_key = path_key
+            if not self.path:
+                self._give_up_target(key, now)
+                self.path_key = ()
+                self.set_status("目标被墙挡住 · 换目标", now)
+                return False
+        d = self.path.pop(0)
         before = (p.x, p.y, p.map.name if p.map else "")
         self.last_move_at = now
-        srv._move(p.session, {"type": "move", "dir": d, "run": False})
+        srv._move(p.session, {"type": "move", "dir": d, "run": running})
         after = (p.x, p.y, p.map.name if p.map else "")
-        self.set_status(f"前往目标 · {target.name} ({p.distance_to(target)}格)", now)
+        self.set_status(f"{label} · {dist}格{' · 跑' if running else ''}", now)
         if before[2] != after[2]:
             self.path.clear()            # 踩门换图：旧路径失效，重新选怪
             self.path_key = ()
             self.target_id = 0
+            self.loot_id = 0
         elif before[:2] == after[:2]:
             self.path.clear()            # 被占格 / 墙挡住，下个节拍重算
             self.blocked_steps += 1
-            if self.blocked_steps >= 12:
+            if self.blocked_steps >= BLOCKED_LIMIT:
                 self.path_key = ()
-                self.set_status("寻路受阻 · 重新选路", now)
+                self._give_up_target(key, now)
+                self.set_status("寻路受阻 · 换目标", now)
+                return False
         else:
             self.blocked_steps = 0
+        return True
+
+    def _give_up_target(self, key: tuple, now: int) -> None:
+        """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
+        if not key:
+            return
+        self.unreachable[key[1]] = now + UNREACHABLE_MS
+        if key[0] == "monster":
+            self.target_id = 0
+        else:
+            self.loot_id = 0
+            self.loot_until = 0
 
 
 # ---------------------------------------------------------------- 物品筛选
@@ -456,6 +577,9 @@ class AutoPilotManager:
         pilot.path.clear()
         pilot.path_key = ()
         pilot.target_id = 0
+        pilot.loot_id = 0
+        pilot.loot_until = 0
+        pilot.unreachable.clear()
         pilot.blocked_steps = 0
         pilot.last_progress_at = stamp
         pilot.last_exp = p.exp

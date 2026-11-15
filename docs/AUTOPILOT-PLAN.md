@@ -36,5 +36,6 @@
 - 步骤 0：`net.py` 半开连接探活（15s ping / 45s 无帧清场，前端零改动）；`test_ws_idle_timeout.py` 验证清场与不误踢。
 - 步骤 1：新增 `pyserver/autopilot.py`（三档策略 + 等级段路线 + BFS 寻路 + 选怪/喝药/拾取/回城/熔断）；纯内存绑会话、共用 540ms 与攻速节拍、动作全走现有 handler、`on_disconnect` 清理；`service.py` 加 `autopilot` 消息、`/api/autopilot` 只读端点、`@托管` GM 命令。
 - 步骤 2：`PlayScene.mjs` 加 P 快捷键 + 开关按钮 + 三档下拉 + 一行状态条；手动动作/鼠标点击立即接管；档位偏好只存 localStorage，重进游戏恒为未开启。
-- 验收：`test_all_messages` 91 / `test_autopilot` 25 / `test_autopilot_ws` 16 / `test_autopilot_ui` 8，均 0 FAIL；真实挂机 60s：1→2 级、9 杀、HP 满、未意外停机；截图 `docs/autopilot-hud.png`。
+- 验收：`test_all_messages` 91 / `test_autopilot` 32 / `test_autopilot_ws` 16 / `test_autopilot_ui` 8，均 0 FAIL；真实挂机 60s：1→2 级、12 杀、HP 满、未意外停机；截图 `docs/autopilot-hud.png`。
+- **第 2 轮实测反馈修复**：① 长距离改跑（>=3 格发 `run:true`、360ms 节拍）；② 掉落物按价值/距离评分、主动走过去捡（8s 目标锁 + 贴身威胁优先战斗）；③ 寻路换 A*，无路/被挡就把目标短时拉黑换目标，不再朝墙直线撞。新增 7 条专项断言，60s 挂机击杀由 9 提升到 12。
 - 后续（本期不做）：LLM 策略编辑、跨图自动导航、断线自动重连、加速时钟测试壳。
