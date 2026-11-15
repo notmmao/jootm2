@@ -3,7 +3,7 @@
 
 用法：
   python scripts/gen_website.py                     # 用生效树，输出 data/website/
-  python scripts/gen_website.py --tree 176 --out website
+  python scripts/gen_website.py --tree 176 --out data/website-176   # 副本树各存一份
   python scripts/gen_website.py --open              # 生成后打开首页
 
 产物：纯静态 HTML + assets/（style.css、app.js、图标/地图 PNG），file:// 直接可看。
@@ -874,7 +874,11 @@ def page_drops(d: Data, out: Path) -> None:
 def resolve_tree(arg: str | None) -> Path:
     if arg:
         p = Path(arg)
-        return p.resolve() if p.is_absolute() else (ROOT / p).resolve()
+        cand = p.resolve() if p.is_absolute() else (ROOT / p).resolve()
+        if cand.is_dir():
+            return cand
+        alt = (ROOT / 'data' / 'gamedata' / arg).resolve()   # 副本树名，如 176
+        return alt if alt.is_dir() else cand
     root = 'gamedata'
     for ln in (ROOT / 'config' / 'server.properties').read_text(encoding='utf-8').splitlines():
         if ln.strip().startswith('gamedata.root'):

@@ -5,7 +5,8 @@
   gamedata/                    主树（受 git 跟踪，当前私服数据，切换时永不改动）
   data/gamedata/<name>/        完整副本树（入库分发；Map 是指回 resources/Map 的 junction，
                                被 gitignore 排除，clone 后 use 时自动补建）
-  config/server.properties     生效指针两行：gamedata.root= 与 db.file=（切树同步换库，互不混数据）
+  config/server.properties     生效指针三行：gamedata.root= / db.file= / website.root=
+                               （切树同步换库与静态站，互不混数据）
 
 命令：
   build-176 [--redm2 --src176]     从主树复制出 data/gamedata/176：
@@ -244,7 +245,8 @@ def _clear_template_tables(db_arg: str | None) -> None:
 
 def cmd_use(name: str, db_arg: str | None) -> None:
     if name == "main":
-        pairs = {"gamedata.root": "gamedata", "db.file": "data/jootm2.db"}
+        pairs = {"gamedata.root": "gamedata", "db.file": "data/jootm2.db",
+                 "website.root": "data/website"}
     else:
         tree = TREES / name
         if not tree.is_dir():
@@ -253,10 +255,18 @@ def cmd_use(name: str, db_arg: str | None) -> None:
             _mk_junction(tree / "Mir200" / "Map", ROOT / "resources" / "Map")
             print("[use] 副本树缺 Map junction，已补建（git clone 后属正常）")
         pairs = {"gamedata.root": f"data/gamedata/{name}",
-                 "db.file": f"data/jootm2-{name}.db"}
+                 "db.file": f"data/jootm2-{name}.db",
+                 "website.root": f"data/website-{name}"}
     set_props(pairs)
     _clear_template_tables(db_arg)
     print(f"[use] 生效树 {pairs['gamedata.root']} + 数据库 {pairs['db.file']}，重启 pyserver 换世界")
+    site = ROOT / pairs["website.root"]
+    if not site.is_dir():
+        cmd = ("python scripts/gen_website.py" if name == "main" else
+               f"python scripts/gen_website.py --tree {name} --out {pairs['website.root']}")
+        print(f"[use] 静态站 {pairs['website.root']} 尚未生成：{cmd}")
+    else:
+        print(f"[use] 静态站 {pairs['website.root']}（/site，随世界同切）")
 
 
 def cmd_list() -> None:

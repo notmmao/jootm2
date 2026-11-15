@@ -1586,6 +1586,27 @@ end;
 
 ---
 
+## §62 静态站按数据树各存一份 + 切树同步换站（2026-11-15）
+
+- **需求**：current 与 176 两套数据各留一份静态站，随时切换 `/site` 指向哪份；不需要同时 serve。
+- **实现**：
+  - `scripts/switch_data.py use <main|name>` 现在改**三行指针**：`gamedata.root`、`db.file`、`website.root`。main → `data/website`；副本树 → `data/website-<name>`。目标站目录不存在时打印对应生成命令（main 不带 `--tree`，副本树带 `--tree <name>`）。
+  - `scripts/gen_website.py --tree` 支持裸树名：先按路径解析，不存在再查 `data/gamedata/<name>`（与 switch_data 的命名一致）；docstring 用法同步修正。
+  - `config/server.properties` 基线新增 `website.root=data/website` 一行（§60 的 `ServerConfig` 默认值不变）。
+- **已生成的两份**（实测）：
+
+  | 目录 | 树 | 页面 | 物品 | 怪物 | NPC(去重) | 掉落表 |
+  |---|---|---|---|---|---|---|
+  | `data/website` | 主树 current | 1072 | 541 | 273 | 133 | 245 |
+  | `data/website-176` | `data/gamedata/176` | 1017 | 662 | 469 | 101 | 299 |
+
+  两份的地图 PNG（各 374 张）包含各自 MonGen 的刷怪点，所以**切树时不能复用另一份的图**（§60 已记 `--skip-existing-maps` 只适合同树重建）。
+- **切换验证**：`use 176` → 起 8131 实例，启动日志 `website = ...data\website-176`，首页卡片 662/469/101/299；`use main` → `website = ...data\website`，卡片 541/273/133/245。验证实例用 `--db data/sitecheck.db` 临时库，未触碰真实存档库，测后已删。
+- **注意**：`website.root` 在 pyserver 启动时读取，切站需要重启进程（与「切树换世界本来就要重启」一致）；`data/` 被 dockerignore，服务器上两份站点都要单独 rsync。
+- 改动文件：`scripts/switch_data.py`、`scripts/gen_website.py`、`config/server.properties`、本文 §62。
+
+---
+
 ## 归档索引（历史轮次，逐字保留在 docs/handoff/，只读不改）
 
 | 文件 | 内容 |
