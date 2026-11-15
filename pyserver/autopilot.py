@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .world import (BAG_SIZE, Monster, Player, direction_delta, now_ms)
+from .handlers_combat import spell_cost, skill_level
 
 # ---- 节拍（与前端 PlayScene.mjs 一致）------------------------------------
 WALK_INTERVAL_MS = 540           # PlayScene.mjs:26 WALK_INTERVAL
@@ -204,6 +205,7 @@ class AutoPilot:
     last_butch_at: int = 0
     last_bag: int = 0              # 背包数快照：挖肉/拾取得手也是「进展」信号
     last_gold: int = 0
+    acted: bool = False            # 本 tick 已做过「主动动作」（治愈术），跳过攻击
     unreachable: dict[int, int] = field(default_factory=dict)  # 怪 id → 黑名单过期时刻
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
@@ -247,6 +249,7 @@ class AutoPilot:
             return
 
         try:
+            self.acted = False
             self._survive(srv, w, p, cfg, now)
             if not self.active:
                 return
@@ -267,15 +270,22 @@ class AutoPilot:
         ratio = (p.hp + pool) / max_hp
         potion = _find_potion(w, p)
         if ratio <= cfg["retreat_hp"] and potion is None:
-            self.manager.disable(p, "血量过低且没有药水，托管已停止")
+            # 没药的道士还能靠治愈术自救（有蓝就不停机，治愈冷却中才熔断）
+            if not self._taoist_heal(srv, w, p, now):
+                self.manager.disable(p, "血量过低且没有药水，托管已停止")
             return
-        if (ratio <= cfg["potion_hp"] and potion is not None
-                and now - self.last_potion_at >= POTION_INTERVAL_MS
-                and now_ms() - getattr(p, "last_use_item_at", 0) >= 300):
-            self.last_potion_at = now
-            srv._use_item(p.session, {"type": "useItem",
-                                      "makeIndex": int(potion.get("makeIndex", 0))})
-            self.set_status("喝药中", now)
+        if ratio <= cfg["potion_hp"]:
+            # 道士优先治愈术回血（Magic.pas:301-317：不吃符、目标为空默认
+            # 自己）；没学 / 没蓝 / 冷却中 → 喝药兜底（药效即时，保命优先）。
+            if self._taoist_heal(srv, w, p, now):
+                return
+            if (potion is not None
+                    and now - self.last_potion_at >= POTION_INTERVAL_MS
+                    and now_ms() - getattr(p, "last_use_item_at", 0) >= 300):
+                self.last_potion_at = now
+                srv._use_item(p.session, {"type": "useItem",
+                                          "makeIndex": int(potion.get("makeIndex", 0))})
+                self.set_status("喝药中", now)
         if len(p.bag) >= BAG_SIZE - 2:
             scroll = _find_town_scroll(w, p)
             if scroll is not None:
@@ -308,8 +318,65 @@ class AutoPilot:
             self.set_status("拾取中", now)
             return
 
+    def _taoist_heal(self, srv, w, p, now: int) -> bool:
+        """道士治愈术回血（原版 SKILL_HEALLING，Magic.pas:301-317）：
+        目标为空默认施给自己、**不吃护身符**。返回 False = 当前不可施
+        （非道士 / 没学 / 没蓝 / 冷却中），调用方回落喝药。
+        MP 不足提示会刷屏，必须先自查（冷却拦截 :986 是静默的）。"""
+        if p.job != 2 or 2 not in p.skills:
+            return False
+        t = w.magic_templates.get(2)
+        if t is None:
+            return False
+        if now_ms() - p.skill_cooldown.get(2, 0) < t.delay:
+            return False
+        if p.mp < spell_cost(t, skill_level(p, 2)):
+            return False
+        exp_before = p.exp
+        srv._cast_magic(p.session, {"type": "castMagic", "magicId": 2,
+                                    "targetId": 0, "targetX": p.x,
+                                    "targetY": p.y})
+        self.acted = True            # 一个 tick 一个主动动作（原版节拍）
+        self.set_status("治愈术中", now)
+        if p.exp != exp_before:
+            self.last_exp = p.exp
+            self.last_progress_at = now
+        return True
+
+    def _taoist_fire(self, srv, w, p, target, now: int) -> bool:
+        """道士远程灵魂火符（原版 SKILL_FIRECHARM？13，每次 1 张符）。
+
+        返回 True = 本 tick 已被远程攻击占用（已施放 / 冷却中保持站位）；
+        False = 不可用（非道士 / 没学 / 没蓝 / 没符），调用方回落近战。
+        冷却自查按真实时钟与 ``_cast_magic`` 首行拦截（:986，静默）同源。"""
+        if p.job != 2 or 13 not in p.skills:
+            return False
+        t = w.magic_templates.get(13)
+        if t is None:
+            return False
+        if now_ms() - p.skill_cooldown.get(13, 0) < t.delay:
+            self.set_status(f"打怪中 · {target.name}", now)
+            return True
+        if p.mp < spell_cost(t, skill_level(p, 13)):
+            return False
+        if srv._find_amulet(p, 1, 1) is None:
+            return False        # 符耗尽不自动补戴（CheckAmulet 只查装备槽）
+        exp_before = p.exp
+        srv._cast_magic(p.session, {"type": "castMagic", "magicId": 13,
+                                    "targetId": target.id,
+                                    "targetX": target.x, "targetY": target.y})
+        self.last_attack_at = now
+        self.set_status(f"火符 · {target.name}", now)
+        if p.exp != exp_before:
+            self.kills += 1
+            self.last_exp = p.exp
+            self.last_progress_at = now
+        return True
+
     # ---- 目标决策：掉落物 → 选怪 → 寻路 → 攻击 --------------------------
     def _fight(self, srv, w, p, cfg, now: int) -> None:
+        if self.acted:               # 治愈术等生存动作已占用本 tick
+            return
         # 过期黑名单清理：怪会走动，不可达不能永久拉黑。
         for tid, expire in list(self.unreachable.items()):
             if expire <= now:
@@ -341,6 +408,10 @@ class AutoPilot:
             target = far
         self.target_id = target.id
         dist = p.distance_to(target)
+        # 道士远程：施法半径 8 格内（Magic.pas:266）优先灵魂火符，
+        # 没符/没蓝/没学 → 近战兜底；超射程先走近，进入射程即转远程。
+        if dist <= 8 and self._taoist_fire(srv, w, p, target, now):
+            return
         if dist <= 1:
             if now - self.last_attack_at >= attack_interval_ms(p.level):
                 self.last_attack_at = now
