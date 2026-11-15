@@ -487,3 +487,17 @@ REDM2.DB 合并而来）。33 个正式技能里，差异只有三类，**全部
 npc_home_quest 21 / hosted_fixes 12）全绿。
 
 ---
+
+## §75 尸体渲染两处修正（2026-11-15，`23117b1`，纯前端）
+
+1. **重进地图尸体变活物**：`onEnter` 把快照 nearby 实体直接塞 entities，
+   没走 entityAdd 的 corpse 标记处理（:1312 那套只在增量消息路径有）→
+   brief_json 的 `corpse:true` 被无视，画成活物站着不动，直到尸体到期
+   entityRemove 才消失。修复：onEnter 对 nearby 逐个套用与 entityAdd 相同的
+   `_corpse/_action='death'/prefetchDeathFrame`（跳过 self）。
+2. **掉落物被尸体遮盖**：原版 AxeMon.pas:444-446 在 TSkeletonOma.GetDefaultFrame
+   对 `m_wAppearance in [30..34,151]`（沃玛战士/勇士/将军/火焰沃玛/教主/护卫）
+   设 `m_nDownDrawLevel := 1`，行循环 `j = Ry - Level` 就画、屏幕位置不变 →
+   **同行（Ry）掉落物画在尸体之上**；其余怪 Level=0，同行尸体盖住物品是
+   原版行为。实现：渲染快照给沃玛系尸体/濒死实体带 `drawRow: y-1`，
+   MapActor 按行分桶用 drawRow、屏幕锚点仍用 e.y。
