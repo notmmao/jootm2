@@ -84,6 +84,16 @@ YSET_SHAPES = (159, 160, 161)   # 道士
 SLAVE_COLORS = (255, 254, 147, 154, 229, 168, 180, 252)
 SLAVE_UP_EXP = (0, 0, 50, 100, 200, 300, 600)
 
+# 头顶名字调色板索引（DefColorTable，客户端 GetRGB 直接按此取色）。
+# 原版只按「关系/状态」区分玩家名（ObjBase.pas:19197 GetNamecolor），
+# NPC/怪物都用默认白 255；下列分类色是本项目增强模式用，读法仍走原版调色板。
+NAME_COLOR_DEFAULT = 255       # 白：普通玩家 / 普通怪
+NAME_COLOR_SELF = 251          # 金黄：自己（增强模式）
+NAME_COLOR_NPC = 239           # 淡紫：NPC（避开 PK1 黄 / PK2 红）
+NAME_COLOR_PK1 = 251           # 黄：PKLevel=1（100~199）
+NAME_COLOR_PK2 = 249           # 红：PKLevel>=2（>=200，原版 $F9）
+NAME_COLOR_PKFLAG = 47         # 棕：PK 标记（原版 $2F / Client ENEMYCOLOR 对照）
+
 U_DRESS, U_WEAPON, U_RIGHTHAND, U_NECKLACE = 0, 1, 2, 3
 U_HELMET, U_ARMRINGL, U_ARMRINGR = 4, 5, 6
 U_RINGL, U_RINGR, U_BUJUK, U_BELT, U_BOOTS, U_CHARM = 7, 8, 9, 10, 11, 12

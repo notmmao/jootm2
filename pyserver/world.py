@@ -30,6 +30,7 @@ from .util import (
     RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT, REGEN_INTERVAL_MS,
     SHAPE_MANA_TO_HP, SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING,
     SHAPE_SUCK_HEALTH, SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP,
+    NAME_COLOR_DEFAULT, NAME_COLOR_PK1, NAME_COLOR_PK2, NAME_COLOR_PKFLAG,
     SUPER_GUARD_RACES, SUPER_GUARD_VIEW, YSET_SHAPES,
     calc_get_exp, delphi_round, java_div, java_round, init_meat_quality,
     slot_accepts, slot_for,
@@ -445,6 +446,21 @@ class Player(Actor):
             return 3
         return 1
 
+    def name_color(self) -> int:
+        """头顶名字颜色的原版关系色（ObjBase.pas:19197 GetNamecolor）。
+
+        PKLevel = pk_point // 100：>=2 深红、=1 黄；PK 标记（红名但 PKLevel<1）
+        用原版 $2F 棕。普通玩家仍为白 255，和原版默认一致。增强模式打开时
+        前端还会把「自己」单独染成金黄，但红名优先，避免把危险状态盖掉。
+        """
+        if self.pk_point >= RED_NAME_PK_POINT:
+            return NAME_COLOR_PK2
+        if self.pk_point >= 100:
+            return NAME_COLOR_PK1
+        if self.pk_point > 0:
+            return NAME_COLOR_PKFLAG
+        return NAME_COLOR_DEFAULT
+
     def brief_json(self) -> dict:
         # 显式基类调用，不用零参数 super()：本类是 @dataclass(slots=True)，
         # 3.10~3.12 重建类时不会修正 __class__ cell，零参数 super() 会报
@@ -453,7 +469,8 @@ class Player(Actor):
         o.update(sex=self.sex, hair=self.hair, job=self.job,
                  dress=self.dress_looks(self.world_ref),
                  weapon=self.weapon_shape(self.world_ref),
-                 light=self.light_level(), dead=self.dead)
+                 light=self.light_level(), dead=self.dead,
+                 nameColor=self.name_color())
         # 死亡玩家留在原地当尸体（原版 m_boDeath）：别人后进视野时靠这两个字段
         # 画 ActDie 末帧，否则会按「站立」帧画出一具站着的尸体。
         o["alive"] = self.alive
@@ -750,6 +767,7 @@ class Player(Actor):
             "dir": self.dir, "hp": self.hp, "maxHp": self.max_hp,
             "mp": self.mp, "maxMp": self.max_mp, "gold": self.gold,
             "race": self.race, "appr": self.appr,
+            "nameColor": self.name_color(),
             "dress": self.dress_looks(world), "weapon": self.weapon_shape(world),
             "light": self.light_level(), "dead": self.dead,
             "ac": self._rng("ac"), "mac": self._rng("mac"),
@@ -844,6 +862,9 @@ class Monster(Actor):
         o["name"] = filter_show_name(self.name)
         if self.master_id >= 0 and 0 <= self.slave_exp_level < len(SLAVE_COLORS):
             o["nameColor"] = SLAVE_COLORS[self.slave_exp_level]
+        else:
+            # 普通怪仍是原版默认白；增强模式打开时前端按这个索引着色。
+            o["nameColor"] = NAME_COLOR_DEFAULT
         if self.master_id >= 0:
             # 原版客户端靠名字里的「名(主人名)」括号识别宝宝（ClMain.pas:2852），
             # 本服宝宝名字不带括号 → 显式下发 masterId 供前端过滤误伤。

@@ -464,8 +464,10 @@ def test_shop_goods() -> None:
     if v_shop.is_file():
         sn = {r[0] for r in NpcScript.parse(read_lines(v_shop)).goods_rows()}
         check("边境村小店对齐 176：卷轴/护身符/修复油",
-              {"随机传送卷", "地牢逃脱卷", "行会回城卷", "护身符", "修复油"} <= sn,
+              {"随机传送卷", "地牢逃脱卷", "回城卷", "护身符", "修复油"} <= sn,
               str(sorted(sn)))
+        check("边境村小店卖回城卷而非行会回城卷（对话 @steleport，2026-11-16 用户指正）",
+              "回城卷" in sn and "行会回城卷" not in sn, str(sorted(sn)))
         check("边境村小店卖蜡烛/火把（夜间视野）", {"蜡烛", "火把"} <= sn, str(sorted(sn)))
         check("边境村小店只卖小量红蓝药", {"金创药(小量)", "魔法药(小量)"} <= sn
               and not any("中量" in n or "强效" in n or "超级" in n or "包" in n

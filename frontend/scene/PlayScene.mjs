@@ -212,6 +212,19 @@ export class PlayScene extends Scene {
             try { return localStorage.getItem('jootm2.noFog') === '1'; } catch { return false; }
         })();
         this.mapActor.forceNotViewFog = this._noFog;
+        // 头顶名字/血条显示偏好：默认全关（保持原版全红观感），系统菜单可热切换。
+        const pref = (key, fallback) => {
+            try {
+                const v = localStorage.getItem(key);
+                return v == null ? fallback : v === '1';
+            } catch { return fallback; }
+        };
+        this._hudMode = {
+            enhanced: pref('jootm2.hudEnhanced', false),
+            showHpLabel: pref('jootm2.showHpLabel', true),
+            hoverNamesOnly: pref('jootm2.nameOnFocusOnly', false),
+        };
+        this.mapActor.hudMode = this._hudMode;
         this._holding = false;       // 鼠标按住状态（按住持续移动，松开停止）
         this._mouseRun = false;      // 是否跑（右键）
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
@@ -715,6 +728,37 @@ export class PlayScene extends Scene {
         this._log(this._noFog
             ? '[系统] 免蜡已开启：视野全亮，不再受黑暗/火把限制。'
             : '[系统] 免蜡已关闭：黑暗区域需要蜡烛、火把或火墙照明。');
+    }
+
+    /** 头顶 HUD 开关统一入口：写 localStorage + 热更新 MapActor + 刷新菜单文字。 */
+    _setHudPref(key, value, label) {
+        this._hudMode[key] = value;
+        const storageKey = {
+            enhanced: 'jootm2.hudEnhanced',
+            showHpLabel: 'jootm2.showHpLabel',
+            hoverNamesOnly: 'jootm2.nameOnFocusOnly',
+        }[key];
+        try { localStorage.setItem(storageKey, value ? '1' : '0'); } catch { /* 隐私模式 */ }
+        if (this.mapActor) this.mapActor.hudMode = this._hudMode;
+        this._syncHudBtn?.();
+        this._syncHpBtn?.();
+        this._syncNameBtn?.();
+        this._log(`[系统] ${label}：${value ? '开' : '关'}`);
+    }
+
+    _toggleHudEnhanced() {
+        this._setHudPref('enhanced', !this._hudMode.enhanced,
+            '名字/血条类别增强');
+    }
+
+    _toggleHpLabelMode() {
+        this._setHudPref('showHpLabel', !this._hudMode.showHpLabel,
+            '头顶血条全显示');
+    }
+
+    _toggleNameMode() {
+        this._setHudPref('hoverNamesOnly', !this._hudMode.hoverNamesOnly,
+            '名字仅在悬停时显示');
     }
 
     /** 返回人物选择（原版 Alt-X / 退出角色）：保持登录态与 WS 连接。 */
@@ -2374,6 +2418,25 @@ export class PlayScene extends Scene {
             fogBtn.style.color = this._noFog ? '#9fe08a' : '#ffe9a8';
         };
         this._syncFogBtn();
+        // 头顶 HUD 偏好：三个开关都即时生效，不需要重登。
+        const hudBtn = mk('', () => this._toggleHudEnhanced());
+        this._syncHudBtn = () => {
+            hudBtn.textContent = `名字/血条增强：${this._hudMode.enhanced ? '开' : '关（原版）'}`;
+            hudBtn.style.color = this._hudMode.enhanced ? '#9fe08a' : '#ffe9a8';
+        };
+        const hpBtn = mk('', () => this._toggleHpLabelMode());
+        this._syncHpBtn = () => {
+            hpBtn.textContent = `头顶血条：${this._hudMode.showHpLabel ? '全显示' : '原版时机'}`;
+            hpBtn.style.color = this._hudMode.showHpLabel ? '#ffe9a8' : '#9fe08a';
+        };
+        const nameBtn = mk('', () => this._toggleNameMode());
+        this._syncNameBtn = () => {
+            nameBtn.textContent = `名字显示：${this._hudMode.hoverNamesOnly ? '悬停才显示' : '全部显示'}`;
+            nameBtn.style.color = this._hudMode.hoverNamesOnly ? '#9fe08a' : '#ffe9a8';
+        };
+        this._syncHudBtn();
+        this._syncHpBtn();
+        this._syncNameBtn();
         mk('背包 (F9)', () => { this._closeSystemMenu(); this._toggleBag(); });
         mk('状态 (F10)', () => { this._closeSystemMenu(); this.statePage = 0; this._toggleStateWin(); });
         mk('技能 (F11)', () => { this._closeSystemMenu(); this._openSkillSetup(); });
@@ -4041,7 +4104,8 @@ export class PlayScene extends Scene {
                 alpha: e._hidden ? 0.5 : undefined,   // 隐身半透明
                 poison: !!e._poison,                  // 红毒（掉血）绿色调
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
-                nameColor: e.nameColor,               // 宠物名字颜色（调色板索引）
+                nameColor: e.nameColor,               // 服务端下发的调色板索引（玩家关系色/分类色/宠物等级色）
+                masterId: e.masterId,                 // 区分宝宝（增强模式血条绿描边用）
                 // 原版 m_nLight / m_nChrLight（ObjBase.pas:3387、SM_LOGON 的
                 // Hibyte(cdir)）：服务端按 U_RIGHTHAND 蜡烛/火把下发 3，否则 1；
                 // NPC 是 TNormNpc.m_nLight=2。供 m_LightMap 收集多光源。

@@ -14,17 +14,23 @@ import { perf } from '../core/perf.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
-/** 原版客户端设置 ``boShowRedHPLable``（ClMain.pas:7005，缺省 False）。
- *  为 True 时 DrawScrn.pas:305 把所有 actor 的 m_boOpenHealth 置 True → 头顶全显示血条；
- *  为 False 时只有心灵启示(28)打到 openHealth 的目标显示。这里默认开（保持现有观感），
- *  `localStorage['jootm2.showHpLabel'] = '0'` 可切到原版缺省行为。 */
-const SHOW_RED_HP_LABEL = (() => {
-    try {
-        return globalThis.localStorage?.getItem('jootm2.showHpLabel') !== '0';
-    } catch {
-        return true;
-    }
-})();
+/** 头顶 HUD 显示偏好：由 PlayScene 从 localStorage 读入后整体注入，切换开关即时生效。
+ *  - enhanced：名字按类别/关系色、血条按敌友描边；关闭时维持原版全红观感。
+ *  - showHpLabel：对应原版 boShowRedHPLable（ClMain.pas:7005，缺省 False）；
+ *    这里默认开以保持现有观感，关掉后只有心灵启示(28)等临时血条。
+ *  - hoverNamesOnly：对应原版只画 g_FocusCret / 悬停自己的行为。
+ */
+const HUD_DEFAULTS = Object.freeze({
+    enhanced: false, showHpLabel: true, hoverNamesOnly: false,
+});
+
+/** 调色板索引 → CSS 颜色（原版 GetRGB 用 DefColorTable 同一张表）。 */
+function paletteFill(idx) {
+    if (idx == null) return null;
+    const i = Number(idx) * 4;
+    if (!Number.isInteger(i) || i < 0 || i + 2 >= PALETTE_RGBA.length) return null;
+    return `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
+}
 // 地面缓存未就绪/加载失败时的兜底底色（暗土色）。纯黑/近黑会被看成「一条一条的黑条」，
 // 这里用明显亮于纯黑的地色，并且优先借用已绘制格像素，保证任何时刻都不会露出黑条带。
 export const FLOOR_FALLBACK = '#3a3222';
@@ -157,6 +163,7 @@ export class MapActor {
         this.map = null;
         this.mapId = null;
         this._texCache = new Map();   // key -> { canvas, px, py }
+        this.hudMode = { ...HUD_DEFAULTS };  // 头顶名字/血条显示偏好，PlayScene 可热更新
         this._nameW = new Map();      // 名字 -> 像素宽（measureText 每帧每实体一次太浪费）
         this._tintCache = new Map();  // 原始 canvas -> (color -> 染色后 canvas)，中毒变色用
         this._texVersion = 0;        // 纹理就绪计数（供地面层缓存判失效，预留）
@@ -1318,21 +1325,26 @@ export class MapActor {
 
     /** 头顶血条 + 名字（原版 DrawScrn.pas:296-344）。 */
     _drawHeadHud(ctx, e, anchorX, anchorY) {
+        const hud = this.hudMode || HUD_DEFAULTS;
+        const enhanced = !!hud.enhanced;
+        const pet = e.masterId != null;
+
         // 血条（原版 DrawScrn：SayY - 10 = 格顶 - 57，头顶上方）
         // 原版只有一种 HEALTHBAR_RED，人物也不换色；以前给「自己」用了天蓝色，
         // 看起来像魔法条，跟左下红血球对不上（用户反馈的「两边不一致」）。
+        // 因此增强模式也只换描边、不改红色填充。
         // DrawScrn.pas:306 的 `not actor.m_boDeath` → 死亡/尸体一根都不画。
         // 显示条件（DrawScrn.pas:305-307）：
         //   if g_boShowRedHPLable then actor.m_boOpenHealth := True;
         //   if (actor.m_boOpenHealth or actor.m_noInstanceOpenHealth) and not m_boDeath
         // 即「客户端设置里勾了显示血条」→ 全部显示；没勾 → 只有被心灵启示(28)
         // 打到 openHealth 的目标显示。g_boShowRedHPLable 原版缺省 False
-        // （ClMain.pas:7005），这里默认开以保持现在「所有怪都有血条」的观感，
-        // localStorage['jootm2.showHpLabel']='0' 可关掉它验证心灵启示的效果。
-        const showHp = SHOW_RED_HP_LABEL || e.isSelf
+        // （ClMain.pas:7005），这里默认开以保持现有观感；系统菜单可切回原版时机。
+        const showHp = (hud.showHpLabel !== false) || e.isSelf
             || (e.openHealth > 0 && e.openHealth > Date.now());
         const dead = e.dead || e.hp <= 0;
-        if (showHp && e.maxHp > 0 && !dead) {
+        // NPC 不参与战斗，增强模式下不画头顶血条（避免商人头顶一根红条）。
+        if (showHp && e.maxHp > 0 && !dead && !(enhanced && e.type === 'npc')) {
             const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
             // 与血球同一取整口径：先算百分比整数，再换算像素，避免两边四舍五入不一致
             const pct = Math.max(0, Math.min(100, Math.round(hp * 100 / e.maxHp)));
@@ -1340,12 +1352,21 @@ export class MapActor {
             const by0 = anchorY - 57;
             ctx.fillStyle = '#000';
             ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
+            if (enhanced) {
+                const border = e.isSelf ? '#ffffff' : (pet ? '#7bd88f' : null);
+                if (border) {
+                    ctx.strokeStyle = border;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(bx0 - 1.5, by0 - 1.5, 43, 7);
+                }
+            }
             ctx.fillStyle = '#ef4444';
             if (pct > 0) ctx.fillRect(bx0, by0, 40 * pct / 100, 4);
         }
 
         // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
-        if (e.name) {
+        // hoverNamesOnly 打开时对齐原版：只画悬停目标 + 悬停/移动中的自己。
+        if (e.name && !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf)) {
             ctx.font = '11px SimSun,serif';
             ctx.textAlign = 'center';
             let tw = this._nameW.get(e.name);
@@ -1359,10 +1380,16 @@ export class MapActor {
             ctx.fillStyle = 'rgba(0,0,0,0.6)';
             ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
             // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
+            // 这一条不受增强开关影响，保持原版行为。
             let nameFill = e.isSelf ? '#ffe9b0' : '#e0d0a0';
-            if (e.nameColor != null) {
-                const i = e.nameColor * 4;
-                nameFill = `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
+            if (pet && e.nameColor != null) {
+                nameFill = paletteFill(e.nameColor) || nameFill;
+            } else if (enhanced && e.nameColor != null) {
+                const idx = Number(e.nameColor);
+                nameFill = paletteFill(idx) || nameFill;
+                // 增强模式下自己用金黄（251），但红名/棕名等 PK 关系色优先，
+                // 不能把危险状态盖掉。
+                if (e.isSelf && idx === 255) nameFill = paletteFill(251) || nameFill;
             }
             ctx.fillStyle = nameFill;
             ctx.fillText(e.name, nx, ny);

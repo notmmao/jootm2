@@ -21,8 +21,11 @@ sys.path.insert(0, str(ROOT))
 from pyserver.config import load                     # noqa: E402
 from pyserver.db import Database                    # noqa: E402
 from pyserver.service import GameService             # noqa: E402
+from pyserver.util import (NAME_COLOR_DEFAULT, NAME_COLOR_NPC,  # noqa: E402
+                           NAME_COLOR_PK1, NAME_COLOR_PK2, NAME_COLOR_PKFLAG)
 from pyserver.world import (Monster, Player, day_bright_for_hour,  # noqa: E402
                             filter_show_name, now_ms)
+from pyserver.world_extra import Npc                            # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -91,6 +94,15 @@ def main() -> int:
     pl = Player(id=2, name="Hero7", x=1, y=1)
     check("Player.brief_json 保留名字中的数字", pl.brief_json()["name"] == "Hero7",
           pl.brief_json()["name"])
+
+    # 5b. 头顶名字调色板索引（原版 GetNamecolor 关系色 + 本项目分类色）
+    check("普通怪 nameColor=白255", m.brief_json()["nameColor"] == NAME_COLOR_DEFAULT,
+          m.brief_json().get("nameColor"))
+    check("NPC nameColor=淡紫239", Npc(id=3, name="商人").brief_json()["nameColor"] == NAME_COLOR_NPC)
+    check("普通玩家 nameColor=白255", pl.brief_json()["nameColor"] == NAME_COLOR_DEFAULT)
+    check("PK100 → 黄251", Player(id=4, pk_point=100).name_color() == NAME_COLOR_PK1)
+    check("PK200 → 红249", Player(id=5, pk_point=200).name_color() == NAME_COLOR_PK2)
+    check("PK10 → 棕47", Player(id=6, pk_point=10).name_color() == NAME_COLOR_PKFLAG)
 
     # 6. 换图短锁：拦下在途 move，避免踩中相邻回程门弹回
     class Session:

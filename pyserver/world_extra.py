@@ -14,8 +14,8 @@ from typing import Any
 from .drop_rates import load_drop_rates
 from .gamedata import parse_map_quest, read_lines
 from .util import (
-    BAG_SIZE, GROUND_ITEM_TTL_MS, RED_NAME_PK_POINT, SIGHT_RANGE, U_WEAPON,
-    encode, java_div, now_ms,
+    BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, RED_NAME_PK_POINT,
+    SIGHT_RANGE, U_WEAPON, encode, java_div, now_ms,
 )
 
 
@@ -160,7 +160,7 @@ class Npc:
                 "x": self.x, "y": self.y, "dir": self.dir,
                 "hp": 1, "maxHp": 1, "race": self.race, "raceImg": self.race_img,
                 "appr": self.appr, "level": self.level, "merchant": self.merchant,
-                "face": self.face, "light": 2}
+                "face": self.face, "light": 2, "nameColor": NAME_COLOR_NPC}
 
 
 @dataclass(slots=True)

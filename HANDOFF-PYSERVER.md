@@ -475,3 +475,55 @@ Bash 权限分类器（auto 模式依赖的远端模型）间歇性超时，构�
 14/0（法师技能优先级+没蓝不近战、武器换装、护身符毒粉双补、挖肉限流与清肉
 品质排序）；既有 test_autopilot 39/0、test_autopilot_taoist 18/0、test_autopilot_ws
 16/0、test_hosted_fixes 14/0、test_all_messages 91/0 全绿。
+
+---
+
+## §90 边界村小店：行会回城卷 → 回城卷（2026-11-16，用户指正）
+
+**根因**：§72 给边界村小店老板（`4Tdu-0.txt`，map 0 (291,610)）配货单时照抄
+「176 通用杂货铺模板」（`QuestDiary/商人/杂货铺.txt`），该模板只有**行会回城卷**
+没有回城卷；但此 NPC 对话 `@steleport`（:41-46）明说经营**回城卷**（"立刻返回
+村庄"），全文未提行会卷。新手村卖回行会城堡的卷对无行会新人无用。176 基线里
+回城卷在沙巴克杂货铺有售（`沙巴克_杂货-3.txt`：回城卷 100/10 + 行会卷 100/5）。
+
+**改动**：`4Tdu-0.txt` [goods] 行会回城卷 → 回城卷（库存/刷新列不变），附注释。
+比奇杂货铺（7Bst-0）货单与 176 通用模板逐字一致，**不动**。
+
+**验证**：引擎 `NpcScriptEngine.goods` 实解析：回城卷 110 金（100×1.1，%100）
+在列、行会回城卷已除；test_pyserver 115/0（原「对齐176」断言更新为回城卷 +
+新增「卖回城卷而非行会回城卷」断言）、test_tick_systems 180/0。
+
+---
+
+## §91 头顶名字/血条分类增强 + 系统菜单开关（2026-11-16）
+
+**原版结论（本地 Delphi 源码核对）**：官方**不按 NPC/怪物/自己/别人分类配色**。
+名字只有一个服务端下发的调色板索引 `m_nNameColor`（`DrawScrn.pas:326-344` 用
+`BoldTextOut(..., fcolor, clBlack)` 画悬停目标和指到的自己），语义是关系/状态
+（`ObjBase.pas:19197 GetNamecolor`：PK1 黄 251 / PK2 红 249；`GetCharColor`
+再加 PK 标记棕 47、同盟蓝 180、敌对行会橙 69、攻城区绿 221；宝宝按
+`SlaveColor` 变色）。血条全实体同一张黑底红条（`DrawScrn.pas:306-319`），
+且缺省不全显示（`MShare.pas:429` 的 `boShowRedHPLable=False`）。
+
+**改动**：
+- `pyserver/util.py` 新增 `NAME_COLOR_*` 调色板常量；`world.py` 的
+  `Player.name_color()` 按 PKLevel/PKFlag 下发关系色，`Player.brief_json` /
+  `to_player_json`、`Monster.brief_json`、`world_extra.Npc.brief_json`
+  统一带 `nameColor`（普通怪 255、NPC 淡紫 239、宝宝仍用原版等级色）。
+- `frontend/map/MapActor.mjs`：HUD 偏好从模块常量改为可热更新的
+  `this.hudMode`（`enhanced / showHpLabel / hoverNamesOnly`）。增强模式下
+  名字按服务端索引取原版调色板色（自己白 255→金黄 251，PK 色优先不被盖）；
+  血条填充**始终原版红**（避免「像魔法条、和左下血球不一致」的老问题），
+  只给自己加白描边、宝宝加绿描边，NPC 不画血条。关闭时完全维持旧观感。
+- `frontend/scene/PlayScene.mjs`：构造时读 `jootm2.hudEnhanced` /
+  `jootm2.showHpLabel` / `jootm2.nameOnFocusOnly`，注入 `mapActor.hudMode`；
+  系统菜单（Esc）新增三个即时生效开关：名字/血条增强（默认关）、头顶血条
+  全显示/原版时机、名字全部显示/悬停才显示；`_setHudPref` 统一落盘 + 刷菜单。
+- 名字快照新增 `masterId` 供宝宝描边判定。
+
+**验证**：`test_map_view` 新增 6 条颜色断言后 40/0（首轮 2 FAIL 是随机刷怪
+占住测试门格导致，复跑通过）；`test_pyserver` 115/0、`test_tick_systems`
+180/0、`test_all_messages --live 8080` 91/0 + WS ping PASS；Playwright（3.9）
+实机确认默认 `enhanced=false`、菜单三项文字正确、点击后 localStorage 与
+`mapActor.hudMode` 同步、无 pageerror；前后抓帧确认自己名字由白变金黄、
+血条多白描边，怪名/红条不变。
