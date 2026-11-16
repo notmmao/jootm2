@@ -3180,10 +3180,12 @@ export class PlayScene extends Scene {
             if (it.durabilityMax > 0) {
                 line1 += (line1 ? '  ' : '') + '持久 ' + Math.round(it.durability / 1000) + '/' + Math.round(it.durabilityMax / 1000);
             }
-            // 原版 GetMouseItemInfo（FState.pas:4238/4346）：武器幸运（模板 AC 低位 +
-            // 祝福油累积的 btValue[3]）在物品说明里显示「幸运+N」。没有这一行时
-            // 祝福油只留一句系统消息，玩家在界面上完全看不到「幸运+1」加在哪。
+            // 原版 GetMouseItemInfo（FState.pas:4238-4240）：武器说明幸运写
+            // 「幸运+N」、诅咒写「诅咒+N」（原版是两个独立字段：AC 低字节=幸运、
+            // MAC 低字节=诅咒；本项目祝福油分级模型把它们合并成一个可负值，
+            // 负数按诅咒显示）。服务端 instance_json 下发的 lucky = 两者净额。
             if (it.lucky > 0) line2 += '幸运+' + it.lucky + ' ';
+            else if (it.lucky < 0) line2 += '诅咒+' + (-it.lucky) + ' ';
             if (it.dcMax) line2 += '攻击 ' + (it.dc || 0) + '-' + it.dcMax + ' ';
             if (it.mcMax) line2 += '魔法 ' + (it.mc || 0) + '-' + it.mcMax + ' ';
             if (it.scMax) line2 += '道术 ' + (it.sc || 0) + '-' + it.scMax + ' ';

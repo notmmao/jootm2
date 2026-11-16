@@ -1063,6 +1063,25 @@ class WorldExtra:
     def unbind_item_name(self, shape: int) -> str | None:
         return self.unbind_items.get(shape)
 
+    def _near_walkable(self, game_map, tx: int, ty: int) -> tuple[int, int]:
+        """目标格不可站时在原版 ±4 窗口内就近找可站格（GetMapRangePlace 语义）。
+
+        找不到则返回原点（原版 SpaceMove 也会强行落到该格）。
+        """
+        if game_map.can_walk(tx, ty):
+            return tx, ty
+        best = None
+        best_d = None
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                nx, ny = tx + dx, ty + dy
+                if 0 <= nx < game_map.width and 0 <= ny < game_map.height \
+                        and game_map.can_walk(nx, ny):
+                    d = abs(dx) + abs(dy)
+                    if best_d is None or d < best_d:
+                        best, best_d = (nx, ny), d
+        return best if best is not None else (tx, ty)
+
     def random_walk_pos(self, game_map):
         for _ in range(100):
             x = int(random.random() * game_map.width)
@@ -1072,15 +1091,52 @@ class WorldExtra:
         return self.start_x, self.start_y
 
     def use_scroll(self, p, shape: int) -> bool:
-        shape_map = {1: (p.home_map, -1, -1), 2: (p.map.name if p.map else "0", -1, -1),
-                     3: (p.home_map, p.home_x, p.home_y), 5: (p.home_map, p.home_x, p.home_y)}
-        if shape not in shape_map:
+        # 原版 EatUseItems（ObjBase.pas:23518-23574）逐 shape 对齐：
+        #   1 地牢逃脱卷 → BaseObjectMove(m_sHomeMap,'','')：**随机**落点（空串
+        #     坐标走 MapRandomMove，:23605-23613），不是固定 home 坐标；
+        #   2 随机传送卷 → 仅当 !Envir.Flag.boNORANDOMMOVE 才本图随机（:23527），
+        #     幸运房等图（MapInfo NORECALL/NORANDOMMOVE）原版直接无效；
+        #   3 回城卷 → PKLevel>=2（pk_point>=200）去红名回家点（GOM 默认
+        #     3/845/674，M2Share.pas:1693-1695），否则 home 固定坐标（:23537-43）；
+        #   5 行会回城卷 → 攻城方成员去城堡回城点（Castle.pas:921-928
+        #     GetHomeX/Y = 配置点 ±4 随机，GOM 默认 3/644/290），无行会/非占领方
+        #     原版不传送（Result=False，物品不消耗）。
+        if shape == 1:
+            map_id, tx, ty = p.home_map, -1, -1
+        elif shape == 2:
+            if any(f.startswith("NORANDOMMOVE")
+                   for f in self.map_flags.get(p.map.name if p.map else "0", ())):
+                return False
+            map_id = p.map.name if p.map else "0"
+            tx = ty = -1
+        elif shape == 3:
+            if (p.pk_point or 0) >= RED_NAME_PK_POINT:
+                map_id, tx, ty = "3", 845, 674
+            else:
+                map_id, tx, ty = p.home_map, p.home_x, p.home_y
+        elif shape == 5:
+            gname = self.guild_of_player.get(p.name)
+            castle = getattr(self, "castle", None)
+            if not gname or castle is None or castle.own_guild != gname:
+                return False
+            map_id, tx, ty = (castle.map_id or "3"), 644, 290
+        else:
             return False
-        map_id, tx, ty = shape_map[shape]
         target = self.get_or_load_map(map_id)
         if target is None:
             return False
-        if tx < 0 or ty < 0 or not target.can_walk(tx, ty):
+        if shape in (3, 5):
+            # 原版固定坐标直接 SpaceMove；落点不可站时按原版
+            # GetMapRangePlace 就近找可站格（±4 窗口）。
+            if not target.can_walk(tx, ty):
+                fx, fy = self._near_walkable(target, tx, ty)
+                tx, ty = fx, fy
+            if shape == 5:
+                tx = (tx - 4) + int(random.random() * 9)
+                ty = (ty - 4) + int(random.random() * 9)
+                if not target.can_walk(tx, ty):
+                    tx, ty = self._near_walkable(target, 644, 290)
+        else:
             tx, ty = self.random_walk_pos(target)
         # 原版随机卷轴/回城卷 EatUseItems（ObjBase.pas:20573/20590）→ SpaceMove：
         # 两段特效与宝宝跟随传送完全一致——离地 SM_SPACEMOVE_HIDE（magic 250-259

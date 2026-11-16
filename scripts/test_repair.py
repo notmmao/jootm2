@@ -22,7 +22,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.npc_script import NpcScript  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
-from pyserver.util import U_WEAPON  # noqa: E402
+from pyserver.util import U_WEAPON, now_ms  # noqa: E402
 import pyserver.handlers_items as handlers_items  # noqa: E402
 
 
@@ -153,31 +153,92 @@ def main() -> int:
           f"dura={weapon['durability']}")
     check("战神油不掉上限", weapon["durabilityMax"] == 4000, results)
 
-    # ---- 3. 祝福油：只由 Shape=4 触发，且幸运下发到物品说明 ----------------
-    orig_random = handlers_items.random.random
-    handlers_items.random.random = lambda: 0.1     # 固定走 +1 分支
+    # ---- 3. 祝福油：原版 WeaptonMakeLuck 分级概率（非自造 50/30/20）------
+    # 新模型（ObjBase.pas:23621-23671）：Random(20)=1 → 诅咒-1；否则幸运<1 必成、
+    # <3 按 Random(nRand+6)=1、<7 按 Random(nRand*40)=1；≥7 白花油；油总消耗。
+    orig_randrange = handlers_items.random.randrange
+
+    def no_curse_then_success(n):        # randrange(20)=2 不诅咒；ladder 不进（luck<1 直通）
+        return 2
+    handlers_items.random.randrange = no_curse_then_success
+    try:
+        weapon["lucky"] = 0
+        oil = w.new_item_instance(oil_bless)
+        p.bag.append(oil)
+        oil_mi = int(oil["makeIndex"])
+        use(oil)
+    finally:
+        handlers_items.random.randrange = orig_randrange
+    check("祝福油幸运 0→1（lucky<1 必成分支）", int(weapon.get("lucky", 0)) == 1,
+          results, f"lucky={weapon.get('lucky')}")
+    check("祝福油消耗（原版失败也扣油，成功必扣）",
+          p.bag_item(oil_mi) is None, results)
+
+    handlers_items.random.randrange = lambda n: 1     # 恰中 Random(20)=1 → 诅咒
     try:
         oil = w.new_item_instance(oil_bless)
         p.bag.append(oil)
         use(oil)
     finally:
-        handlers_items.random.random = orig_random
-    check("祝福油 +1 幸运", int(weapon.get("lucky", 0)) == 1, results,
-          f"lucky={weapon.get('lucky')}")
+        handlers_items.random.randrange = orig_randrange
+    check("诅咒分支：幸运 1→0（btValue[3] 先被扣）",
+          int(weapon.get("lucky", 0)) == 0, results, f"lucky={weapon.get('lucky')}")
+    # luck=1 时进 nRand+6 分支：木剑 nRand=0 → randrange(6) 返回 6 失败
+    weapon["lucky"] = 1
+    handlers_items.random.randrange = lambda n: 6 if n == 20 else 5
+    try:
+        oil = w.new_item_instance(oil_bless)
+        p.bag.append(oil)
+        use(oil)
+    finally:
+        handlers_items.random.randrange = orig_randrange
+    check("lucky=1 掷失败 → 无效且油仍消耗",
+          int(weapon.get("lucky", 0)) == 1 and p.bag_item(int(oil["makeIndex"])) is None,
+          results)
+    # ---- 3b. 幸运口径 = 模板 AC低 + 油 − 模板 MAC低（原版 3401-3402）-----
+    wt = weapon_t
+    wt_ac_low = wt.acMin
+    p.luck = 0
     p.recompute(w)
-    check("recompute 把实例幸运计入 p.luck", p.luck >= 1, results, f"p.luck={p.luck}")
     inst_json = p.instance_json(w, weapon)
-    check("instance_json 下发 lucky 供 tooltip 显示",
-          inst_json.get("lucky", 0) >= 1, results, f"lucky={inst_json.get('lucky')}")
+    check("instance_json 按 AC低+油值 下发 lucky",
+          inst_json.get("lucky", 0) == wt_ac_low + 1,
+          results, f"lucky={inst_json.get('lucky')}")
 
-    # ---- 4. Shape=12 增益药水不再被误当祝福油 -----------------------------
-    before = int(weapon.get("lucky", 0))
-    oil = w.new_item_instance(oil_buff)
+    weapon["lucky"] = 3
+    p.recompute(w)
+    expect = max(-10, min(10, p.combat["luck"] + 3 - p.combat["unluck"]))
+    check("recompute 幸运 = ΣAC低 + 油 − ΣMAC低诅咒", p.luck == expect,
+          results, f"p.luck={p.luck} expect={expect}")
+
+    # ---- 3c. Shape=12 增益药水：写状态槽并到期（EatItems :23383-23437）---
+    weapon["lucky"] = 0
+    dc_before = p.combat["dcMax"]
+    hp_before = p.max_hp
+    oil = w.new_item_instance(oil_buff)     # 攻击力药水 dcMin=5 macMax=180
     p.bag.append(oil)
-    oil_mi = int(oil["makeIndex"])
     use(oil)
-    check("Shape=12 增益药水不改幸运", int(weapon.get("lucky", 0)) == before, results)
-    check("未实现的增益药水不消耗", p.bag_item(oil_mi) is not None, results)
+    check("增益药水写入状态槽0", p.status_arr[0] == 5, results, str(p.status_arr))
+    check("增益药水即时生效 dcMax +2+值",
+          p.combat["dcMax"] == dc_before + 7, results,
+          f"{dc_before} -> {p.combat['dcMax']}")
+    check("增益药水被消耗", p.bag_item(int(oil["makeIndex"])) is None, results)
+    # HP强化水走 MaxHP 槽4
+    hp_t = next(t for t in w.item_templates.values()
+                if t.stdMode == 3 and t.shape == 12 and t.name == "HP强化水")
+    oil = w.new_item_instance(hp_t)         # acMin=50 macMax=120
+    p.bag.append(oil)
+    use(oil)
+    check("HP强化水抬高 max_hp", p.max_hp == hp_before + 50, results,
+          f"{hp_before} -> {p.max_hp}")
+    # 到期清零（Run :4194-4201）
+    p.status_until[0] = now_ms() - 1
+    p.status_until[4] = now_ms() - 1
+    w._expire_buffs(p, now_ms())
+    check("状态药水到期后槽位清零", p.status_arr[0] == 0 and p.status_arr[4] == 0,
+          results, str(p.status_arr))
+    check("到期后 dcMax 回落", p.combat["dcMax"] == dc_before, results,
+          f"dcMax={p.combat['dcMax']} expect={dc_before}")
 
     # ---- 5. NPC 修理：能力、问价、普通/特殊修理、失败分支 ------------------
     npc = next(iter(w.npcs.values()))

@@ -380,6 +380,14 @@ class Player(Actor):
     mac_buff_until: int = 0
     ac_buff_bonus: int = 0
     mac_buff_bonus: int = 0
+    # 原版 m_boUserUnLockDurg（ObjBase.pas:230，神水 Shape=2 置位）：本项目
+    # 无装备绑定系统，仅作记录（无消费方）。
+    user_unlock_durg: bool = False
+    # 原版 m_wStatusArrValue / m_dwStatusArrTimeOutTick（ObjBase.pas:120-121，
+    # EatItems Shape=12 段 :23383-23437 写入，RecalcAbilitys :3424-3451 消费，
+    # Run :4194-4201 到点清零）。6 槽：DC/MC/SC/攻速/MaxHP/MaxMP。
+    status_arr: list = field(default_factory=lambda: [0] * 6)
+    status_until: list = field(default_factory=lambda: [0] * 6)
     last_fire_hit_at: int = 0
     last_rush_rush_at: int = 0
     power_hit_count: int = 0
@@ -565,11 +573,18 @@ class Player(Actor):
                     if shape == s:
                         flags[i] = True
 
+        # 原版链路（ItmUnit.pas:125 GetItemAddValue + :569-570
+        # ApplyItemParameters ITEM_WEAPON 段）：祝福油 btValue[3] 先并入
+        # 武器 AC 低字节，然后 btLuck += AC、btUnLuck += MAC，最后
+        # m_nLuck := ΣbtLuck − ΣbtUnLuck（ObjBase.pas:3401-3402）——**所有**
+        # 装备统一累加，项链幸运不受「有没有武器」影响。
+        # 旧口径「specialPwr 1..10 当幸运」是 Java 时代的近似（1.80 数据
+        # specialPwr 全是 327xx 高位垃圾），已作废：绿玉裁决的幸运在
+        # AcMin=2，正是原版 AC 低字节。油值存 weapon["lucky"]
+        # （可负 = 诅咒，对应 btValue[4] 并入 MAC 低字节的语义）。
         weapon = self.equipment[U_WEAPON] if U_WEAPON < len(self.equipment) else None
-        wt = self._template(world, weapon)
-        if weapon is not None and wt is not None:
-            base = wt.specialPwr if 1 <= wt.specialPwr <= 10 else 0
-            self.luck = min(10, base + int(weapon.get("lucky", 0)))
+        oil = int(weapon.get("lucky", 0)) if weapon is not None else 0
+        self.luck = max(-10, min(10, c["luck"] + oil - c["unluck"]))
 
         if pset[1] and pset[2]:
             c["hit"] += 1
@@ -587,9 +602,30 @@ class Player(Actor):
             c["acMax"] += self.ac_buff_bonus
             c["macMax"] += self.mac_buff_bonus
 
+        # 原版 RecalcAbilitys（ObjBase.pas:3424-3451）：状态药水按 6 槽叠加，
+        # DC/MC/SC 是**上限** +2+值（MakeLong 只动 HiWord），攻速 Inc(nHitSpeed)，
+        # HP/MP 是 MaxHP/MaxMP 加值（Min(65535) 钳制）。
+        now = now_ms()
+        sa, su = self.status_arr, self.status_until
+        dc_add = sa[0] if sa[0] > 0 and su[0] > now else 0
+        mc_add = sa[1] if sa[1] > 0 and su[1] > now else 0
+        sc_add = sa[2] if sa[2] > 0 and su[2] > now else 0
+        spd_add = sa[3] if sa[3] > 0 and su[3] > now else 0
+        hp_add2 = sa[4] if sa[4] > 0 and su[4] > now else 0
+        mp_add2 = sa[5] if sa[5] > 0 and su[5] > now else 0
+        if dc_add:
+            c["dcMax"] += 2 + dc_add
+        if mc_add:
+            c["mcMax"] += 2 + mc_add
+        if sc_add:
+            c["scMax"] += 2 + sc_add
+        if spd_add:
+            c["hitSpeed"] += spd_add
+
         self.combat = c
-        self.max_hp = BASE_HP[job] + hp_add + (self.level - 1) * HP_GROWTH
-        self.max_mp = BASE_MP[job] + mp_add + (self.level - 1) * MP_GROWTH
+        # HP/MP 强化水走 MaxHP/MaxMP（原版 :3443/3450，65535 钳制），不是血池。
+        self.max_hp = min(65535, BASE_HP[job] + hp_add + (self.level - 1) * HP_GROWTH + hp_add2)
+        self.max_mp = min(65535, BASE_MP[job] + mp_add + (self.level - 1) * MP_GROWTH + mp_add2)
         self.hp = max(0, min(self.hp, self.max_hp))
         self.mp = max(0, min(self.mp, self.max_mp))
 
@@ -631,12 +667,12 @@ class Player(Actor):
             "durabilityMax": it.get("durabilityMax", 0),
         }
         if t:
-            # 原版 FState.pas GetMouseItemInfo 武器 tooltip 显示「幸运+N」
-            # (:4238/4346)：模板幸运写 AC 低位，祝福油累积的幸运写
-            # UserItem.btValue[3]（ObjBase.pas:23641-23660）。两者之和正好等于
-            # Player.recompute 的 p.luck（:568-572），这里下发总幸运给前端显示。
-            base_luck = (t.specialPwr if t.stdMode in (5, 6)
-                         and 1 <= t.specialPwr <= 10 else 0)
+            # 原版 FState.pas GetMouseItemInfo:4238-4240 武器 tooltip：
+            # 幸运 = LoWord(AC)（含 GetItemAddValue 并入的 btValue[3] 油值，
+            # ItmUnit.pas:125），诅咒 = LoWord(MAC)。specialPwr 在 1.80 数据
+            # 里是 327xx 高位（GM 标记之类），**与幸运无关**——旧口径作废。
+            # 本项目油值存实例 lucky（可负=诅咒，合并显示）。
+            base_luck = t.acMin if t.stdMode in (5, 6) else 0
             o["lucky"] = base_luck + int(it.get("lucky", 0))
             o.update(stdMode=t.stdMode, shape=t.shape, weight=t.weight,
                      dc=t.dcMin, dcMax=t.dcMax, mc=t.mcMin, mcMax=t.mcMax,
@@ -1751,6 +1787,16 @@ class GameWorld(WorldExtra):
             self.send_stats(p)
         if 0 < p.shield_until <= now:
             p.shield_until = 0
+            self.send_stats(p)
+        # 原版 Run（ObjBase.pas:4194-4220）：m_wStatusArrValue 到点清零并
+        # RecalcAbilitys——状态药水（Shape=12）的 DC/MC/SC/攻速/HP/MP 加成
+        # 到期要在这里主动重算，否则 MaxHP 加成一值永远挂着。
+        if any(v > 0 and su <= now for v, su in zip(p.status_arr, p.status_until)):
+            expired = [i for i, (v, su) in enumerate(zip(p.status_arr, p.status_until))
+                       if v > 0 and su <= now]
+            for i in expired:
+                p.status_arr[i] = 0
+            p.recompute(self)
             self.send_stats(p)
 
     def _apply_poison(self, a: Actor, now: int) -> None:

@@ -156,12 +156,22 @@ def magic_hits(target) -> bool:
 
 
 def roll_dc_with_luck(p) -> int:
+    """物理攻击掷骰（原版 GetAttackPower，ObjBase.pas:2416-2432）。
+
+    旧实现 `random()*10 < luck` 概率口径错了：原版是
+    ``Random(10 - _MIN(9, luck)) = 0``（幸运 1 → 1/9，幸运 7 → 1/3），
+    且诅咒（luck<0）还有一条 ``Random(10 - _MAX(0,-luck)) = 0 → 取下限``
+    的兜底分支——旧实现完全忽略了负幸运。
+    """
     lo, hi = p.combat.get("dcMin", 0), p.combat.get("dcMax", 0)
     if hi <= lo:
         return lo
-    if p.luck > 0 and random.random() * 10 < p.luck:
+    luck = getattr(p, "luck", 0) or 0
+    if luck > 0 and _rand(10 - min(9, luck)) == 0:
         return hi
-    return lo + int(random.random() * (hi - lo + 1))
+    if luck < 0 and _rand(10 - max(0, -luck)) == 0:
+        return lo
+    return lo + _rand(hi - lo + 1)
 
 
 def sword_second_dam(p, dam: int, magic_id: int, divisor: int) -> int:

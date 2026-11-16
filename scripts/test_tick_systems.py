@@ -126,7 +126,10 @@ def test_recompute(w, p):
     check("麻痹武器 Shape=23 生效", p.paralysis_weapon)
     check("武器 StdMode=5 映射准确/幸运", p.combat["hit"] >= 3
           and p.combat["luck"] >= 2, f"hit={p.combat['hit']} luck={p.combat['luck']}")
-    check("武器幸运 = specialPwr + 实例 lucky", p.luck == 5, f"luck={p.luck}")
+    # 原版口径（ItmUnit.pas:125/569-570 + ObjBase.pas:3401-3402）：
+    # m_nLuck = Σ模板AC低(幸运) + 实例油值 − Σ模板MAC低(诅咒)
+    # = 2(acMin) + 3(油) − 1(macMin) = 4。旧口径 specialPwr+油 已作废。
+    check("武器幸运 = AC低 + 实例 lucky − MAC低诅咒", p.luck == 4, f"luck={p.luck}")
 
     protect = add_template(w, stdMode=22, shape=133, aniCount=7)
     suck = add_template(w, stdMode=22, shape=136, aniCount=9)
