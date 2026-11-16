@@ -47,6 +47,15 @@ CLEAN_INTERVAL_MS = 2_000       # 背包整理（丢最差品质的肉）检查�
 MEAT_KEEP = 6                   # 背包常留多少份肉卖钱，超出部分按需丢最差的
 EQUIP_CHECK_INTERVAL_MS = 1_000 # 武器/护身符自动补戴检查间隔
 
+# 原版客户端施法输入节拍（MirClient/ClMain.pas:2040/2421-2428）：
+# 500ms(ClientConf.wSpellTime，MShare.pas:415 默认 500) + 200ms(施法硬直)
+# + 技能自身 Delay。托管直接调服务端 _cast_magic，绕过了客户端这层节流，
+# 会比真人快一截。注意项目 MagicTemplate.delay 已把 DB 的 Delay ×10 转成
+# 毫秒（templates.py:162，火球 60→600ms），而原版公式用的是 DB 原值，
+# 所以还原成 t.delay / 10；实际间隔取「服务端技能 CD」与「客户端节拍」
+# 的较大值。火球：max(600, 700+6)=760ms；雷电：max(1000, 700+10)=1000ms。
+SPELL_INPUT_BASE_MS = 700
+
 # 法师单体输出技能优先级：雷电术(11) > 大火球(5) > 火球术(1)。
 # 三招都是 ``_resolve_magic`` 里对单目标生效的 RM_DELAYMAGIC（Magic.pas:279/407），
 # 均不吃护身符；按「已学 + 有蓝 + 不在冷却」从高到低挑第一招。
@@ -56,21 +65,24 @@ MAGE_ATTACK_SKILLS = (11, 5, 1)
 PRESETS: dict[str, dict] = {
     "safe": {
         "name": "安全", "level_delta": 0, "sight": 9, "loot_sight": 6,
-        "potion_hp": 0.70, "retreat_hp": 0.42, "max_target_dc": 12,
+        "potion_hp": 0.70, "retreat_hp": 0.42, "potion_mp": 0.50,
+        "max_target_dc": 12,
         "pickup_min_price": 0, "thrust": False, "butch": True,
-        "desc": "只打不高于自身等级的怪，血线 70% 就喝药，顺手挖肉赚钱",
+        "desc": "只打不高于自身等级的怪，血线 70% 喝药、蓝线 50% 补蓝，顺手挖肉赚钱",
     },
     "balanced": {
         "name": "均衡", "level_delta": 3, "sight": 12, "loot_sight": 8,
-        "potion_hp": 0.55, "retreat_hp": 0.28, "max_target_dc": 18,
+        "potion_hp": 0.55, "retreat_hp": 0.28, "potion_mp": 0.35,
+        "max_target_dc": 18,
         "pickup_min_price": 0, "thrust": True, "butch": True,
-        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药，顺手挖肉赚钱",
+        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药、蓝线 35% 补蓝，顺手挖肉赚钱",
     },
     "efficient": {
         "name": "效率", "level_delta": 8, "sight": 12, "loot_sight": 10,
-        "potion_hp": 0.45, "retreat_hp": 0.20, "max_target_dc": 26,
+        "potion_hp": 0.45, "retreat_hp": 0.20, "potion_mp": 0.30,
+        "max_target_dc": 26,
         "pickup_min_price": 50, "thrust": True, "butch": False,
-        "desc": "接受高 8 级的怪、只捡值钱物品，不挖肉专注升级",
+        "desc": "接受高 8 级的怪、只捡值钱物品，蓝线 30% 补蓝，不挖肉专注升级",
     },
 }
 DEFAULT_PRESET = "balanced"
@@ -202,8 +214,10 @@ class AutoPilot:
     last_progress_at: int = 0
     last_move_at: int = 0
     last_attack_at: int = 0
+    last_cast_at: int = 0           # 上次施法：原版客户端 500+200+Delay 节拍
     last_pickup_at: int = 0
     last_potion_at: int = 0
+    last_mp_potion_at: int = 0
     last_scan_at: int = 0
     last_state_at: int = 0
     pushed_status: str = ""
@@ -300,6 +314,21 @@ class AutoPilot:
                 srv._use_item(p.session, {"type": "useItem",
                                           "makeIndex": int(potion.get("makeIndex", 0))})
                 self.set_status("喝药中", now)
+        # 法师没有治愈术，蓝见底就只能站桩挨打。蓝线到了自动喝蓝药：
+        # StdMode 0 且 MAC>0（Shape1 太阳水即时回蓝，其余走 inc_spell 池）。
+        # 和血药一样把回蓝池算进当前蓝量，避免池子还没滴完就连续灌药。
+        if p.job == 1:
+            max_mp = max(1, p.max_mp)
+            mp_pool = int(getattr(p, "inc_spell", 0) or 0)
+            if (p.mp + mp_pool) / max_mp <= cfg["potion_mp"]:
+                mana = _find_mana_potion(w, p)
+                if (mana is not None
+                        and now - self.last_mp_potion_at >= POTION_INTERVAL_MS
+                        and now_ms() - getattr(p, "last_use_item_at", 0) >= 300):
+                    self.last_mp_potion_at = now
+                    srv._use_item(p.session, {"type": "useItem",
+                                              "makeIndex": int(mana.get("makeIndex", 0))})
+                    self.set_status("补充魔法值", now)
         # 背包压力：满包不再直接回城停机。先停挖肉（肉占格、金币不占），
         # 再按品质从差到好丢弃多余的肉，保住「挖肉赚钱」又避免打一会就回城。
         # 实在塞满（全是装备/药水等非肉物品）才退回原行为：回城并停机。
@@ -419,6 +448,16 @@ class AutoPilot:
             self.set_status("拾取中", now)
             return
 
+    def _spell_ready(self, t, now: int) -> bool:
+        """原版客户端施法输入节拍：500ms(ClientConf.wSpellTime) + 200ms 硬直
+        + 技能自身 Delay（MirClient/ClMain.pas:2040/2421-2428）。
+
+        服务端 ``_cast_magic`` 只查技能表 Delay（项目里已是毫秒），那是
+        原版 M2 的口径；客户端那层 500+200 的输入节流原本由真人点击
+        天然满足，托管代发必须自己补，间隔取两者较大值。"""
+        client_beat = SPELL_INPUT_BASE_MS + t.delay / 10
+        return now - self.last_cast_at >= max(t.delay, client_beat)
+
     def _taoist_heal(self, srv, w, p, now: int) -> bool:
         """道士治愈术回血（原版 SKILL_HEALLING，Magic.pas:301-317）：
         目标为空默认施给自己、**不吃护身符**。返回 False = 当前不可施
@@ -438,6 +477,7 @@ class AutoPilot:
                                     "targetId": 0, "targetX": p.x,
                                     "targetY": p.y})
         self.acted = True            # 一个 tick 一个主动动作（原版节拍）
+        self.last_cast_at = now      # 治愈术也占客户端施法节拍，别紧接火符
         self.set_status("治愈术中", now)
         if p.exp != exp_before:
             self.last_exp = p.exp
@@ -458,6 +498,9 @@ class AutoPilot:
         if now_ms() - p.skill_cooldown.get(13, 0) < t.delay:
             self.set_status(f"打怪中 · {target.name}", now)
             return True
+        if not self._spell_ready(t, now):
+            self.set_status(f"施法间隔 · {target.name}", now)
+            return True
         if p.mp < spell_cost(t, skill_level(p, 13)):
             return False
         if srv._find_amulet(p, 1, 1) is None:
@@ -471,6 +514,7 @@ class AutoPilot:
                                     "targetId": target.id,
                                     "targetX": target.x, "targetY": target.y})
         self.last_attack_at = now
+        self.last_cast_at = now
         self.set_status(f"火符 · {target.name}", now)
         if p.exp != exp_before:
             self.kills += 1
@@ -488,7 +532,7 @@ class AutoPilot:
         ``_cast_magic`` 会再次校验 MP、冷却、8 格半径（Magic.pas:266），
         这里自查只是为了避免刷「魔法值不足」提示和空耗一个 tick。
         """
-        if p.job != 1:
+        if p.job != 1 or not target.alive:
             return False
         stamp = now_ms()
         for magic_id in MAGE_ATTACK_SKILLS:
@@ -499,7 +543,10 @@ class AutoPilot:
                 continue
             if stamp - p.skill_cooldown.get(magic_id, 0) < t.delay:
                 self.set_status(f"打怪中 · {target.name}", now)
-                return True             # 冷却中保持站位，不贴身
+                return True             # 技能冷却中保持站位，不贴身
+            if not self._spell_ready(t, now):
+                self.set_status(f"施法间隔 · {target.name}", now)
+                return True             # 客户端节拍未到：不连发，也别贴身
             if p.mp < spell_cost(t, skill_level(p, magic_id)):
                 continue                # 这招没蓝，试下一招
             exp_before = p.exp
@@ -507,6 +554,7 @@ class AutoPilot:
                                         "magicId": magic_id, "targetId": target.id,
                                         "targetX": target.x, "targetY": target.y})
             self.last_attack_at = now
+            self.last_cast_at = now
             self.set_status(f"{t.name} · {target.name}", now)
             if p.exp != exp_before:
                 self.kills += 1
@@ -867,6 +915,23 @@ def _find_potion(w, p):
             continue
         # 疗伤药(shape=1)立即回血优先；其余按回复量从小到大，避免浪费大药
         key = (0 if t.shape == 1 else 1, t.acMin)
+        if best_key is None or key < best_key:
+            best, best_key = it, key
+    return best
+
+
+def _find_mana_potion(w, p):
+    """从背包挑一瓶加蓝药（StdMode 0 且 MAC>0）。
+
+    与 `_find_potion`（血药）对称：Shape1 太阳水即时回蓝优先，其余按回复量
+    从小到大，别把大蓝瓶浪费在小掉蓝上。蓝线判断会把 inc_spell 池算进去，
+    所以这里拿到的药是真需要喝的。"""
+    best, best_key = None, None
+    for it in p.bag:
+        t = _template(w, it)
+        if t is None or t.stdMode != 0 or t.macMin <= 0:
+            continue
+        key = (0 if t.shape == 1 else 1, t.macMin)
         if best_key is None or key < best_key:
             best, best_key = it, key
     return best

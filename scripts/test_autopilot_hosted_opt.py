@@ -3,7 +3,8 @@
 
 行为规格：
 - 法师(job=1)：射程内按 雷电术(11)>大火球(5)>火球术(1) 优先级施法；没蓝/没学
-  不贴身砍怪（等回蓝）；超射程照常走近。
+  不贴身砍怪（等回蓝）；超射程照常走近。施法按原版客户端节拍
+  (500+200+技能Delay) 节流，不机关枪连发；蓝线到了自动喝蓝药。
 - 背包：余量不足停挖肉；背包 8 格告警时按品质从差到好丢肉，留 MEAT_KEEP 份。
 - 装备：武器清槽后从背包自动穿耐久最高的下一把；护身符/毒粉耗尽自动补戴。
   施法前即时补符，避免「有符在背包却回落近战」。
@@ -23,7 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from pyserver.autopilot import BAG_SIZE, BUTCH_BAG_RESERVE, MEAT_KEEP  # noqa: E402
+from pyserver.autopilot import (BAG_SIZE, BUTCH_BAG_RESERVE, MEAT_KEEP,  # noqa: E402
+                                SPELL_INPUT_BASE_MS)
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
@@ -105,17 +107,24 @@ class Recorder:
         self.attacks: int = 0
         self.take_on: list[int] = []
         self.drops: list[int] = []
+        self.uses: list[int] = []
         self.butches: int = 0
+        self._orig_use = srv._use_item
         self._orig_cast = srv._cast_magic
         self._orig_attack = srv._attack
         self._orig_take_on = srv._take_on_item
         self._orig_drop = srv._drop
         self._orig_butch = srv._butch
+        srv._use_item = self._use_rec
         srv._cast_magic = self._cast_rec
         srv._attack = self._attack_rec
         srv._take_on_item = self._take_on_rec
         srv._drop = self._drop_rec
         srv._butch = self._butch_rec
+
+    def _use_rec(self, s, m):
+        self.uses.append(int(m.get("makeIndex", 0)))
+        return self._orig_use(s, m)
 
     def _cast_rec(self, s, m):
         self.casts.append(int(m.get("magicId", 0)))
@@ -141,6 +150,7 @@ class Recorder:
         self.casts.clear()
         self.take_on.clear()
         self.drops.clear()
+        self.uses.clear()
         self.attacks = 0
         self.butches = 0
 
@@ -180,6 +190,7 @@ def main() -> None:
     assert ok
     clear_mobs(srv, p)
     mob = spawn(srv, p, 3, 0)
+    mob.hp = mob.max_hp = 99999                          # 别被打死，保证一直有目标
     p.skill_cooldown.clear()
     rec.reset()
     tick(srv, 1)
@@ -191,7 +202,8 @@ def main() -> None:
     del p.skills[5]
     p.skill_cooldown.clear()
     rec.reset()
-    tick(srv, 1)
+    # 原版客户端施法节拍 = 700 + 火球Delay(60) = 760ms，间隔要够一拍
+    tick(srv, 1, step=0.9)
     check("只学火球术→放火球术(1)", rec.casts[:1] == [1], f"casts={rec.casts}")
 
     print("\n[2] 法师没蓝不贴身砍怪")
@@ -204,6 +216,50 @@ def main() -> None:
           f"casts={rec.casts}")
     check("没蓝不出近战砍怪", rec.attacks == 0, f"attacks={rec.attacks}")
     ap.disable(p, "测试切换")
+
+    # ============ 2b. 原版施法节拍 ============
+    print("\n[2b] 原版客户端施法节拍：不机关枪连发")
+    p4, sess4 = login(srv, "MAGECD", job=1)
+    p4.skills[1] = {"level": 0, "train": 0, "key": 0}
+    p4.mp = max(p4.mp, 2000)
+    ap.enable(p4, "balanced")
+    clear_mobs(srv, p4)
+    mob4 = spawn(srv, p4, 3, 0)
+    mob4.hp = mob4.max_hp = 99999                        # 别打死，一直有目标
+    p4.skill_cooldown.clear()
+    rec.reset()
+    tick(srv, 4, step=0.15)     # 4 次 tick 共 0.6s，远小于原版一拍
+    check("快速连点只放出 1 发火球", len(rec.casts) == 1, f"casts={rec.casts}")
+    # 项目 t.delay 是 DB Delay×10（火球 600ms），原版客户端节拍要用 DB 原值
+    fireball_beat = (SPELL_INPUT_BASE_MS + w.magic_templates[1].delay / 10) / 1000
+    time.sleep(fireball_beat)
+    srv.autopilot.tick(now_ms())
+    check("过一拍才放第 2 发", len(rec.casts) == 2, f"casts={rec.casts}")
+    ap.disable(p4, "测试切换")
+
+    # ============ 2c. 法师自动喝蓝药 ============
+    print("\n[2c] 法师蓝线到了自动喝蓝药")
+    p5, sess5 = login(srv, "MANAOPT", job=1)
+    p5.skills[1] = {"level": 0, "train": 0, "key": 0}
+    ap.enable(p5, "balanced")   # potion_mp = 0.35
+    clear_mobs(srv, p5)
+    idx_mana = idx + 4
+    w.item_templates[idx_mana] = replace(base, index=idx_mana, stdMode=0,
+                                         shape=1, acMin=0, macMin=50,
+                                         duraMax=100, name="测试魔法药")
+    mana = w.new_item_instance(w.item_templates[idx_mana])
+    p5.bag.append(mana)
+    p5.inc_spell = 0
+    p5.mp = max(1, int(p5.max_mp * 0.2))
+    mp_before = p5.mp
+    rec.reset()
+    tick(srv, 1)
+    check("低蓝自动喝蓝药(useItem)", mana["makeIndex"] in rec.uses,
+          f"uses={rec.uses}")
+    check("喝药后 MP 实际提升", p5.mp > mp_before, f"{mp_before} -> {p5.mp}")
+    check("蓝药已从背包消耗",
+          all(it.get("makeIndex") != mana["makeIndex"] for it in p5.bag))
+    ap.disable(p5, "测试切换")
 
     # ============ 3. 武器自动换装 ============
     print("\n[3] 武器损毁→自动从背包补耐久最高的下一把")
