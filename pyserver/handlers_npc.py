@@ -101,6 +101,11 @@ class NpcHandlers:
             # 修理复用 npcSay 下发 shop 字段，前端据此开 dmRepair 模式的投放框。
             o["shop"] = r.repair_mode
         session.send_json(o)
+        # 脚本 #ACT give/take 只改服务端金币/背包，引擎本身不下发；原版
+        # ActionOfGiveItem 给金即 GoldChanged()（ObjNpc.pas:9001）、给物即
+        # SendAddItem（:9028）。这里统一补一次全量背包+金币同步，否则脚本奖励
+        # （如玛法领路人新手补助）服务端发了、客户端却看不到（Java 版同样漏了此步）。
+        self.send_bag_update(p)
         # 仓库（原版 @storage → SM_SENDUSERSTORAGEITEM 开投放框；@getback →
         # SM_SAVEITEMLIST 开列表窗口，物品行点击即取回）
         if r.storage_mode == "deposit":

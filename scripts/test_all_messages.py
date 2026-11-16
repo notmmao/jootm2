@@ -972,6 +972,41 @@ def run_success_paths() -> int:
         else:
             check("仓库流程（环境无仓库 NPC，跳过）", True, results)
 
+        # 玛法领路人新手补助：脚本 #ACT give 金币 后必须下发 bagUpdate（金币+背包），
+        # 否则服务端发了奖励、客户端却看不到（原版 ActionOfGiveItem 给金 GoldChanged
+        # ObjNpc.pas:9001 / 给物 SendAddItem :9028；Java/Python 旧实现都漏了同步）。
+        guide = next((n for n in w.npcs.values() if n.name == "玛法领路人"), None)
+        if guide is not None and guide.script is not None:
+            guide.map = p.map
+            guide.x, guide.y = p.x + 1, p.y
+            old_gold, old_level = p.gold, p.level
+            old_flag = p.quest_params.get(1)
+            p.level, p.gold = 3, 0
+            p.quest_params.pop(1, None)   # 清一次性标记 [001]
+            try:
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "npcTalk", "npcId": guide.id}))
+                talk = next((m for m in s1.messages if m.get("type") == "npcSay"), None)
+                check("玛法领路人 3 级主对话含 @next1 领取入口",
+                      talk is not None and "@next1" in talk.get("text", ""), results)
+                s1.messages.clear()
+                service.on_message(s1, json.dumps(
+                    {"type": "npcSelect", "npcId": guide.id, "value": "@next1"}))
+                bag = next((m for m in s1.messages if m.get("type") == "bagUpdate"), None)
+                check("玛法领路人 @next1 给 5000 金（服务端到账）", p.gold == 5000, results)
+                check("玛法领路人领取后下发 bagUpdate 同步金币（客户端可见）",
+                      bag is not None and bag.get("gold") == 5000, results)
+                check("玛法领路人一次性标记 [001] 置位", p.quest_params.get(1) == 1, results)
+            finally:
+                p.gold, p.level = old_gold, old_level
+                if old_flag is None:
+                    p.quest_params.pop(1, None)
+                else:
+                    p.quest_params[1] = old_flag
+        else:
+            check("玛法领路人补助同步（环境无该 NPC，跳过）", True, results)
+
         # 挖空变骨架：brief_json 必须带 skeleton（否则重进地图尸体「变回」未挖帧）
         sk = Monster(id=w.new_id(), name="鸡", x=p.x + 3, y=p.y,
                      hp=1, max_hp=1, level=5, race=51,

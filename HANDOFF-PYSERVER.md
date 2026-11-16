@@ -509,3 +509,40 @@ test_tick_systems **180/0**、test_all_messages **91/0**。
 
 **待提交**：商店货单属数值/数据调整，按约定等用户确认再 commit（建议标签 `[数据]`，
 含 7 个 Market_Def txt + test_pyserver.py 断言；§90 边界村改动一并待提交）。
+
+---
+
+## §96 NPC 脚本 give 奖励不下发客户端：玛法领路人「领了没送」（2026-11-16，用户反馈）
+
+**用户反馈**：玛法领路人（`Npc_Def/玛法领路人-0.txt`，map 0 (280,610)）3 级去领补助，
+「我已经三级了，但是没有送！」。
+
+**根因（不是没实现，是实现了没下发）**：脚本 `@next1` 的 `#ACT give 金币 5000`
+确实执行——`NpcScriptEngine._run_action`（npc_script.py:466）→ `world.give_item`
+（world_extra.py:481）把 `p.gold += 5000`。但 `give_item` 是**纯服务端状态修改、不发任何
+网络消息**；而 `handlers_npc.py::_handle_npc_result` 执行完脚本只发 `npcSay`
+（text/options/shop），**从不补发背包/金币同步**。于是服务端金币涨了、客户端毫不知情。
+对照 `_buy_item:160`/`_sell_item:278` 都在改 gold/bag 后调 `send_bag_update`，唯独脚本
+give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:650-687 handleNpcResult`
+只发 npcSay），所以不是 Python 移植回归，是两栈共有的隐藏缺口（CLAUDE.md 铁律 5「写了但没人消费」）。
+
+**原版依据（本地 Delphi 逐行）**：`M2Server/ObjNpc.pas:8981 ActionOfGiveItem`——
+给金 `IncGold(nItemCount)` 后 **`PlayObject.GoldChanged()`（:9001）**；给物
+`m_ItemList.Add(UserItem)` 后 **`PlayObject.SendAddItem(UserItem)`（:9028）**。
+即原版每给一笔就同步客户端，本项目脚本路径缺这一步。
+
+**改动**：`handlers_npc.py::_handle_npc_result` 在 `session.send_json(o)`（npcSay）之后
+补一行 `self.send_bag_update(p)`（全量背包+金币+快捷栏+负重，world.py:1437）。
+一次同步覆盖脚本里任意 give/take/金币变动，对所有 NPC 脚本奖励生效（不止玛法领路人）。
+
+**验证（TDD 复现）**：`test_all_messages.py` 新增玛法领路人 4 断言（3 级主对话含 @next1 /
+@next1 服务端到账 5000 / **领取后下发 bagUpdate 且 gold==5000** / 一次性标记 [001] 置位）。
+临时去掉修复行复跑：「服务端到账 PASS、客户端 bagUpdate **FAIL**」——精确复现用户症状；
+恢复后全绿。test_all_messages **95/0**、test_pyserver **122/0**、test_tick_systems **180/0**。
+
+**注意**：① 需**重启服务端**才生效（代码改动）；浏览器 Ctrl+F5。② 本轮**只修同步 bug，
+未改脚本内容**——玛法领路人仍是「3 级领 5000 金」。用户要的「新号送 1000 金+回城卷+
+随机传送卷+小蓝小红」涉及领取门槛（1 级 vs 保留 3 级）与药水数量，仍待用户澄清后再改。
+
+**待提交**：建议标签 `[修复]`（NPC 奖励客户端同步缺失，跨逻辑/网络的小型 bug），
+含 handlers_npc.py + test_all_messages.py 断言。
