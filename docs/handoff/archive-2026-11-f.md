@@ -525,3 +525,120 @@ test_autopilot_taoist.py 18/0。
 test_tick_systems 180/0。部署后线上以 `/api/version` + 容器内查 `magics` 复核。
 
 ---
+
+## §85 修复油被当祝福油 + NPC 修理没有投放框（2026-11-16，用户反馈）
+
+**反馈**：①「修复油怎么用？我看到是幸运+1，体现在哪？有什么用？」②「NPC 的修复 UI 有问题，没有地方放装备」。
+
+**根因（本地 Delphi 源码逐条核对）**：
+- `StdItems.csv:178` 修复油 = `StdMode=3 Shape=9`，`135` 祝福油 = `Shape=4`，
+  `133` 战神油 = `Shape=10`，`Shape=12` 是临时增益药水。原版
+  `ObjBase.pas:17359-17438 ClientUseItems` → `EatItems` → `EatUseItems(Shape)`
+  （:23436、:23513-23591）按 Shape 精确分流：4=`WeaptonMakeLuck`（:23621）、
+  9=`RepairWeapon`（:23673）、10=`SuperRepairWeapon`（:23692）。旧 `_use_item`
+  只把 1/2/3/5 当卷轴，**其余一律走 `_use_bless_oil`** → 修复油/战神油/增益
+  药水全被拿去掷幸运，这就是用户看到「幸运+1」的原因。
+- 幸运在界面上「看不到」：`instance_json` 不下发 `lucky`，前端 `_itemDesc`
+  没有幸运行。原版 `FState.pas:4238/4346` 在物品说明里显示「幸运+N」。
+- NPC 修理链路整体缺失：`npc_script/handlers_npc` 只认 buy/sell/storage，点
+  `<修理/@repair>` 只回一句文本。原版 `TMerchant.UserSelect`
+  （ObjNpc.pas:1419-1465）对 `@repair/@s_repair` 发 `RM_SENDUSERREPAIR` /
+  `RM_SENDUSERSREPAIR` → 客户端 `ClientGetSendUserRepair`
+  （ClMain.pas:6235-6241）置 `SpotDlgMode=dmRepair` + `ShowShopSellDlg`
+  （复用卖物投放圈），再由 `CM_MERCHANTQUERYREPAIRCOST`/`SM_SENDREPAIRCOST`
+  与 `CM_USERREPAIRITEM`/`SM_USERREPAIRITEM_OK|FAIL` 完成问价和扣钱修复。
+
+**修复**：
+- `pyserver/handlers_items.py`：StdMode=3 按 Shape 分流；新增 `_repair_weapon`
+  ——修复油双击修**当前佩戴的武器**（`Dec(DuraMax,(DuraMax-Dura) div 30)` +
+  单次最多 +5000），战神油直接补满且不掉上限，只有真修成才消耗油；Shape=12
+  明确提示未开放且不消耗。
+- `pyserver/world.py instance_json` 下发 `lucky`（模板 `specialPwr` + 实例
+  `lucky`，等于 `Player.recompute` 的 `p.luck`）；`frontend/scene/PlayScene.mjs`
+  的 `_itemDesc` 显示「幸运+N」。
+- `pyserver/npc_script.py` 解析脚本头 `(@buy @sell @repair @s_repair)` 能力
+  声明并新增 `Result.repair_mode`；`handlers_npc.py` 新增
+  `queryRepairCost`/`repairItem`（原版价 `Round(nPrice div 3 / DuraMax *
+  (DuraMax-Dura))`、特修 ×3、普通修理掉上限再补满、特修补满不掉上限、
+  满持久/StdMode=43 拒修、只认背包物品）；`service.py` 注册消息。
+- 前端 `shop:'repair'/'s_repair'` 复用 DSellDlg 投放框（`shopRepairMode`）：
+  拿起物品点圈问价、OK 发 `repairItem`、`repairResult` 清圈、`sellPrice`
+  显示「修理费: N 金币」。
+
+**玩法口径（回答用户）**：修复油双击直接修手上的武器，不用 NPC、不用放装备；
+NPC 修理必须先把**装备卸下放进背包**再拖进圈（原版 `ClientRepairItem` 只在
+`m_ItemList` 找物品，ObjBase.pas:24653-24681）。普通修理/修复油会掉最大持久，
+特殊修理/战神油不掉。幸运 N = 有 N/10 概率打出攻击上限（`roll_dc_with_luck`），
+只影响物理攻击。
+
+**验证**：新增 `scripts/test_repair.py` 39/0、`scripts/test_repair_ui.py`
+（Playwright 3.9 连 3.10 起的临时服务）14/0；回归 `test_pyserver` 107/0、
+`test_all_messages` 91/0、`test_tick_systems` 180/0、`test_durability` 16/0；
+`node --check` / `py_compile` / `git diff --check` 通过。面板贴图与位置观感
+仍需用户 Ctrl+F5 实机确认。
+
+---
+
+## §86 消耗品与 NPC 全量对照审计（2026-11-16，用户「检查其他NPC, 消耗品与原版不同的地方」）
+
+**方法**：本地 Delphi 源码逐条核对 `ClientUseItems/EatItems/EatUseItems/
+WeaptonMakeLuck/GetAttackPower/RecalcAbilitys/UserSelect/QuestCheckItem`，
+对照 `gamedata/Mir200/Envir` 283 个 Market_Def + Npc_Def + QuestDiary 脚本
+与 StdItems.csv 消耗品全表。
+
+**已修复差异**（全部有原版行号依据）：
+1. **祝福油概率模型重写**（`handlers_items._use_bless_oil` ← ObjBase.pas:23621-23671）：
+   旧「50%/30%/20%」是自造。原版：`Random(20)=1` 诅咒；幸运<1 必成、<3 按
+   `Random(nRand+6)=1`、<7 按 `Random(nRand*40)=1`（nRand=|DC2-DC|div5，
+   武器越钝越难加）；**油恒消耗**（失败也白花），只有没装武器不扣。
+2. **幸运口径统一**（`world.recompute` ← ItmUnit.pas:125/569-570 +
+   ObjBase.pas:3401-3402）：`p.luck = Σ模板AC低 + 实例油 − Σ模板MAC低诅咒`，
+   ±10 钳制（旧 `specialPwr 1..10` 是 Java 时代近似，1.80 数据该列全是
+   327xx 高位垃圾，作废）。`instance_json.lucky` 同步改 AC 低+油口径；
+   诅咒时前端 tooltip 显示「诅咒+N」（FState.pas:4238-4240）。
+   `roll_dc_with_luck` 概率改回 `Random(10-min(9,luck))=0`（幸运1=1/9 而非
+   旧 1/10），并补诅咒负幸运取下限分支（旧实现完全忽略）。
+3. **Shape=12 增益药水实装**（EatItems :23383-23437 → 新增 `_use_status_potion`）：
+   6 槽 `status_arr/status_until`（DC/MC/SC 上限+2+值、攻速、MaxHP/MaxMP），
+   同槽覆盖、时长 MacMax 秒；`recompute` 消费、`_expire_buffs` 到期清零
+   （对齐 Run :4194-4201）。数据在店卖/怪掉（攻击力/魔法力/道术力/疾风/
+   HP/MP强化水全梯度），此前点了只会「暂未开放」。
+4. **StdMode=0 空效果药水照样消耗**（:23349-23368 else 分支无条件 True；
+   旧实现 AC/MAC 全 0 拒绝使用）；神水（Shape=2）置 `user_unlock_durg`
+   照原版消耗（本项目无装备绑定，标志无消费方）。
+5. **NODRUG 地图禁药守卫**（EatItems 顶 :23330-23334）：MapInfo 标志
+   `NODRUG` 命中即拒绝一切 StdMode 0-3（当前数据集 0 张图带此标志，守卫为保真）。
+6. **传送卷四 shape 对齐**（`world_extra.use_scroll` ← EatUseItems :23518-23574）：
+   - 1 地牢逃脱卷=home 图**随机**落点（旧实现是 home 固定坐标）；
+   - 2 随机传送卷查 `NORANDOMMOVE` 图标志（幸运房 B104 等直接无效）；
+   - 3 回城卷 `pk_point>=200`（PKLevel>=2 红名）改去红名回家点 3/845/674
+     （M2Share.pas:1693-1695），不再永远回 home；
+   - 5 行会回城卷改去**城堡回城点** 3/644/290 ±4 随机
+     （ObjBase.pas:23556-23568 + Castle.pas:921-928，旧实现错误地回个人 home），
+     且非城主行会成员无效（物品不消耗）。
+
+**审计确认「不是 bug / 暂不动」**：
+- StdMode=4 书：`ReadBook` 只认名字查 Magic.csv，Shape无关；数据无
+  AniCount>0 的书 → 原版 `+LNG/+WID` 攻杀/半月自动开启联动走不到，无缺口。
+- StdMode=31 卷包：19 件 AniCount 全 0 → 全部是解包路径，
+  `UseStdmodeFunItem(@StdModeFunc<AniCount>)` 分支数据不会触发（FunctionNPC
+  本项目不存在，若未来加带 AniCount 的 31 类物品需另行立项）。
+- NPC `@makedrug/@prices/@upgradenow/@getbackupgnow` 原版 UserSelect
+  （ObjNpc.pas:1536-1575）各有独立分发；本项目 5 个 makedrug 店、2 个
+  升级店点链接会走「标签不存在→回主对话」兜底，不报错但功能缺失——
+  制毒/黑铁矿升级依赖独立子系统（HANDOFF 已列为独立工程），维持现状。
+- 脚本条件动词缺口 `checkdura/checkduraeva/checkluckypoint/checkunit/
+  dayofweek/hour/daytime/istakeitem`（合计 24 文件引用）：原引擎对未知
+  条件**默认放行**（`_eval_condition` 兜底 return True），与原版「未知
+  =0 恒假」方向相反；但涉及面（骰子房 p 变量、时辰任务）多为沉默版
+  魔改内容（adddice/movr/sum 等原版 GOM 也只有 mov 一半实现），
+  按「找不到权威依据不硬改」原则本轮不动，登记备查。
+- 彩票（Shape=11）原版已注释取消（ObjBase.pas:23584-23588），提示
+  「无法使用」正确。
+
+**验证**：`test_repair.py` 扩到 46/0（新增祝福油三分支/诅咒/油恒消耗、
+幸运口径、状态药水生效与到期、HP 强化水抬 max_hp）；`test_tick_systems`
+幸运断言按新口径改（2acMin+3油-1macMin=4）；全量回归
+tick 180/0、all_messages 91/0、pyserver 107/0、durability 16/0；
+`test_repair_ui.py` Playwright 14/0；py_compile/node --check 通过。
+药水生效提示与 tooltip 观感仍需用户 Ctrl+F5 实测。

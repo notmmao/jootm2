@@ -138,8 +138,13 @@ export class ActorSprite {
                 layers.push(weaponLayer);
             }
             layers.push({ lib: 'hum', index: A.HUMANFRAME * dress + cf });
-            if ((e.hair || 0) >= 1) {
-                layers.push({ lib: 'hair', index: A.HUMANFRAME * (e.hair * 2 + sex) + cf });
+            // 原版 Actor.pas:3183-3188：haircount=3，先把 hair 钳到 0..2 再 *2，
+            // 只有 >1 才画（hair=0 → offset=-1 光头）。建角协议虽发 1..5
+            // （IntroScn.pas:1427），但 3..5 在客户端一律按发型 2 画；
+            // 不钳制会让 hair=3 算出 600*(6+sex)=4200 > Hair 库 3600 帧 → 光头。
+            const hair = Math.min(Math.max(e.hair | 0, 0), A.HAIR_STYLES - 1) * 2;
+            if (hair > 1) {
+                layers.push({ lib: 'hair', index: A.HUMANFRAME * (hair + sex) + cf });
             }
             if (wpord && weapon >= 2) {
                 layers.push(weaponLayer);
