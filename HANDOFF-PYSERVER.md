@@ -893,3 +893,35 @@ WeaptonMakeLuck/GetAttackPower/RecalcAbilitys/UserSelect/QuestCheckItem`，
 tick 180/0、all_messages 91/0、pyserver 107/0、durability 16/0；
 `test_repair_ui.py` Playwright 14/0；py_compile/node --check 通过。
 药水生效提示与 tooltip 观感仍需用户 Ctrl+F5 实测。
+
+## §87 /site 数据库站缓存分档：图片 60 秒 → 7 天（2026-11-16）
+
+**问题**：用户反馈阿里云站每次打开地图页图片都重新加载。排查确认缓存头
+**不缺**：`pyserver/net.py` 的 `/site` 路由一直有 ETag / Last-Modified /
+304 条件请求，但统一用 `cache_override="public, max-age=60, must-revalidate"`
+覆盖所有文件——包括 893 张地图/图标 PNG。超过 60 秒后每张图都要发一次
+条件请求（公网逐张一个 RTT），带宽有限时观感就是「重新加载」。旧注释说明
+60 秒是为规避「文件名不变 + immutable 一年看不到新图」，方向对但取值过保守。
+
+**改动**（`pyserver/net.py`）：
+- 新增 `WEBSITE_STATIC_MAX_AGE = 7*24*3600`、`WEBSITE_IMAGE_EXTS` 与
+  `website_cache_control(name)`：HTML `no-cache`；图片 `public, max-age=604800,
+  must-revalidate`；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。
+- 不用 `immutable`：站点重生成时文件名不变，7 天到期后靠 ETag 自动换新图。
+- `_serve_file` 新增可选 `cache_fn: Callable[[str], str]` 参数，优先级
+  `cache_fn > cache_override > cache_control`；其余调用点零改动。
+- `/site` 路由改传 `cache_fn=website_cache_control`；仍 `allow_gzip=False`
+  （站点同步 zlib 压到游戏 tick 的约束不变，见 §60）。
+- `docs/WIKI-PLAN.md` 同步路由/缓存分档与验证命令。
+
+**验证**：`test_pyserver.py` 扩到 **114 PASS / 0 FAIL**，新增 9 项覆盖
+分档表、图片不用 immutable、`/site/*.png` 长缓存 + ETag、条件请求 304、
+HTML `no-cache`。本地起 `python -m pyserver --port 18080` 实测响应头：
+PNG `public, max-age=604800, must-revalidate`、HTML `no-cache`、CSS
+`max-age=300`，带 `If-None-Match` 返回 304 且无 body。
+
+**部署提醒**：改的是 Python 代码，阿里云需**更新镜像并重启**才生效（只
+rsync `data/website/` 不够）。验证：`curl -sI https://aliyun.notmmao.com/site/
+assets/icons/items/1.png | grep -i cache-control`。浏览器第一次刷新仍会
+重取一次图片（旧 60 秒缓存里的条目过期/覆盖），此后 7 天内零图片请求；
+若改完想立刻看新图，Ctrl+F5 强刷即可。

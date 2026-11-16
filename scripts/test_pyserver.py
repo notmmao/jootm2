@@ -34,7 +34,7 @@ from pyserver.gamedata import (  # noqa: E402
 )
 from pyserver.net import (  # noqa: E402
     GzipCache, Request, Server, _etag_matches, _not_modified_since,
-    cache_control, content_type, parse_range, ws_frame,
+    cache_control, content_type, parse_range, website_cache_control, ws_frame,
 )
 from pyserver.templates import ItemTemplate, MagicTemplate, MonsterTemplate  # noqa: E402
 from pyserver.npc_script import NpcScript, NpcScriptEngine  # noqa: E402
@@ -209,6 +209,14 @@ def test_http_ws_helpers() -> None:
     check("mjs 短缓存 + 可校验", "max-age=300" in cache_control("x.mjs")
           and "must-revalidate" in cache_control("x.mjs"))
     check("wil immutable", "immutable" in cache_control("x.wil"))
+    check("站点 HTML 不缓存", website_cache_control("index.html") == "no-cache")
+    check("站点图片 7 天缓存且可校验",
+          website_cache_control("maps/0001.png") ==
+          "public, max-age=604800, must-revalidate")
+    check("站点 CSS/JS 短缓存",
+          "max-age=300" in website_cache_control("assets/style.css"))
+    check("站点图片不用 immutable",
+          "immutable" not in website_cache_control("icon.png"))
     check("MIME mjs", "javascript" in content_type("a.mjs"))
     check("ETag 精确匹配", _etag_matches('"10-ab", "10-cd"', '"10-cd"'))
     check("ETag 弱校验匹配", _etag_matches('W/"10-ab"', '"10-ab"'))
@@ -279,6 +287,7 @@ def test_http_ws_helpers() -> None:
         site = root / "site"
         site.mkdir()
         (site / "index.html").write_text("<h1>db</h1>", encoding="utf-8")
+        (site / "map.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 64)
         stub.config = type("C", (), {
             "resources_root": root, "resources_prefix": "/resources",
             "website_root": site, "website_prefix": "/site", "web_root": root,
@@ -289,6 +298,15 @@ def test_http_ws_helpers() -> None:
         idx = Server.handle_http(stub, Request("GET", "/site/", {}, {}, b""))
         check("/site/ 落到站点 index.html", idx.status == 200
               and idx.headers.get("Content-Type", "").startswith("text/html"))
+        check("/site/ HTML 不缓存", idx.headers.get("Cache-Control") == "no-cache")
+        png = Server.handle_http(stub, Request("GET", "/site/map.png", {}, {}, b""))
+        check("/site 图片长缓存 + ETag",
+              png.status == 200
+              and png.headers.get("Cache-Control") == "public, max-age=604800, must-revalidate"
+              and "ETag" in png.headers)
+        png304 = Server.handle_http(stub, Request(
+            "GET", "/site/map.png", {}, {"if-none-match": png.headers["ETag"]}, b""))
+        check("/site 图片条件请求 -> 304", png304.status == 304 and not png304.body)
         esc = Server.handle_http(stub, Request("GET", "/site/x.html", {}, {}, b""))
         check("/site 不存在的页面 -> 404", esc.status == 404)
         trav = Server.handle_http(stub, Request("GET", "/site/../a.json", {}, {}, b""))

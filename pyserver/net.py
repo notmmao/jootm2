@@ -5,6 +5,7 @@
 - Range 请求返回 206 + ``Content-Range: bytes s-e/total`` + ``Accept-Ranges``，
   且用流式分块发送（WIL 图库 10MB+、20 并发不整包入内存）
 - 缓存：HTML = ``no-cache``，代码/JSON 短缓存 + ETag，大资源 = ``immutable`` 一年；
+  ``/site`` 数据库站另按文件类型分档（图片长缓存，见 ``website_cache_control``）；
   支持 ``If-None-Match`` / ``If-Modified-Since`` → 304、HEAD、gzip 预压缩缓存
 - WebSocket：RFC6455 握手、文本帧/分片/ping-pong/close、客户端掩码校验，
   只走纯文本 JSON，与 Java 侧一致（BinaryFrame 不使用）
@@ -22,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .config import ServerConfig
@@ -223,6 +224,30 @@ def cache_control(name: str) -> str:
     return "public, max-age=31536000, immutable"
 
 
+# 数据库静态站（/site）的图片缓存时长。地图 PNG / 图标体积大、更新极少，
+# 60 秒缓存会让每次开地图页都对所有图片发一遍条件请求（公网逐张一个 RTT）。
+# 7 天是「有效期内零请求」与「重新生成后最多一周可见」的折中；不用 immutable
+# 是因为站点重生成时文件名不变，immutable 会让浏览器一年内拿不到新图。
+WEBSITE_STATIC_MAX_AGE = 7 * 24 * 3600
+WEBSITE_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")
+
+
+def website_cache_control(name: str) -> str:
+    """数据库静态站按文件类型分档：图片长缓存 + 可校验，页面/脚本保持新鲜。
+
+    与 ``cache_control`` 的区别：素材目录里的 WIL 等从不改内容，可以 immutable
+    一年；站点图片会随 wiki 重新生成而变化，所以只用 ``must-revalidate``，
+    到期后靠 ETag/Last-Modified 走 304 校验，内容变了也能自动更新。
+    """
+    n = name.lower()
+    if n.endswith(".html"):
+        return "no-cache"
+    if n.endswith(WEBSITE_IMAGE_EXTS):
+        return f"public, max-age={WEBSITE_STATIC_MAX_AGE}, must-revalidate"
+    # JS/CSS/JSON 及未知类型走短缓存，保证生成器改动后能尽快生效。
+    return "public, max-age=300, must-revalidate"
+
+
 class GzipCache:
     """按 (路径, size, mtime_ns) 缓存 gzip 结果，避免每次请求重复压缩。"""
 
@@ -370,7 +395,8 @@ class Server:
     def _serve_file(self, req: Request, path: str, root: Path,
                     prefix: str, default_name: str,
                     allow_gzip: bool = True,
-                    cache_override: str | None = None) -> Response:
+                    cache_override: str | None = None,
+                    cache_fn: Callable[[str], str] | None = None) -> Response:
         """静态文件响应。``allow_gzip=False`` 用于静态站点：zlib 压缩在事件
         循环里同步执行，单次冷压最慢 13.63ms（drops.html），并发首访会在同一个
         loop iteration 里串行叠加；关掉后单次同步阻塞上限 4.21ms（实测见
@@ -394,7 +420,8 @@ class Server:
         size = st.st_size
         etag = f'"{st.st_size:x}-{st.st_mtime_ns:x}"'
         ct = content_type(file.name)
-        cache = cache_override or cache_control(file.name)
+        cache = (cache_fn(file.name) if cache_fn is not None
+                 else cache_override or cache_control(file.name))
         common = {
             "Content-Type": ct,
             "Accept-Ranges": "bytes",
@@ -495,8 +522,9 @@ class Server:
                 req, req.path, self.config.website_root, self.config.website_prefix,
                 "index.html",
                 allow_gzip=False,
-                # 站点重新生成时文件名不变，immutable 会让浏览器一年内看不到新图
-                cache_override="public, max-age=60, must-revalidate")
+                # 站点重新生成时文件名不变，不能用 immutable；按类型分档，
+                # 图片长缓存避免每次开地图页都逐张发条件请求（见 website_cache_control）
+                cache_fn=website_cache_control)
         return self._serve_file(req, req.path, self.config.web_root, "", "index.html")
 
     # ---- WebSocket ------------------------------------------------------

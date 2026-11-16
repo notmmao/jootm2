@@ -29,7 +29,8 @@
 - 输出：纯静态 HTML + `assets/`（style.css、app.js、icons/、maps/），`file://` 也能直接看。
 
 ## 服务端挂载（`/site`）
-- 路由：`pyserver/net.py` 中 `_is_under(path, config.website_prefix)` → `_serve_file(..., allow_gzip=False, cache_override="public, max-age=60, must-revalidate")`；裸 `/site` 301 到 `/site/`（页面内链接是相对路径）。
+- 路由：`pyserver/net.py` 中 `_is_under(path, config.website_prefix)` → `_serve_file(..., allow_gzip=False, cache_fn=website_cache_control)`；裸 `/site` 301 到 `/site/`（页面内链接是相对路径）。
+- 缓存分档（2026-11-16）：HTML `no-cache`；图片 `public, max-age=604800, must-revalidate`（7 天，`WEBSITE_STATIC_MAX_AGE`）；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。所有响应带 ETag/Last-Modified，支持条件请求 304。站点重生成文件名不变，所以图片**不用** `immutable`——7 天后靠 ETag 自动取到新图。旧的统一 `max-age=60` 会让每次开地图页逐张重验图片，已废弃。
 - 配置：`website.root`（properties / `JOOTM2_WEBSITE` / `--website`），前缀固定 `/site`。
 - 性能底线（用户硬性要求：不能影响主逻辑）：站点路由**不走 gzip**——zlib 压缩在事件循环里同步执行，`drops.html`（1.9MB）单次冷压 13.63ms，关掉后同步阻塞上限 4.21ms（tick 间隔 100ms）。独立进程 keep-alive 8 线程压测（≈158 req/s）下 tick 间隔与空闲不可区分（p99 203.3 vs 197.8ms）。
 - 目录不存在时 `/site` 返回 404，启动日志提示生成命令，不影响游戏。
@@ -43,6 +44,7 @@
 - 代码走镜像（ACR）；wiki 不属于镜像（`data/` 在 dockerignore 内），单独 rsync：
   `rsync -a data/website/ root@aliyun.notmmao.com:/root/jootm2/data/website/`
 - compose 已挂 `./data:/app/data`，同步后无需重启；验证 `GET /site/` 200 + 首页统计数字。
+- 缓存头验证（改 `net.py` 需重启服务/镜像）：`curl -sI https://aliyun.notmmao.com/site/assets/icons/items/1.png | grep -i 'cache-control\|etag'` 应为 `public, max-age=604800, must-revalidate`；HTML 应为 `no-cache`。再带 `-H 'If-None-Match: <上次 ETag>'` 请求同一图片应返回 304。浏览器侧 DevTools Network 勾选 Disable cache 关闭后刷新两次，第二次图片应从 disk/memory cache 读取、无 `/site/*.png` 请求。
 - 「wiki 站同步」是部署阿里云的标准步骤之一，与游戏代码一起做。
 
 ## 顺序与验收（已完成）
