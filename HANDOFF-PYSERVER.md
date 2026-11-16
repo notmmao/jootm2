@@ -507,8 +507,37 @@ gmzh-28 新手村小贩（均回城卷+行会回城卷）。
 test_pyserver **122/0**（新增 7 条「杂货铺 X 售回城卷」断言，银杏/边界村旧断言不破）、
 test_tick_systems **180/0**、test_all_messages **91/0**。
 
-**待提交**：商店货单属数值/数据调整，按约定等用户确认再 commit（建议标签 `[数据]`，
-含 7 个 Market_Def txt + test_pyserver.py 断言；§90 边界村改动一并待提交）。
+**提交**：商店货单已提交（`60bd938 [数据]`，7 个 Market_Def txt + test_pyserver.py 断言）；
+§90 边界村改动见更早的 `be6c3f1 [数据]`。
+
+## §95 托管法师：自动补蓝 + 补回原版施法输入节拍（2026-11-16）
+
+**用户反馈**：法师托管应该自动喝蓝药；火球像机关枪，怪都死了还在放。
+
+**根因**：服务端技能 CD 本身没错——项目 `MagicTemplate.resolve()` 把 DB 的
+`Delay` ×10 存成毫秒（`templates.py:162`，火球 60→600ms），`_cast_magic:996`
+按 600ms 拦截。但原版客户端另有一层输入节流：对目标施法要求
+`CanNextAction and ServerAcceptNextAction`（`MirClient/ClMain.pas:2421`），
+随后 `g_dwMagicDelayTime := 200 + pcm.Def.dwDelayTime`（:2428）；F1-F8 再按
+`g_dwSpellTime(500) + g_dwMagicDelayTime`（:2040，`MShare.pas:415` 默认 500）
+限制下一次施法，即火球真人节拍约 **760ms**。托管直接调 `_cast_magic`
+绕过客户端这层，加上火球飞行特效重叠，观感就成了机关枪。
+
+**改动**（`pyserver/autopilot.py`）：
+- `SPELL_INPUT_BASE_MS = 700`，新增 `_spell_ready()`：相邻施法间隔
+  `max(t.delay, 700 + t.delay / 10)`（除以 10 是把项目毫秒值还原成原版
+  DB 口径）。火球 max(600,760)=760ms；雷电 max(1000,800)=1000ms。
+  法师 `_mage_fire`、道士 `_taoist_fire` 都接；`_taoist_heal` 施法后也更新
+  `last_cast_at`，避免治愈术紧接火符。技能自身 CD 仍由 `_cast_magic` 管。
+- `_mage_fire` 目标已死直接早退，不再对尸体补一发。
+- 三档 preset 加 `potion_mp`（安全 0.50 / 均衡 0.35 / 效率 0.30）；
+  `_find_mana_potion()` 挑 StdMode 0 且 MAC>0 的药（Shape1 太阳水优先，
+  其余按回复量从小到大）；`_survive` 蓝线把 `inc_spell` 回蓝池算进当前蓝量，
+  免得池子没滴完就连灌；1s 节流，喝药仍走 `useItem` handler。
+
+**验证**：`test_autopilot_hosted_opt` 19/0（新增 5 条：连点只 1 发 / 过一拍
+才第 2 发 / 低蓝自动 useItem / MP 提升 / 蓝药消耗）；autopilot 39/0、
+taoist 18/0、ws 16/0、hosted_fixes 14/0、all_messages 95/0、pyserver 122/0。
 
 ---
 
@@ -544,5 +573,4 @@ give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:6
 未改脚本内容**——玛法领路人仍是「3 级领 5000 金」。用户要的「新号送 1000 金+回城卷+
 随机传送卷+小蓝小红」涉及领取门槛（1 级 vs 保留 3 级）与药水数量，仍待用户澄清后再改。
 
-**待提交**：建议标签 `[修复]`（NPC 奖励客户端同步缺失，跨逻辑/网络的小型 bug），
-含 handlers_npc.py + test_all_messages.py 断言。
+**提交**：已提交（`6f95fa8 [修复]`），含 handlers_npc.py + test_all_messages.py 断言。
