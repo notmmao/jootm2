@@ -261,57 +261,6 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 
 ---
 
-## §83 捡物死循环根修：_step_to(loot) 后缺 return，怪步插进拾取节拍（2026-11-15）
-
-用户复报「捡东西死循环：移动过去没捡到 → 反方向移动 → 掉头 → 没捡到」，
-§74 只治了「落点被占」与「多件掉落抖动」，这次抓到真正的震荡源：
-
-**根因（pyserver/autopilot.py `_fight`）**：走向拾取物的 `_step_to(loot)`
-之后**没有 return**，同一 tick 继续执行选怪逻辑再调一次 `_step_to(monster)`。
-两处共用 `last_move_at` 节拍，而走（WALK 540ms）与跑（RUN 360ms）节奏不同：
-
-- 拾取步 pop 掉路径后 `len(self.path)<2` 且 dist<3 → 降级成 540ms 走；
-- 怪远 → 360ms 跑。拾取步走出后 360ms 一到（还没到 540ms），怪步抢到
-  移动权把人往反方向拉；540ms 到拾取步又拉回来……玩家在物品格 1~2 格
-  外永久震荡，**永远踩不上物品格**，`_pickup` 自然永远捡不到。
-  金币在东 2 格、怪在西 5 格时实测 8s 捡不到、轨迹来回掉头。
-
-**修复**：`_step_to(loot)` 成功（含等待节拍/已移动）即 return——一个
-tick 的移动权只归一个意图；仅当返回 False（目标已拉黑释放）才继续本 tick
-的选怪逻辑，不空耗节拍。威胁保护不变（2 格内有怪仍优先战斗）。
-
-**验证**：test_hosted_fixes.py 新增用例 [5]（真实时钟 100ms 步进）：
-金币东 2 格 + 多钩猫西 5 格，8s 内必须捡到且轨迹无掉头——修复前 FAIL
-（gold 0→0 卡在震荡位），修复后 PASS（gold 0→50 直线踩格）。stash 对照
-确认用例能抓住旧 bug。回归：test_autopilot.py 39/0、
-test_autopilot_taoist.py 18/0。
-
----
-
-## §84 模板三表改为每次启动从 CSV 重灌（2026-11-16，用户授权）
-
-**动机（用户）**：`StdItems.csv/Magic.csv` 等改了不生效——根因是 `seed_game_data`
-只在 `std_items` 空表时导入，`magics` 等固化在 SQLite；本地 `jootm2-py.db`、服务器
-`data/jootm2.db` 都实测滞留旧值（火球术 [10,20,30]、灵魂火符 power 8）。用户目的
-是**方便修改调整**，拍板方案=CSV 直接载入。
-
-**实现**（`pyserver/db.py seed_game_data`，仅入口一处，消费全走
-`load_*_templates`，无其他模块直接查这三表）：每次启动 `DELETE + INSERT` 从
-`gamedata/mud2/DB/*.csv` 重灌 `std_items/monsters/magics` 三张模板表；CSV 成为唯一
-事实源，表只是镜像。**accounts/characters 绝不触碰**。CSV 缺失/失败保留现有表，
-表也为空才落内置 defaults（冒烟场景）。分库/多库工具
-`scripts/switch_data.py` 的「切树先清表」不再必要但保留无害。
-
-**效果**：以后改这类 CSV → `rsync gamedata` → 重启容器即生效，无需再动数据库、
-无需专用重灌脚本（`data/reimport_magics.py` 归档可用）。注意 `std_items` 535/541、
-`monsters` 267/273 是 CSV 重复 Idx/名塌缩进主键，与原建库行为一致，非回归。
-
-**验证**：三场景探针（人为做旧的库拷贝被刷回 [50,150,300] 且 accounts/characters
-计数不变、空库正常导入、坏 CSV 路径保留原表）；test_pyserver 107/0、
-test_tick_systems 180/0。部署后线上以 `/api/version` + 容器内查 `magics` 复核。
-
----
-
 ## §85 修复油被当祝福油 + NPC 修理没有投放框（2026-11-16，用户反馈）
 
 **反馈**：①「修复油怎么用？我看到是幸运+1，体现在哪？有什么用？」②「NPC 的修复 UI 有问题，没有地方放装备」。
@@ -490,4 +439,39 @@ Bash 权限分类器（auto 模式依赖的远端模型）间歇性超时，构�
   宿主旧数据。
 
 **文档瘦身**：主文件超 500 行硬上限（927 行），§69~§82 逐字归档到
-`docs/handoff/archive-2026-11-f.md`，主文件保留 §83~§88。
+`docs/handoff/archive-2026-11-f.md`，主文件保留 §83~§88。§89 追加前再把
+§83~§84 归档到同文件，主文件保留 §85~§89。
+
+---
+
+## §89 托管优化：法师远程 / 背包限流清肉 / 武器与符自动补戴（2026-11-16）
+
+**用户诉求**：① 背包容易满（尤其挖肉后），打一会就满包回城；② 战士靠被动没问题，
+道士已优化过远程，法师还贴身砍怪；③ 武器坏了、护身符没了要自动换背包里的下一个。
+
+**方案（用户拍板：挖肉限流+智能清理 / 法师按等级选最优技能 / 武器+护身符补戴）**，
+全部改在 `pyserver/autopilot.py`：
+
+1. **背包**：新增 `BUTCH_BAG_RESERVE=8`——背包剩 ≤8 格就停挖肉，改打怪捡金币
+   （钱不占格）；`_clean_meat()` 在吃紧时按肉的耐久（=m_nMeatQuality，卖价正比）
+   从差到好逐份丢，留 `MEAT_KEEP=6` 份最值钱的，2s 一份走 `_drop` handler 不刷屏；
+   进入 `cleaning_meat` 模式后持续丢到达标。**不再满包即回城停机**——只有真塞满
+   （全是非肉物品）才退回原行为用回城卷回城。顺带修 `_want_pickup`：StdMode 40
+   （肉）和 1（干肉）不再主动捡回，否则清包丢的肉立刻被捡回来白清。
+2. **法师远程**：新增 `MAGE_ATTACK_SKILLS=(11,5,1)`（雷电术>大火球>火球术，
+   都吃 MC、单目标 RM_DELAYMAGIC、不吃符）与 `_mage_fire()`：施法半径 8 格内
+   （Magic.pas:266）按「已学+有蓝+冷却好」选最高优先级招；**没蓝/没学绝不贴身砍**
+   （法师物理输出极低），只等回蓝；超射程照常走近。自查 MP/冷却避免
+   「魔法值不足」刷屏，`_cast_magic` 仍做最终校验。
+3. **装备自动补戴**：`_ensure_equipment()`（1s 节流）在武器槽空时从背包挑
+   StdMode 5/6 中耐久最高的一把走 `takeOnItem` 补上；`_ensure_amulet()` 补
+   护身符（Shape=5）/毒粉（Shape≤2）到 U_BUJUK/U_ARMRINGL 空槽（**只补空槽，
+   否则毒粉会把护身符顶回背包**）。`_taoist_fire` 施法前也即时补符，避免刚耗完
+   一张符就回落近战。`_best_wearable` 只做候选筛选，等级/重量/槽位校验仍由
+   `_take_on_slot._can_take_on` 统一把关，不绕过规则。
+
+**新增字段**（AutoPilot dataclass）：`last_clean_at/cleaning_meat/last_equip_at`。
+**回归**（全用 D:/Python310/python.exe）：新增 `scripts/test_autopilot_hosted_opt.py`
+14/0（法师技能优先级+没蓝不近战、武器换装、护身符毒粉双补、挖肉限流与清肉
+品质排序）；既有 test_autopilot 39/0、test_autopilot_taoist 18/0、test_autopilot_ws
+16/0、test_hosted_fixes 14/0、test_all_messages 91/0 全绿。

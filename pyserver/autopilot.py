@@ -25,6 +25,7 @@ from typing import Any
 
 from .world import (BAG_SIZE, Monster, Player, direction_delta, now_ms)
 from .handlers_combat import spell_cost, skill_level
+from .util import U_ARMRINGL, U_BUJUK, U_WEAPON, slot_accepts
 
 # ---- 节拍（与前端 PlayScene.mjs 一致）------------------------------------
 WALK_INTERVAL_MS = 540           # PlayScene.mjs:26 WALK_INTERVAL
@@ -41,6 +42,15 @@ BUTCH_LOCK_MS = 15_000          # 挖肉尸体锁定（一只动物要挖 3~10 �
 BUTCH_INTERVAL_MS = 700         # 挖肉动作节奏（服务端校验 600ms，留余量防无效连点）
 UNREACHABLE_MS = 10_000         # 不可达目标黑名单时长（怪会移动，不能永久拉黑）
 BLOCKED_LIMIT = 4               # 连续被挡几步就换目标，别原地磨墙
+BUTCH_BAG_RESERVE = 8           # 挖肉至少留 8 格空位；填太满就停挖，别把托管逼回城
+CLEAN_INTERVAL_MS = 2_000       # 背包整理（丢最差品质的肉）检查间隔
+MEAT_KEEP = 6                   # 背包常留多少份肉卖钱，超出部分按需丢最差的
+EQUIP_CHECK_INTERVAL_MS = 1_000 # 武器/护身符自动补戴检查间隔
+
+# 法师单体输出技能优先级：雷电术(11) > 大火球(5) > 火球术(1)。
+# 三招都是 ``_resolve_magic`` 里对单目标生效的 RM_DELAYMAGIC（Magic.pas:279/407），
+# 均不吃护身符；按「已学 + 有蓝 + 不在冷却」从高到低挑第一招。
+MAGE_ATTACK_SKILLS = (11, 5, 1)
 
 # ---- 默认策略档（管理员预置，玩家只选档）--------------------------------
 PRESETS: dict[str, dict] = {
@@ -206,6 +216,9 @@ class AutoPilot:
     last_bag: int = 0              # 背包数快照：挖肉/拾取得手也是「进展」信号
     last_gold: int = 0
     acted: bool = False            # 本 tick 已做过「主动动作」（治愈术），跳过攻击
+    last_clean_at: int = 0         # 上次背包整理（丢低品质肉）时刻
+    cleaning_meat: bool = False    # 已进入清肉模式：降到 MEAT_KEEP 份才退出
+    last_equip_at: int = 0         # 上次自动补戴检查时刻
     unreachable: dict[int, int] = field(default_factory=dict)  # 怪 id → 黑名单过期时刻
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
@@ -250,6 +263,7 @@ class AutoPilot:
 
         try:
             self.acted = False
+            self._ensure_equipment(srv, w, p, now)   # 武器/符损毁后自动补戴
             self._survive(srv, w, p, cfg, now)
             if not self.active:
                 return
@@ -286,7 +300,12 @@ class AutoPilot:
                 srv._use_item(p.session, {"type": "useItem",
                                           "makeIndex": int(potion.get("makeIndex", 0))})
                 self.set_status("喝药中", now)
-        if len(p.bag) >= BAG_SIZE - 2:
+        # 背包压力：满包不再直接回城停机。先停挖肉（肉占格、金币不占），
+        # 再按品质从差到好丢弃多余的肉，保住「挖肉赚钱」又避免打一会就回城。
+        # 实在塞满（全是装备/药水等非肉物品）才退回原行为：回城并停机。
+        if len(p.bag) >= BAG_SIZE - BUTCH_BAG_RESERVE or self.cleaning_meat:
+            self._clean_meat(srv, w, p, now)
+        if len(p.bag) >= BAG_SIZE:
             scroll = _find_town_scroll(w, p)
             if scroll is not None:
                 srv._use_item(p.session, {"type": "useItem",
@@ -295,6 +314,88 @@ class AutoPilot:
             else:
                 self.manager.disable(p, "背包已满且没有回城卷，请清理背包")
             return
+
+    # ---- 背包整理：挖肉限流 + 丢最差品质的肉 --------------------------
+    def _clean_meat(self, srv, w, p, now: int) -> None:
+        """背包吃紧时丢掉品质最低的肉，保住最值钱的 MEAT_KEEP 份。
+
+        肉的耐久即 ``m_nMeatQuality``（service.py:_butch 写入，卖价正比于品质，
+        handlers_npc._user_item_price 的 StdMode 40 分支），所以「丢最差的、
+        留最好的」既不亏经济，又能腾出格子继续挖/捡。走既有 ``_drop``
+        handler（和手动丢弃同一条协议，不绕过校验）；一次只丢一件、间隔
+        2s，避免 100ms tick 内把背包瞬间清空或刷屏。
+        """
+        if not self._butch_enabled(p) or now - self.last_clean_at < CLEAN_INTERVAL_MS:
+            return
+        meats = []
+        for it in p.bag:
+            t = _template(w, it)
+            if t is not None and t.stdMode == 40:       # StdMode 40 = 肉/鸡肉
+                meats.append((int(it.get("durability", 0) or 0), it))
+        if len(meats) <= MEAT_KEEP:
+            self.cleaning_meat = False
+            return
+        self.cleaning_meat = True
+        meats.sort(key=lambda pair: pair[0])             # 品质差的排前
+        worst = meats[0][1]
+        self.last_clean_at = now
+        srv._drop(p.session, {"type": "drop",
+                              "makeIndex": int(worst.get("makeIndex", 0))})
+        self.set_status("整理背包 · 丢弃低品质肉", now)
+
+    def _butch_enabled(self, p) -> bool:
+        """背包吃紧时停挖肉的开关：预设允许挖肉，且还有余量。"""
+        return bool(PRESETS[self.preset].get("butch")) and len(p.bag) < BAG_SIZE
+
+    # ---- 装备维护：武器/护身符损毁后从背包自动补戴 --------------------
+    def _ensure_equipment(self, srv, w, p, now: int) -> None:
+        """耐久归零的槽位自动从背包找同类补上，走 ``takeOnItem`` handler。
+
+        原版 ``do_damage_weapon`` / ``_use_amulet`` 把耐久耗尽直接清槽， Clearing
+        后玩家得手动从背包穿。托管期间无人值守，这里按「可用 + 耐久最高」
+        自动补戴：
+
+        * 武器槽（U_WEAPON，StdMode 5/6）—— 坏一把换下一把；
+        * 护身符/毒粉槽（U_BUJUK 与 U_ARMRINGL，StdMode 25）—— 施法前补符，
+          避免灵魂火符因为「没符在身上」一直回落近战。
+        ``_take_on_slot`` 内部仍会校验槽位/等级/重量/回收旧装备，这里只做
+        候选筛选，不绕过任何规则。检查按秒节流，不占满 100ms tick。
+        """
+        if now - self.last_equip_at < EQUIP_CHECK_INTERVAL_MS:
+            return
+        self.last_equip_at = now
+        if p.equipment[U_WEAPON] is None:
+            cand = _best_wearable(w, p, U_WEAPON, lambda t: t.stdMode in (5, 6))
+            if cand is not None:
+                srv._take_on_item(p.session, {
+                    "type": "takeOnItem", "slot": U_WEAPON,
+                    "makeIndex": int(cand.get("makeIndex", 0))})
+                self.set_status("武器损毁 · 自动换装", now)
+        self._ensure_amulet(srv, w, p, now)
+
+    def _ensure_amulet(self, srv, w, p, now: int) -> None:
+        """护身符（kind=1，Shape=5）/ 毒粉（kind=2，Shape<=2）即时补戴。
+
+        原版 CheckAmulet 只认 U_BUJUK / U_ARMRINGL 两个槽，故只往这两处放。
+        ``_taoist_fire`` 施法前也会调它，避免刚用完一张符就回落近战。
+        """
+        for kind, accept in ((1, lambda t: t.shape == 5),
+                             (2, lambda t: t.shape <= 2)):
+            if srv._find_amulet(p, kind, 1) is not None:
+                continue
+            for slot in (U_BUJUK, U_ARMRINGL):
+                # 只补空槽：已在戴的槽不能覆盖，否则毒粉会把护身符顶回背包
+                # （两者都属 StdMode 25、两槽都能放），越补越乱。
+                if p.equipment[slot] is not None:
+                    continue
+                cand = _best_wearable(w, p, slot,
+                                      lambda t, a=accept: t.stdMode == 25 and a(t))
+                if cand is not None:
+                    srv._take_on_item(p.session, {
+                        "type": "takeOnItem", "slot": slot,
+                        "makeIndex": int(cand.get("makeIndex", 0))})
+                    self.set_status("符药耗尽 · 自动补充", now)
+                    break
 
     # ---- 拾取：只捡值钱/有用的，垃圾留在地上 ---------------------------
     def _pickup(self, srv, w, p, cfg, now: int) -> None:
@@ -360,7 +461,11 @@ class AutoPilot:
         if p.mp < spell_cost(t, skill_level(p, 13)):
             return False
         if srv._find_amulet(p, 1, 1) is None:
-            return False        # 符耗尽不自动补戴（CheckAmulet 只查装备槽）
+            # 符用光了：先即时从背包补一张（同一 tick 内生效，避免空放一次
+            # 火符后被判定「没符」白回落近战）；补不到才回落近战。
+            self._ensure_amulet(srv, w, p, now)
+            if srv._find_amulet(p, 1, 1) is None:
+                return False
         exp_before = p.exp
         srv._cast_magic(p.session, {"type": "castMagic", "magicId": 13,
                                     "targetId": target.id,
@@ -372,6 +477,43 @@ class AutoPilot:
             self.last_exp = p.exp
             self.last_progress_at = now
         return True
+
+    def _mage_fire(self, srv, w, p, target, now: int) -> bool:
+        """法师远程单体输出：已学 + 有蓝 + 冷却好的最高优先级技能。
+
+        返回 True = 本 tick 已被远程施法占用（含冷却中保持站位）；
+        False = 一招都放不出（没学 / 没蓝），调用方**不再贴身砍怪**——
+        法师物理攻击极低，近战等于送死，改为等回蓝 / 走近至射程。
+
+        ``_cast_magic`` 会再次校验 MP、冷却、8 格半径（Magic.pas:266），
+        这里自查只是为了避免刷「魔法值不足」提示和空耗一个 tick。
+        """
+        if p.job != 1:
+            return False
+        stamp = now_ms()
+        for magic_id in MAGE_ATTACK_SKILLS:
+            if magic_id not in p.skills:
+                continue
+            t = w.magic_templates.get(magic_id)
+            if t is None:
+                continue
+            if stamp - p.skill_cooldown.get(magic_id, 0) < t.delay:
+                self.set_status(f"打怪中 · {target.name}", now)
+                return True             # 冷却中保持站位，不贴身
+            if p.mp < spell_cost(t, skill_level(p, magic_id)):
+                continue                # 这招没蓝，试下一招
+            exp_before = p.exp
+            srv._cast_magic(p.session, {"type": "castMagic",
+                                        "magicId": magic_id, "targetId": target.id,
+                                        "targetX": target.x, "targetY": target.y})
+            self.last_attack_at = now
+            self.set_status(f"{t.name} · {target.name}", now)
+            if p.exp != exp_before:
+                self.kills += 1
+                self.last_exp = p.exp
+                self.last_progress_at = now
+            return True
+        return False
 
     # ---- 目标决策：掉落物 → 选怪 → 寻路 → 攻击 --------------------------
     def _fight(self, srv, w, p, cfg, now: int) -> None:
@@ -415,6 +557,17 @@ class AutoPilot:
             target = far
         self.target_id = target.id
         dist = p.distance_to(target)
+        # 法师远程（Magic.pas:266 施法半径 8 格）：进射程优先法术，没蓝/没学
+        # 不贴身砍（法师物理输出极低），原地等回蓝；超射程照常走近。
+        if p.job == 1:
+            if dist <= 8:
+                if self._mage_fire(srv, w, p, target, now):
+                    return
+                self.set_status("法力不足 · 等待回蓝", now)
+                return
+            self._step_to(srv, w, p, target.x, target.y,
+                          ("monster", target.id), f"前往 {target.name}", now)
+            return
         # 道士远程：施法半径 8 格内（Magic.pas:266）优先灵魂火符，
         # 没符/没蓝/没学 → 近战兜底；超射程先走近，进入射程即转远程。
         if dist <= 8 and self._taoist_fire(srv, w, p, target, now):
@@ -455,6 +608,10 @@ class AutoPilot:
         只在视野里没有活怪可打时进行——有怪先清怪，挖肉不打断战斗节奏。
         """
         if not cfg.get("butch"):
+            return False
+        # 限流：背包只剩 few 格就别再挖肉塞满，继续打怪捡金币（不占格）。
+        if len(p.bag) >= BAG_SIZE - BUTCH_BAG_RESERVE:
+            self.butch_id = 0
             return False
         sight = cfg.get("loot_sight", 8)
         corpse = self._choose_butch(w, p, cfg, now, sight)
@@ -715,6 +872,23 @@ def _find_potion(w, p):
     return best
 
 
+def _best_wearable(w, p, slot: int, accept):
+    """从背包挑一件可放进 ``slot`` 且满足 accept(t) 的装备，耐久高者优先。
+
+    只做候选筛选（StdMode 槽位匹配 + 耐久排序）；等级/重量/性别等硬门槛
+    由 ``_take_on_slot._can_take_on`` 统一校验，这里不重复也不绕过。
+    """
+    best, best_dura = None, -1
+    for it in p.bag:
+        t = _template(w, it)
+        if t is None or not slot_accepts(slot, t.stdMode) or not accept(t):
+            continue
+        dura = int(it.get("durability", 0) or 0)
+        if dura > best_dura:
+            best, best_dura = it, dura
+    return best
+
+
 def _find_town_scroll(w, p):
     for it in p.bag:
         t = _template(w, it)
@@ -729,7 +903,9 @@ def _want_pickup(w, gi, cfg: dict) -> bool:
     t = _template(w, gi.item)
     if t is None:
         return True
-    if t.stdMode in (1, 2):              # 肉 / 毒药：占位垃圾
+    # 肉（StdMode 40）/ 毒药 / 占位垃圾：肉本来就是挖肉直接进包，地上的肉
+    # 多半是自己清包丢掉的，捡回来等于白清，托管一律不主动捡。
+    if t.stdMode in (1, 2, 40):
         return False
     if t.stdMode == 0 and t.acMin <= 0 and t.macMin <= 0:
         return False

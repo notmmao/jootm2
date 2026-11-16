@@ -474,3 +474,54 @@ test_hosted_fixes.py 12/0。注意 test_autopilot 的「转而击杀同侧可达
 用例存在与本改动无关的偶发时序波动（战士路径未动，复现率低）。
 
 ---
+
+## §83 捡物死循环根修：_step_to(loot) 后缺 return，怪步插进拾取节拍（2026-11-15）
+
+用户复报「捡东西死循环：移动过去没捡到 → 反方向移动 → 掉头 → 没捡到」，
+§74 只治了「落点被占」与「多件掉落抖动」，这次抓到真正的震荡源：
+
+**根因（pyserver/autopilot.py `_fight`）**：走向拾取物的 `_step_to(loot)`
+之后**没有 return**，同一 tick 继续执行选怪逻辑再调一次 `_step_to(monster)`。
+两处共用 `last_move_at` 节拍，而走（WALK 540ms）与跑（RUN 360ms）节奏不同：
+
+- 拾取步 pop 掉路径后 `len(self.path)<2` 且 dist<3 → 降级成 540ms 走；
+- 怪远 → 360ms 跑。拾取步走出后 360ms 一到（还没到 540ms），怪步抢到
+  移动权把人往反方向拉；540ms 到拾取步又拉回来……玩家在物品格 1~2 格
+  外永久震荡，**永远踩不上物品格**，`_pickup` 自然永远捡不到。
+  金币在东 2 格、怪在西 5 格时实测 8s 捡不到、轨迹来回掉头。
+
+**修复**：`_step_to(loot)` 成功（含等待节拍/已移动）即 return——一个
+tick 的移动权只归一个意图；仅当返回 False（目标已拉黑释放）才继续本 tick
+的选怪逻辑，不空耗节拍。威胁保护不变（2 格内有怪仍优先战斗）。
+
+**验证**：test_hosted_fixes.py 新增用例 [5]（真实时钟 100ms 步进）：
+金币东 2 格 + 多钩猫西 5 格，8s 内必须捡到且轨迹无掉头——修复前 FAIL
+（gold 0→0 卡在震荡位），修复后 PASS（gold 0→50 直线踩格）。stash 对照
+确认用例能抓住旧 bug。回归：test_autopilot.py 39/0、
+test_autopilot_taoist.py 18/0。
+
+---
+
+## §84 模板三表改为每次启动从 CSV 重灌（2026-11-16，用户授权）
+
+**动机（用户）**：`StdItems.csv/Magic.csv` 等改了不生效——根因是 `seed_game_data`
+只在 `std_items` 空表时导入，`magics` 等固化在 SQLite；本地 `jootm2-py.db`、服务器
+`data/jootm2.db` 都实测滞留旧值（火球术 [10,20,30]、灵魂火符 power 8）。用户目的
+是**方便修改调整**，拍板方案=CSV 直接载入。
+
+**实现**（`pyserver/db.py seed_game_data`，仅入口一处，消费全走
+`load_*_templates`，无其他模块直接查这三表）：每次启动 `DELETE + INSERT` 从
+`gamedata/mud2/DB/*.csv` 重灌 `std_items/monsters/magics` 三张模板表；CSV 成为唯一
+事实源，表只是镜像。**accounts/characters 绝不触碰**。CSV 缺失/失败保留现有表，
+表也为空才落内置 defaults（冒烟场景）。分库/多库工具
+`scripts/switch_data.py` 的「切树先清表」不再必要但保留无害。
+
+**效果**：以后改这类 CSV → `rsync gamedata` → 重启容器即生效，无需再动数据库、
+无需专用重灌脚本（`data/reimport_magics.py` 归档可用）。注意 `std_items` 535/541、
+`monsters` 267/273 是 CSV 重复 Idx/名塌缩进主键，与原建库行为一致，非回归。
+
+**验证**：三场景探针（人为做旧的库拷贝被刷回 [50,150,300] 且 accounts/characters
+计数不变、空库正常导入、坏 CSV 路径保留原表）；test_pyserver 107/0、
+test_tick_systems 180/0。部署后线上以 `/api/version` + 容器内查 `magics` 复核。
+
+---
