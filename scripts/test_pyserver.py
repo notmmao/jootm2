@@ -494,6 +494,14 @@ def test_shop_goods() -> None:
         gd = {r[0] for r in NpcScript.parse(read_lines(g_drug)).goods_rows()}
         check("银杏村药店只卖小量红蓝药",
               gd == {"金创药(小量)", "魔法药(小量)"}, str(sorted(gd)))
+    # 2026-11-16 用户口径：杂货铺不能只卖行会回城卷，必须售回城卷。
+    # 这 7 家原模板只有行会回城卷（银杏陈家铺/比奇杂货铺等），已补回城卷（保留行会回城卷）。
+    for _stem in ("7Bst-0", "7Dst-4", "7Est-3", "7Gst-0", "7Mst-3", "7Sst-2", "7Wst-1007"):
+        _sp = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / (_stem + ".txt")
+        if _sp.is_file():
+            _sn = {r[0] for r in NpcScript.parse(read_lines(_sp)).goods_rows()}
+            check(f"杂货铺 {_stem} 售回城卷（不能只有行会回城卷）",
+                  "回城卷" in _sn, str(sorted(_sn)))
     if v_book.is_file() and c_book.is_file():
         vb = NpcScript.parse(read_lines(v_book))
         cb = NpcScript.parse(read_lines(c_book))
