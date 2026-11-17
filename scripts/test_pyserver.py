@@ -425,7 +425,7 @@ def test_shop_goods() -> None:
     check("第二列落到 stock", [g["stock"] for g in goods] == [10, 5])
 
     # 真实脚本：每个商店都有 %100，且价格不再全部相同
-    real = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-0103.txt"
+    real = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-卫家店-0103.txt"
     if real.is_file():
         rs = NpcScript.parse(read_lines(real))
         check("真实武器店脚本头为 %100", rs.price_rate == 100,
@@ -434,7 +434,7 @@ def test_shop_goods() -> None:
               f"{len(rs.goods_rows())} 行")
 
     # 比奇「白家服装老板」：原版 1 级能买到布衣（StdItems Price=400）
-    cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Tdr-0.txt"
+    cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Tdr-白家服装老板-0.txt"
     if cloth.is_file():
         cs = NpcScript.parse(read_lines(cloth))
         names = [r[0] for r in cs.goods_rows() if r]
@@ -448,11 +448,11 @@ def test_shop_goods() -> None:
     # 模板（比奇村/比奇城都 #CALL 同一份武器店.txt），村店所以改成独立精简表：
     # 武器店只留入门五把+鹤嘴锄，服装店不卖中型，杂货店卖蜡烛/火把但不卖药。
     # 比奇书店(5B) 回退为 176 基线的 7 本基础书，高级书只在边境村书店(5Tbo)出售。
-    v_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Twe-0.txt"
-    c_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-0103.txt"
-    v_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Tdu-0.txt"
-    v_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5Tbo-0132.txt"
-    c_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5B-0.txt"
+    v_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Twe-铁匠铺老板-0.txt"
+    c_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Bwe-卫家店-0103.txt"
+    v_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Tdu-边界村小店老板-0.txt"
+    v_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5Tbo-书店老板-0132.txt"
+    c_book = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "5B-书店老板-0.txt"
     if v_wea.is_file() and c_wea.is_file():
         vn = {r[0] for r in NpcScript.parse(read_lines(v_wea)).goods_rows()}
         cn = {r[0] for r in NpcScript.parse(read_lines(c_wea)).goods_rows()}
@@ -473,10 +473,10 @@ def test_shop_goods() -> None:
               and not any("中量" in n or "强效" in n or "超级" in n or "包" in n
                           and "药" in n for n in sn), str(sorted(sn)))
     # 银杏新人村（map 0119 + map 0 银杏片区）与边界村同为新手村，同一分档口径
-    g_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Gwe-0.txt"
-    g_cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Gdr-0.txt"
-    g_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "7Gst-0.txt"
-    g_drug = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Gdu-0119.txt"
+    g_wea = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "2Gwe-精武馆老板-0.txt"
+    g_cloth = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "3Gdr-高家店老板-0.txt"
+    g_shop = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "7Gst-陈家铺老板-0.txt"
+    g_drug = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / "4Gdu-许家店-0119.txt"
     if g_wea.is_file():
         gn = {r[0] for r in NpcScript.parse(read_lines(g_wea)).goods_rows()}
         check("银杏村武器店只卖入门五把+鹤嘴锄",
@@ -496,7 +496,7 @@ def test_shop_goods() -> None:
               gd == {"金创药(小量)", "魔法药(小量)"}, str(sorted(gd)))
     # 2026-11-16 用户口径：杂货铺不能只卖行会回城卷，必须售回城卷。
     # 这 7 家原模板只有行会回城卷（银杏陈家铺/比奇杂货铺等），已补回城卷（保留行会回城卷）。
-    for _stem in ("7Bst-0", "7Dst-4", "7Est-3", "7Gst-0", "7Mst-3", "7Sst-2", "7Wst-1007"):
+    for _stem in ("7Bst-杂货铺老板-0", "7Dst-恶魔杂货匠-4", "7Est-老人-3", "7Gst-陈家铺老板-0", "7Mst-流浪汉-3", "7Sst-罗家铺子老板-2", "7Wst-杂货店老板-1007"):
         _sp = ROOT / "gamedata" / "Mir200" / "Envir" / "Market_Def" / (_stem + ".txt")
         if _sp.is_file():
             _sn = {r[0] for r in NpcScript.parse(read_lines(_sp)).goods_rows()}

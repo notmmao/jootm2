@@ -605,3 +605,51 @@ give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:6
 （D:/Python310/python.exe，与 §96 数字一致）。
 
 **挂接**：本文「给下一位 agent 的阅读顺序」新增第 8 条指向该文档。
+
+## §98 商人 NPC 清理魔改 + MerChant/Market_Def 重命名（2026-11-17，用户指令，待确认提交）
+
+**用户指令**：① 清理魔改 NPC；② MerChant.txt 及对应脚本按「类型(原编码)-名字-地图编号」
+重命名，同名同图多类型合并为有商品的模板；③ 修正单元测试固化名。**改完自查，不提交，
+用户确认后提交**。
+
+**清理（85 行 + 78 脚本）**：赌场 54 行（9Ega 系：B010-B013/B101-B140 赌场小妖女、
+T105 古惑仔×5、T118/T125/T1363/T138、0101 赌场老人）；封魔谷(图4)测验 17 行
+（kljl 骷髅精灵/klzj1-4/klzs1-4/kl1-8）；白日门(图11)道馆 14 行（9Wae1-6×武术/道术学员、
+9Wtt×武术/道术教头）。魔改判定依据（上一轮核验）：MapInfo `[B011 赌场]` 图名、
+古惑仔港片命名、筹码经济、破关珍剑不在 StdItems.csv 且脚本零动作（死内容）、
+282/283 脚本带我本沉默私服头、176 Gee 包无此三类内容、Delphi 引擎无筹码逻辑。
+
+**合并（3 组，删 4 个空货单脚本）**：屠夫@0 三份→`1Gme`（1Gme/1Tme 功能全同仅排版差，
+1Bme 只收肉无货单）；屠夫@3 两份→`1Ame`（有干肉+买卖）；铁匠铺老板@0 两份→`2Twe`
+（有武器六件+买卖修理）。**段级差异（自查基线对照，用户已知悉待确认）**：
+1Bme-0 丢 Kcom_1/Kcom_2/kxwpz 段、得货物 2；1Tme-0 零差异；1Mme-3 丢
+Q300/Q301/Q302/Q304/Q313/main-1、得干肉+Q303/Q350/buy；2Bbl-0 丢 talk/kundo/next* 等
+15 段、得武器 6+buy/sell。**特殊修理**：两脚本均无 s_repair 段（原 2Bbl 的
+<特殊修理/@s_repair> 按钮走 merchant 兜底开 UI，handlers_npc.py:69 _repair_allowed），
+合并后按钮入口消失但兜底能力仍在；比奇室内武器店 `2Are-铁匠铺老板-0151` 有真
+s_repair 段，特殊修理服务不缺失。老人@1（9Wqu/9w）均无商品，不适用合并规则，各自保留。
+
+**重命名（159 文件，零代码改动）**：`<编码>-<地图>.txt` → `<编码>-<名字>-<地图>.txt`，
+MerChant 第一列 `<编码>` → `<编码>-<名字>`（如 `1Gme-屠夫 0 313 271 屠夫 …`），
+命中 load_script 主候选（npc_script.py:241 / Java NpcData.java:86 同约定）。
+迁移后保留行 (编码,图号)→名字 唯一，无命名歧义。Market_Def 283→201 文件，
+MerChant 有效行 248→163。
+
+**测试修正**：test_pyserver.py 18 处固化基名/路径（2Bwe-0103→2Bwe-卫家店-0103 等
+16 个 stem，含 :499 杂货铺 stem 列表）。
+
+**自查**：迁移前快照全部 248 行货物/段/能力签名（data/_merchant_baseline.json），
+迁移后逐行重解析对照——保留行签名==原签名、合并行签名==幸存者签名、无 MISSING，
+**全部通过**（data/migrate_merchant_names.py + _migration_report.txt，均 gitignored）。
+回归：test_pyserver **122/0**、test_tick_systems **180/0**、test_all_messages **95/0**
+（D:/Python310/python.exe，与 §96 基线一致）。
+
+**未动 / 待用户决策**：① 5 个 Npc_Def 传送员脚本（传送员-0/-2/-3/-11、静寂传送员-28）
+的 `<比奇赌场/@dcmove>` 按钮仍在，指向已无 NPC 的赌场图（超「清理 NPC」范围，未改）；
+② 43 个孤儿脚本未动（含 24 个赌场残留 9Ega*-T2xx/T3xx）；③ 筹码/筹码包物品、
+B011/B105/T105 等赌场图及 MapInfo 条目保留；④ MerChant 注释行仍用旧编码。
+
+**文档**：GAMEDATA_GUIDE.md §1/§3/§4/§5.4 同步新命名约定与计数。
+
+**提交**：**未提交**（用户明确要求确认后提交）。改动面：gamedata/Mir200/Envir/MerChant.txt、
+Market_Def/（159 改名+82 删）、scripts/test_pyserver.py、docs/GAMEDATA_GUIDE.md、本文。

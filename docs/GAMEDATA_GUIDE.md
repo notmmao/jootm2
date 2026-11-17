@@ -4,8 +4,8 @@
 > 加载、运行时被谁消费、文件之间靠什么键关联。面向 AI Agent 与人类，所有消费点都给出
 > `文件:行号`，可直接跳转核验。
 >
-> **核验日期**：2026-11-17（基线提交 `3ad46df`）。行号会随代码演进漂移，以符号名
-> （函数/类名）为准重新 grep。
+> **核验日期**：2026-11-17（基线提交 `3ad46df`；同日商人脚本清理+重命名迁移后复核，
+> 见 §5.4 与 HANDOFF-PYSERVER §98）。行号会随代码演进漂移，以符号名（函数/类名）为准重新 grep。
 >
 > **与其他文档的分工**：
 > - `HANDOFF.md`（永不编辑）：玩法数值、协议语义、特效帧号的**权威参考**（Java 对照版口径）。
@@ -50,7 +50,8 @@ gamedata/                          ← config/server.properties 的 gamedata.roo
 │   │   ├── Npcs.txt               非商人 NPC 刷新表                          [消费]
 │   │   ├── MerChant.txt           商人 NPC 刷新表                            [消费]
 │   │   ├── Npc_Def/               非商人 NPC 脚本 24 个（传送员/任务 NPC）    [消费]
-│   │   ├── Market_Def/            商人脚本 283 个（含 [goods] 货物表）        [消费]
+│   │   ├── Market_Def/            商人脚本 201 个（含 [goods] 货物表；2026-11-17
+│   │   │                          清理魔改 85 行+合并后，原 283）              [消费]
 │   │   ├── MapQuest.txt           地图任务触发条件（9 条）                    [部分消费]
 │   │   ├── MapQuest_Def/          任务脚本 9 个（Q1401.txt 等）               [消费]
 │   │   ├── UnbindList.txt         卷包解包：shape→物品名                      [消费]
@@ -122,7 +123,7 @@ gamedata/                          ← config/server.properties 的 gamedata.roo
 | `Envir/MonGen.txt` | 刷怪表 | `图号 x y 怪名 范围 数量 间隔(分)` | `gamedata.py:154 parse_mon_gen` | 地图懒加载时 `spawn_monsters`（`world.py:1148`）；间隔→重生计时 | ✅ |
 | `Envir/MonItems/*.txt` | 怪物掉落表 | `n/m 物品名 [数量]` 每行一条 | `world_extra.py:269 load_drop_tables` | 死亡散落 `drop_loot:655`；可挖动物挖空 `roll_butch_loot:688`；倍率在判定时乘（`drop_rates.py`） | ✅ |
 | `Envir/Npcs.txt` | 非商人 NPC 刷新 | `名称 代码 地图 x y flag appr` | `world_extra.py:295 load_npc_spawns` | `_load_npcs:425` 挂到地图，脚本取自 `Npc_Def/` | ✅ |
-| `Envir/MerChant.txt` | 商人 NPC 刷新 | `脚本名 地图 x y 名称 数量 代码 刷新时间` | 同上（merchant=True 分支） | 同上，脚本取自 `Market_Def/` | ✅ |
+| `Envir/MerChant.txt` | 商人 NPC 刷新（163 有效行） | `编码-名字 地图 x y 名称 数量 代码 刷新时间` | 同上（merchant=True 分支） | 同上，脚本取自 `Market_Def/` | ✅ |
 | `Envir/Npc_Def/*.txt` | 非商人 NPC 脚本 | `[@label]` + `#IF/#ACT/#SAY` | `npc_script.py:237 load_script` | 对话/传送/任务 `NpcScriptEngine`（`handlers_npc.py`） | ✅ |
 | `Envir/Market_Def/*.txt` | 商人脚本 + 货物表 | 脚本头 `%N +N (@buy…)` + `[goods]` 段 | 同上 | 买卖/修理价格 `npc_script.py:544 goods`（StdItems.Price×1.1×%N） | ✅ |
 | `Envir/MapQuest.txt` | 地图任务触发条件 | `图号 [旗标] 值 怪名 物品名 脚本名 [GROUP]` | `gamedata.py:206 parse_map_quest` | **杀怪触发** `trigger_map_quest`（`world_extra.py:401`，击杀时 `:805` 调用） | ⚠️ 拾取触发未实现（§7） |
@@ -154,6 +155,7 @@ gamedata/                          ← config/server.properties 的 gamedata.roo
 ③ NPC 链（刷新表→脚本）
    Npcs.txt 名称 ──► Npc_Def/<名称>-<地图>.txt（优先）或 <名称>.txt（大小写不敏感）
    MerChant.txt 脚本名列 ──► Market_Def/<脚本名>-<地图>.txt 或 <脚本名>.txt
+   （2026-11-17 起脚本名 = 原编码-名字，如 1Gme-屠夫 → 1Gme-屠夫-0.txt）
    脚本内 #CALL [商人\xx.txt] @标签 ──► Envir/QuestDiary/ 子脚本（npc_script.py:295 _load_sub）
    ⚠️ 主树没有 QuestDiary 目录（176 副本树才有），主树 #CALL 静默落空
 
@@ -291,14 +293,22 @@ tile 步进 12/14 字节自适应（`map_tile_stride`，`gamedata.py:255`），�
 0=TMerchant/1=TGuildOfficial/2=TCastleOfficial，第 6 列 `m_nFlag`（文件注释写"范围"，
 pyserver 存为 face），第 7 列外观 appr。pyserver 映射见 `load_npc_spawns:309-312`。
 
-**MerChant.txt**（商人）：`脚本名 地图 x y 名称 数量 代码 刷新时间`
-样例：`1Bme 0102 9 7 屠夫 0 11 0`。pyserver 取 p[0] 脚本名 / p[4] 名称 / p[6] appr；
-"数量/刷新时间"列未消费（`load_npc_spawns:305-308`）。**脚本名 ≠ NPC 名**（屠夫的脚本
-叫 1Bme），找脚本要按第一列。
+**MerChant.txt**（商人，163 有效行）：`编码-名字 地图 x y 名称 数量 代码 刷新时间`
+样例：`1Bme-屠夫 0102 9 7 屠夫 0 11 0`。pyserver 取 p[0] 脚本名 / p[4] 名称 / p[6] appr；
+"数量/刷新时间"列未消费（`load_npc_spawns:305-308`）。**脚本名 = 原编码-名字**
+（2026-11-17 迁移，如 `1Gme-屠夫`），第一列即脚本基名，按中文名可直接搜索。
 
 **脚本文件命名**：`<脚本名>-<地图>.txt` 优先于 `<脚本名>.txt`，大小写不敏感
-（`load_script`，`npc_script.py:237`）。同一脚本可被多个刷新点共享（script_cache 按
-`M/N:脚本名:地图` 缓存，`world_extra.py:434`）。
+（`load_script`，`npc_script.py:237`）。Market_Def 现行为 `<编码>-<名字>-<地图>.txt`
+（迁移前是 `<编码>-<地图>.txt`，加载器规则未变、零代码改动）。同一脚本可被多个刷新点
+共享（script_cache 按 `M/N:脚本名:地图` 缓存，`world_extra.py:434`）。
+
+**2026-11-17 迁移（HANDOFF-PYSERVER §98）**：① 删除魔改 NPC 85 行——赌场（9Ega 系，
+B011 图名即"赌场"）、封魔谷 kl* 测验问答、白日门 9Wae*/9Wtt 道馆（任务物品破关珍剑
+不在 StdItems，纯装饰死内容）；② 同名同图多类型合并到有商品模板：屠夫@0→1Gme、
+屠夫@3→1Ame、铁匠铺老板@0→2Twe（老人@1 两份均无商品，不合并）；③ 其余 159 个文件
+按新格式重命名。孤儿脚本（43 个，含赌场残留）未动；Npc_Def 传送员脚本的
+`<比奇赌场/@dcmove>` 按钮仍在（指向已无 NPC 的赌场图），待用户决策。
 
 **脚本引擎**（`npc_script.py`，直译 Java NpcScript/NpcScriptEngine）：
 - `[@label]` 分段；`#IF`（条件）`#ACT`（动作）`#SAY`（文本）`#ELSEACT`/`#ELSESAY` 状态机；
