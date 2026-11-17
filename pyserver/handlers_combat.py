@@ -10,7 +10,7 @@ import random
 from typing import Any
 
 from .util import (
-    BAG_SIZE, SIGHT_RANGE, U_ARMRINGL, U_BUJUK, U_WEAPON, _int,
+    BAG_SIZE, RED_NAME_PK_POINT, SIGHT_RANGE, U_ARMRINGL, U_BUJUK, U_WEAPON, _int,
     calc_get_exp, delphi_round, direction_delta, direction_toward, java_div,
     java_round, now_ms, random_mine_dura,
 )
@@ -423,13 +423,29 @@ class CombatHandlers:
         party = self.world.party_of(p.id)
         return party is not None and target.id in party.member_ids
 
+    def _pvp_block_reason(self, p, target) -> str:
+        """原版 CheckAttackRule2（ObjBase.pas:7917-7935）的等级压制：
+        高级红名（Lv>10, PKLevel>=2）不能攻击低级（Lv<=10）非红名，反之亦然。
+        安全区（:7922）与换图 3 秒保护（:7938）本项目无对应状态，暂不实现。
+        """
+        if self._is_teammate(p, target):
+            return "不能攻击队友。"
+        me_red = p.pk_point >= RED_NAME_PK_POINT
+        tg_red = target.pk_point >= RED_NAME_PK_POINT
+        if me_red and p.level > 10 and target.level <= 10 and not tg_red:
+            return "对方是低级玩家，不能攻击。"
+        if not me_red and p.level <= 10 and tg_red and target.level > 10:
+            return "对方等级比你高，无法攻击。"
+        return ""
+
     def _attack_player(self, p, target) -> None:
         w = self.world
         if p.attack_mode == 0:
             w.send_system(p, "和平模式下无法攻击玩家。")
             return
-        if self._is_teammate(p, target):
-            w.send_system(p, "不能攻击队友。")
+        block = self._pvp_block_reason(p, target)
+        if block:
+            w.send_system(p, block)
             return
         if p.distance_to(target) > 1:
             return
@@ -453,7 +469,7 @@ class CombatHandlers:
         wear = random.randint(2, 6) - self._weapon_strong(p)
         if wear > 0:
             w.do_damage_weapon(p, wear)   # 原版 _Attack 对 PvP 同样磨损（:22396）
-        w.wear_struck(target, dmg)        # StruckDamage（ObjBase.pas:22261）
+        w.wear_struck(target, dmg, attacker=p)   # StruckDamage（ObjBase.pas:22261）
         o = {"type": "attack", "attackerId": p.id, "targetId": target.id,
              "damage": dmg, "x": target.x, "y": target.y}
         if sword_hit:
@@ -510,8 +526,9 @@ class CombatHandlers:
         if p.attack_mode == 0:
             w.send_system(p, "和平模式下无法攻击玩家。")
             return
-        if self._is_teammate(p, target):
-            w.send_system(p, "不能攻击队友。")
+        block = self._pvp_block_reason(p, target)
+        if block:
+            w.send_system(p, block)
             return
         d = direction_from(p.x, p.y, target.x, target.y)
         dx, dy = direction_delta(d)
@@ -524,7 +541,7 @@ class CombatHandlers:
         if isinstance(front, Player) and front.alive and hit_check(p, front):
             dmg = max(1, dam - front.combat.get("acMax", 0))
             front.hp = max(0, front.hp - dmg)
-            w.wear_struck(front, dmg)    # 原版 DirectAttack → StruckDamage（:21980）
+            w.wear_struck(front, dmg, attacker=p)   # 原版 DirectAttack → StruckDamage（:21980）
             w.broadcast_around(front.map, {"type": "attack", "attackerId": p.id,
                                            "targetId": front.id, "damage": dmg,
                                            "x": front.x, "y": front.y},
@@ -540,7 +557,7 @@ class CombatHandlers:
             return
         second = sword_second_dam(p, dam, 12, 5)
         target.hp = max(0, target.hp - second)
-        w.wear_struck(target, second)        # 原版 DirectAttack → StruckDamage
+        w.wear_struck(target, second, attacker=p)   # 原版 DirectAttack → StruckDamage
         w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
                                         "targetId": target.id, "damage": second,
                                         "x": target.x, "y": target.y, "swordHit": 12},
@@ -577,11 +594,11 @@ class CombatHandlers:
             self._broadcast_physical_hit(p, target, second)
             self._kill_if_dead(p, target, now_ms())
         elif isinstance(target, Player):
-            if p.attack_mode == 0 or self._is_teammate(p, target):
+            if p.attack_mode == 0 or self._pvp_block_reason(p, target):
                 return
             target.hp = max(0, target.hp - second)
             # 原版 DirectAttack 副目标同样走 StruckDamage（ObjBase.pas:21980）
-            w.wear_struck(target, second)
+            w.wear_struck(target, second, attacker=p)
             w.broadcast_around(target.map, {"type": "attack", "attackerId": p.id,
                                             "targetId": target.id, "damage": second,
                                             "x": target.x, "y": target.y},
@@ -1092,9 +1109,10 @@ class CombatHandlers:
         if (isinstance(target, Monster) and target.master_id == p.id
                 and not is_heal_magic(magic_id)):
             target = None
-        # 同队玩家不可被攻击魔法选中（原版 HAM_GROUP）；治疗系不受限。
+        # 同队/等级压制玩家不可被攻击魔法选中（原版 HAM_GROUP / CheckAttackRule2）；
+        # 治疗系不受限。
         if (not is_heal_magic(magic_id) and isinstance(target, Player)
-                and self._is_teammate(p, target)):
+                and self._pvp_block_reason(p, target)):
             target = None
         if isinstance(target, Monster):
             p.target_id = target.id

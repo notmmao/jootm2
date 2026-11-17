@@ -24,7 +24,7 @@ from .gamedata import (
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
     AGGRO_RANGE, CHICKEN_DEER_RUN, CHICKEN_DEER_VIEW, DOOR_OPEN_MS, GUARD_RACES,
-    HSET_SHAPES,
+    HSET_SHAPES, ILLEGAL_ATTACK_MS, PK_DECAY_INTERVAL_MS,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT, REGEN_INTERVAL_MS,
@@ -352,6 +352,11 @@ class Player(Actor):
     poison_armor_until: int = 0
     last_use_item_at: int = 0
     pk_point: int = 0
+    # 原版 BoIllegalAttack / IllegalAttackTime（ObjBase.pas:2824-2837）：
+    # 主动攻击白名玩家后置灰名，60 秒后清除；期间被反击属正当防卫。
+    illegal_attack_until: int = 0
+    # 原版 time10min（ObjBase.pas:7719）：上次减 PK 点的时刻，每 2 分钟 -1。
+    pk_decay_at: int = 0
     quest_params: dict[int, int] = field(default_factory=dict)
     guild_name: str = ""
     last_attack_at: int = 0
@@ -457,6 +462,10 @@ class Player(Actor):
             return NAME_COLOR_PK2
         if self.pk_point >= 100:
             return NAME_COLOR_PK1
+        # 灰名（原版 GetThisCharColor ObjBase.pas:3894-3898）：主动攻击白名
+        # 后 60 秒内盖成索引 47（棕），比白名优先；红/黄名则不被灰名盖。
+        if self.illegal_attack_until > 0:
+            return NAME_COLOR_PKFLAG
         if self.pk_point > 0:
             return NAME_COLOR_PKFLAG
         return NAME_COLOR_DEFAULT
@@ -1243,6 +1252,32 @@ class GameWorld(WorldExtra):
                 self.broadcast_entity_add(p)
                 self.space_move_show(p)
 
+    def _tick_pk(self, p: Player, now: int) -> None:
+        """PK 点衰减 + 灰名到期（原版 ObjBase.pas:7719-7724 / :2866-2870）。
+
+        - 在线每 ``PK_DECAY_INTERVAL_MS``（2 分钟）``DecPkPoint(1)``，离线不补算。
+          ``pk_decay_at`` 为 0（读档/新角色）时以当前时刻为基准，避免一上线
+          就把积攒的离线时间一次性扣掉（原版也没有离线补算）。
+        - 灰名 60 秒到期清 ``BoIllegalAttack``，并通过 RM_CHANGENAMECOLOR
+          刷新名字颜色（本项目广播 entityAdd 让周围重绘）。
+        """
+        changed = False
+        if p.illegal_attack_until and now >= p.illegal_attack_until:
+            p.illegal_attack_until = 0
+            changed = True
+        if p.pk_point > 0:
+            if not p.pk_decay_at:
+                p.pk_decay_at = now
+            elif now - p.pk_decay_at >= PK_DECAY_INTERVAL_MS:
+                p.pk_decay_at = now
+                p.pk_point -= 1
+                changed = True
+        elif p.pk_decay_at and p.pk_point <= 0:
+            p.pk_decay_at = 0
+        if changed:
+            # 名字颜色（黄→白/灰→白）要即时反映给周围玩家。
+            self.broadcast_entity_add(p)
+
     def clear_map_monsters(self, map_id: str) -> int:
         """原版脚本 ``MonClear``（MapMonster 清怪）：直接移除活怪（无尸体无掉落）。"""
         gm = self.maps.get(map_id)
@@ -1489,7 +1524,23 @@ class GameWorld(WorldExtra):
         if delphi_round(dura / 1.03) != old_point:
             self.send_dura_change(p, U_WEAPON, it)
 
-    def wear_struck(self, target: Player, damage: int) -> None:
+    def mark_illegal_attack(self, attacker: Player, victim: Player, now: int) -> None:
+        """原版 ``AddPkHiter``（ObjBase.pas:2824-2837）：白/黄名玩家主动攻击
+        另一个白/黄名玩家时，给攻击者置 ``BoIllegalAttack`` 灰名 60 秒。
+
+        灰名的意义：受害者反击杀死攻击者时，``IsGoodKilling``（:2894-2910）
+        看到攻击者是灰名 → 判正当防卫，反击者不加 PK 点。红名双方互殴不
+        置灰名（原版 `if (PkLevel<2) and (hiter.PkLevel<2)`）。
+        """
+        if attacker.pk_point >= RED_NAME_PK_POINT or victim.pk_point >= RED_NAME_PK_POINT:
+            return
+        # 受害者已是灰名 = 受害者先动的手，这里攻击者是反击方，不再置灰名。
+        if victim.illegal_attack_until > now:
+            return
+        attacker.illegal_attack_until = now + ILLEGAL_ATTACK_MS
+
+    def wear_struck(self, target: Player, damage: int,
+                    attacker: "Actor | None" = None) -> None:
         """原版 ``TBaseObject.StruckDamage``（ObjBase.pas:22461-22560）：被击中
         且伤害 > 0 时装备磨损——先对衣服（U_DRESS）固定磨损 ``Random(10)+5``
         （:22478-22516），再对**全部**装备槽（含武器、含衣服）各 1/8 概率磨损
@@ -1498,6 +1549,11 @@ class GameWorld(WorldExtra):
         变化才发 SM_DURACHANGE。POISON_DAMAGEARMOR 的 ×1.2 本项目暂无该毒
         状态，略。
         """
+        # 原版 AddPkHiter 在 Struck（挨打）里给攻击者置灰名，不在 _Attack 里。
+        # 只在实际造成伤害（damage>0）时才算「动手」，与磨损口径一致；即使
+        # 没穿装备（equipment 为空）也要打标记，故放在 equipment 检查之前。
+        if damage > 0 and isinstance(attacker, Player) and attacker is not target:
+            self.mark_illegal_attack(attacker, target, now_ms())
         if damage <= 0 or not target.equipment:
             return
         n_dam = random.randint(5, 14)
@@ -1678,6 +1734,7 @@ class GameWorld(WorldExtra):
                 continue
             if isinstance(a, Player):
                 self._tick_time_recall(a, now)
+                self._tick_pk(a, now)
                 self._regen(a, now)
                 self._expire_buffs(a, now)
                 self._apply_poison(a, now)

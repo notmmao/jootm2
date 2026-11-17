@@ -24,7 +24,7 @@ from .handlers_items import ITEM_TYPES, ItemHandlers
 from .handlers_npc import NPC_TYPES, NpcHandlers
 from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
-from .util import U_DRESS, U_WEAPON
+from .util import RED_NAME_PK_POINT, U_DRESS, U_WEAPON
 from .version import load_version
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
                     encode, normalize_exp, now_ms)
@@ -419,6 +419,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # NPC 脚本任务变量（SET/CHECK [n]）跨登录持久：不读库则领过一次性
         # 奖励的角色重登后标记归零，可无限重领（玛法领路人 5000 金币）。
         p.quest_params = self.db.load_quest_params(rec["id"])
+        # PK 恶意值跨登录持久（原版存库，重登不归零）。
+        p.pk_point = self.db.load_pk_point(rec["id"])
         p.distribute_items(world)
         p.recompute(world)
         if 12 in p.skills:
@@ -430,10 +432,17 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if p.hp <= 0:
             p.dead = False
             p.alive = True          # 与 m_boDeath 一并复位，否则复活后仍是「目标不可选」
-            home = world.get_or_load_map(p.home_map) or world.default_map
+            # 原版 UsrEngn.pas:576-600 + ObjBase.pas:3170-3177：红名（PKLevel>=2）
+            # 复活到红名村 BADMANHOMEMAP='3' / (845,674)，落点同样 ±2 随机。
+            if p.pk_point >= RED_NAME_PK_POINT:
+                home = world.get_or_load_map("3") or world.default_map
+                hx, hy = 845, 674
+            else:
+                home = world.get_or_load_map(p.home_map) or world.default_map
+                hx, hy = p.home_x, p.home_y
             p.map = home
-            p.x = max(0, min(home.width - 1, p.home_x - 2 + random.randint(0, 4)))
-            p.y = max(0, min(home.height - 1, p.home_y - 2 + random.randint(0, 4)))
+            p.x = max(0, min(home.width - 1, hx - 2 + random.randint(0, 4)))
+            p.y = max(0, min(home.height - 1, hy - 2 + random.randint(0, 4)))
             p.dir = 4
             p.hp, p.mp = 14, 0
         else:
@@ -824,6 +833,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # 空 dict 也写一行，避免重登时读到缺省空值；无角色 id 时跳过。
         if p.character_id:
             self.db.save_quest_params(p.character_id, p.quest_params)
+            self.db.save_pk_point(p.character_id, p.pk_point)
 
     def save_all_players(self) -> None:
         for p in self.world.players():

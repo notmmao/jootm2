@@ -14,8 +14,8 @@ from typing import Any
 from .drop_rates import load_drop_rates
 from .gamedata import parse_map_quest, read_lines
 from .util import (
-    BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, RED_NAME_PK_POINT,
-    SIGHT_RANGE, U_WEAPON, encode, java_div, now_ms,
+    BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, PK_POINT_PER_KILL,
+    RED_NAME_PK_POINT, SIGHT_RANGE, U_WEAPON, encode, java_div, now_ms,
 )
 
 
@@ -889,6 +889,7 @@ class WorldExtra:
                 return
 
     def kill_player(self, p, killer=None) -> None:
+        from .world import Player   # 延迟导入，避免 world ↔ world_extra 循环
         # 原版 SM_NOWDEATH（Actor.pas:2388-2395）：客户端 m_boDeath := TRUE，
         # 播死亡音效与 bmg_gameover，PlayScn.pas:1476 把画面切成 ceGrayScale
         # 黑白屏；服务端**不**把角色搬回城。复活靠退出角色重新登录，
@@ -906,6 +907,19 @@ class WorldExtra:
             self.send_stats(p)
             return
         self.broadcast_around(p.map, {"type": "death", "id": p.id}, p.x, p.y)
+        # 原版 ObjBase.pas:2707-2718：玩家杀玩家，非正当防卫 +100 PK 点。
+        # IsGoodKilling（:2894-2910）= 死者当时处于 BoIllegalAttack 灰名
+        # （说明死者先动的手），此时反击者不加 PK。灰名若已过期则照常加。
+        now = now_ms()
+        if isinstance(killer, Player) and killer is not p:
+            good_killing = p.illegal_attack_until > now
+            if not good_killing:
+                killer.pk_point += PK_POINT_PER_KILL
+                self.send_system(killer, f"你杀了人。（恶意值 {killer.pk_point}）")
+            # 灰名标记随这次击杀结算：死者成尸体不再需要灰名，攻击者这一轮
+            # 攻击也已结算（下次再动手会重新置位）。
+            killer.illegal_attack_until = 0
+            p.illegal_attack_until = 0
         summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
         if summon is not None and summon.alive:
             self.remove_summon(summon)

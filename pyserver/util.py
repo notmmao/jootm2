@@ -35,6 +35,14 @@ SUPER_GUARD_RACES = frozenset({11, 12})
 # （TGuardUnit.IsProperTarget ObjMon2.pas:878 / TSuperGuard.Run ObjGuard.pas:100）
 # = 深红名 pk_point >= 200。黄名（100~199）不会被守卫攻击。
 RED_NAME_PK_POINT = 200
+# 原版 ObjBase.pas:7719-7724：在线每 2 分钟 DecPkPoint(1)（变量名 time10min
+# 是历史遗留，实际间隔 2*60*1000）。离线不衰减，源码无离线补算。
+PK_DECAY_INTERVAL_MS = 2 * 60 * 1000
+# 原版 BoIllegalAttack（ObjBase.pas:2824-2837 / :2866-2870）：主动攻击白名
+# 玩家后灰名 60 秒；期间对方反击属正当防卫 IsGoodKilling（:2894-2910）不加 PK。
+ILLEGAL_ATTACK_MS = 60 * 1000
+# 原版杀人 AddPkPoint(100)（ObjBase.pas:2709）：杀 1 人黄名、2 人红名。
+PK_POINT_PER_KILL = 100
 # 中立怪：不主动搜敌，**被打才还击**。原版这些 race 实例化成 TMonster，
 # 而 TMonster.Run（ObjMon.pas:415）里没有 SearchTarget 调用（只有 Wondering 乱走），
 # 目标只可能来自 TAnimalObject.Struck(hiter) → SetTargetCreat(hiter)。

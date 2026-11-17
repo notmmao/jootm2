@@ -67,6 +67,11 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS character_quests ("
     "character_id INTEGER PRIMARY KEY, params TEXT NOT NULL DEFAULT '{}', "
     "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
+    # PK 恶意值（原版 PlayerKillingPoint）。独立于 characters 表：Java 侧共用
+    # characters 结构，绝不往里加列；这张表只由 Python 端读写。
+    "CREATE TABLE IF NOT EXISTS character_pk ("
+    "character_id INTEGER PRIMARY KEY, pk_point INTEGER NOT NULL DEFAULT 0, "
+    "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
 )
 
 
@@ -332,6 +337,21 @@ class Database:
                 "INSERT INTO character_quests(character_id, params) VALUES(?, ?) "
                 "ON CONFLICT(character_id) DO UPDATE SET params=excluded.params",
                 (character_id, payload),
+            )
+
+    def load_pk_point(self, character_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT pk_point FROM character_pk WHERE character_id = ?",
+            (character_id,),
+        ).fetchone()
+        return int(row["pk_point"]) if row else 0
+
+    def save_pk_point(self, character_id: int, pk_point: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO character_pk(character_id, pk_point) VALUES(?, ?) "
+                "ON CONFLICT(character_id) DO UPDATE SET pk_point=excluded.pk_point",
+                (character_id, int(pk_point)),
             )
 
     def max_item_make_index(self) -> int:
