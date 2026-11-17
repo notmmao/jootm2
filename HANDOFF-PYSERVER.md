@@ -472,3 +472,15 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 - 全部 58 个原版库首图偏移恒 1080、v1.0 头，实测一致。
 
 **验证**：工具链实测——Hum dump→pack 回环像素全等；合成 MA11 怪物（232 帧，appr205→mon21 偏移 1800）打包/校验/预览通过，agent-browser 截图确认动画与锚点渲染正确；merge 进现有库后旧帧字节保真（1800 帧原样）。回归 test_pyserver **122/0**（D:/Python310/python.exe）。预览页样例：`data/wil_pack_test/*.preview.html`（gitignored，可随时用 preview 命令重新生成）。
+
+## §100 阿里云 gamedata 热同步：商人改名迁移上线（2026-11-17）
+
+**背景**：§98 商人清理+重命名（`6c9eeb4`）是纯数据改动。gamedata 虽 COPY 进镜像，但 compose 的 `./gamedata:/app/gamedata` 挂载会整体压住镜像内数据（§21.8 坑）——只推镜像不生效，必须 rsync 宿主目录 + 重启。用户指令：同步阿里云，涉及改名，必要时远端 rename 后全新上传。
+
+**执行**：先 `--dry-run -i` 审查删除清单——241 个删除全部是 Market_Def 旧名（159 改名旧名 + 82 被删脚本），159 新文件 + MerChant.txt 更新，Map/CSV/Notice 零变更，无意外删除项；再执行 §21.8 标准命令 `rsync -az --delete --exclude 'Mir200/Map' --exclude '.gbk-backup' gamedata/ root@aliyun.notmmao.com:/root/jootm2/gamedata/`（`--delete` 天然处理改名：删旧名+传新名，无需手工远端 rename）→ `docker compose restart jootm2`。junction 告警按 §21.8 无害（已排除、未传输 204MB 地图）；`data/`（账号库）绝不同步。
+
+**验证**：容器内 Market_Def **201** 文件、新名（`1Ame-屠夫-3.txt` 等）、旧 `1Bme-0.txt` 已清除、MerChant **250** 行且含 `1Gme-屠夫 0 313 271`；启动日志 `242 drop tables, 207 npcs, castle=沙巴克/3, quests=10/6`（207 = 163 商人 + 44 Npcs.txt）；公网 IP `/api/status` **200**（48ms）。
+
+**版本说明**：`/api/version` 仍为 `3ad46df`（2026-11-16 镜像）——本轮是数据热同步，未重建镜像（零代码改动，无需）。用户的 `1d71c72` 前端光照/缩放及后续提交不在镜像内，如需生效跑 `bash scripts/deploy_image.sh`（镜像更新后 version 指向最新 hash；gamedata 挂载仍压镜像数据，但宿主目录已是最新，不冲突）。
+
+**提交**：本节 [文档] 提交；数据改动本体在 `6c9eeb4`。
