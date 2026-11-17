@@ -8,14 +8,44 @@
  * - 交易双方各一个窗口：左=自己（可放/取物品、设金币、锁定确认），右=对方（只读）。
  * - 组队面板：队员列表（名字/等级/血条/地图）、邀请输入、离线/退队、队伍聊天。
  *
- * 用法：new TradePartyUI({ container, conn, libUrl, onLog })，PlayScene.onMessage
+ * 用法：new TradePartyUI({ container, conn, libUrl, libTexture, onLog })，PlayScene.onMessage
  * 把上述 type 转给 handleMessage(type,msg)，onExit 调 destroy()。
  */
+import { PALETTE_RGBA } from '../gfx/palette.mjs';
+
+/** 调色板索引 → CSS 颜色（与 MapActor 同表，原版 GetRGB/DefColorTable）。 */
+function paletteFill(idx) {
+    if (idx == null) return null;
+    const i = Number(idx) * 4;
+    if (!Number.isInteger(i) || i < 0 || i + 2 >= PALETTE_RGBA.length) return null;
+    return `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
+}
+
+// 查看他人装备窗的 13 槽坐标 = FState.pas:1272-1325 的 DSWxxx（与 F10 的 EQUIP_SLOTS 同口径）
+// [slot, x, y, w, h]，相对窗口左上角；衣服/武器/头盔叠在人物身上，此处仅作悬停热区。
+const DSW_SLOTS = [
+    [0,   96, 122, 53, 112],
+    [1,   47,  80, 47,  87],
+    [2,  168, 125, 34,  31],
+    [3,  168,  87, 34,  31],
+    [4,  115,  93, 18,  18],
+    [5,  168, 176, 34,  31],
+    [6,   42, 176, 34,  31],
+    [7,  168, 215, 34,  31],
+    [8,   42, 215, 34,  31],
+    [9,   42, 254, 34,  31],
+    [10,  84, 254, 34,  31],
+    [11, 126, 254, 34,  31],
+    [12, 168, 254, 34,  31],
+];
+
 export class TradePartyUI {
-    constructor({ container, conn, libUrl, onLog }) {
+    constructor({ container, conn, libUrl, libTexture, onLog }) {
         this.container = container;
         this.conn = conn;
         this.libUrl = libUrl;
+        // WIL 纹理 + 像素偏移（画查看装备窗时把衣服/武器/头盔叠在人物身上要用到）
+        this.libTexture = libTexture || (async () => null);
         this.onLog = onLog || (() => {});
         this.trade = null;          // { selfName, otherName, state }
         this.party = null;          // { leaderId, members }
@@ -480,55 +510,117 @@ export class TradePartyUI {
 
     // ------------------------------------------------------------ 查看他人装备
 
-    // 13 槽装备坐标（原版 U_DRESS..U_CHARM，复用 FState.pas DSWxxx 布局；
-    // 与 PlayScene 的 EQUIP_SLOTS 同口径，这里独立定义避免跨模块耦合）。
-    _inspectSlots() {
-        return [
-            [0, 96, 58, '衣服'], [1, 47, 16, '武器'], [2, 168, 61, '右手'],
-            [3, 168, 23, '项链'], [4, 115, 29, '头盔'], [5, 168, 112, '手镯L'],
-            [6, 42, 112, '手镯R'], [7, 168, 151, '戒指L'], [8, 42, 151, '戒指R'],
-            [9, 42, 190, '护身符'], [10, 84, 190, '腰带'], [11, 126, 190, '靴子'],
-            [12, 168, 190, '宝石'],
-        ];
-    }
-
-    /** Ctrl+右键玩家后收到 userState 快照，弹独立装备窗（原版 DUserState1）。 */
-    _showUserState(msg) {
-        if (this._inspectWin) this._inspectWin.remove();
-        const win = this._window(`${msg.name || '玩家'} 的装备`, 470, 110, 232, 300, 207,
-            () => { win.remove(); this._inspectWin = null; });
+    /** Ctrl+右键玩家后收到 userState 快照，弹原版 DUserState1 风格的装备窗。
+     *  ① 底图 Prguse3[207]  ② 半身像 Prguse3[29/30]@(38,52)
+     *  ③ 头发/衣服/武器/头盔叠在人物身上 @(31,96)+偏移（FState.pas:5295-5332）
+     *  ④ 13 槽透明热区（DSWxxx）  ⑤ 名字居中@(122,23)  ⑥ 关闭键 Prguse[371]@(8,39)
+     */
+    async _showUserState(msg) {
+        if (this._inspectWin) { this._inspectWin.remove(); this._inspectWin = null; }
+        const win = this._track(this._mk(
+            'position:absolute;left:568px;top:0;width:232px;height:362px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;z-index:30;'));
         this._inspectWin = win;
-        const head = document.createElement('div');
-        head.style.cssText = 'position:absolute;left:12px;top:26px;width:208px;'
-            + 'text-align:center;font-size:12px;color:#ffd76a;';
-        const JOBS = ['战士', '法师', '道士'];
-        head.textContent = `${msg.name || '?'}  Lv.${msg.level || '?'}  ${JOBS[msg.job] || ''}`;
-        win.appendChild(head);
+
+        // ① 窗口底图：Prguse3[207]（232×362，与本项目 F10 状态窗同一张，自带底部描述框）
+        this.libUrl('prguse3', 207).then((url) => {
+            if (url && win.isConnected) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                win.insertBefore(bg, win.firstChild);
+            }
+        });
+
+        // ② 人物半身像：男 Prguse3[29] / 女 Prguse3[30]，画在 (38,52)
+        const sex = Number(msg.sex) === 1 ? 1 : 0;
+        const hair = Number(msg.hair) || 0;
+        this.libUrl('prguse3', sex ? 30 : 29).then((url) => {
+            if (url && win.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:38px;top:52px;pointer-events:none;';
+                win.insertBefore(im, win.firstChild.nextSibling); // 底图之后、装备叠层之前
+            }
+        });
+
+        // ③ 头发/衣服/武器/头盔叠在人物身上（原版顺序，基准 31,96 + 纹理自带 px/py）
+        const figure = this._mk('position:absolute;left:0;top:0;width:232px;height:362px;'
+            + 'pointer-events:none;', win);
         const bySlot = {};
-        for (const it of (msg.items || [])) {
-            if (it.slot != null) bySlot[it.slot] = it;
-        }
-        for (const [slot, x, y, label] of this._inspectSlots()) {
-            const cell = document.createElement('div');
-            cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:34px;height:31px;`
-                + 'box-sizing:border-box;border:1px solid #6b5636;background:rgba(0,0,0,.35);'
-                + 'display:grid;place-items:center;overflow:hidden;';
+        for (const it of (msg.items || [])) if (it.slot != null) bySlot[it.slot] = it;
+        const overlay = async (lib, idx) => {
+            if (idx == null || idx < 0) return;
+            let tex = null;
+            try { tex = await this.libTexture(lib, idx); } catch (_) { tex = null; }
+            if (!tex || !figure.isConnected) return;
+            const src = tex.canvas;
+            const cv = document.createElement('canvas');
+            cv.width = src.width; cv.height = src.height;
+            cv.getContext('2d').drawImage(src, 0, 0);
+            cv.style.cssText = `position:absolute;left:${31 + (tex.px || 0)}px;`
+                + `top:${96 + (tex.py || 0)}px;`;
+            figure.appendChild(cv);
+        };
+        // 发型：原版 440+hair div 2（男）/ 480+（女），Prguse。
+        // 纹理异步补齐即可（不阻塞名字/槽位/等级这些 DOM 骨架的建立）。
+        overlay('prguse', (sex ? 480 : 440) + Math.floor(hair / 2));
+        if (bySlot[0]) overlay('stateitem', bySlot[0].looks);  // 衣服
+        if (bySlot[1]) overlay('stateitem', bySlot[1].looks);  // 武器
+        if (bySlot[4]) overlay('stateitem', bySlot[4].looks);  // 头盔
+
+        // ④ 13 槽透明热区（坐标 = DSWxxx）：叠在人物身上的 0/1/4 不放图标，其余放 WStateItem
+        const ICON_SLOTS = new Set([2, 3, 5, 6, 7, 8, 9, 10, 11, 12]);
+        const LABELS = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R',
+            '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
+        for (const [slot, x, y, w, h] of DSW_SLOTS) {
             const it = bySlot[slot];
-            if (it) {
-                cell.title = `${label}：${it.name}`;
+            const cell = this._mk(`position:absolute;left:${x}px;top:${y}px;`
+                + `width:${w}px;height:${h}px;cursor:help;box-sizing:border-box;`, win);
+            cell.title = it ? `${LABELS[slot]}：${it.name}` : LABELS[slot];
+            if (it && ICON_SLOTS.has(slot)) {
                 this.libUrl('stateitem', it.looks).then((url) => {
                     if (url && cell.isConnected) {
                         const im = document.createElement('img');
                         im.src = url; im.draggable = false;
-                        im.style.cssText = 'max-width:32px;max-height:29px;';
+                        im.style.cssText = 'width:100%;height:100%;object-fit:contain;';
                         cell.appendChild(im);
                     }
                 });
-            } else {
-                cell.title = label;
             }
-            win.appendChild(cell);
         }
+
+        // ⑤ 名字（原版居中 122,23，用原版关系色索引）；等级/职业放底部描述框
+        const name = document.createElement('div');
+        name.style.cssText = 'position:absolute;left:0;top:23px;width:232px;text-align:center;'
+            + 'font-size:12px;color:#ffe9b0;text-shadow:1px 1px 0 #000;pointer-events:none;';
+        name.textContent = msg.name || '?';
+        const c = paletteFill(msg.nameColor);
+        if (c) name.style.color = c;
+        win.appendChild(name);
+        const JOBS = ['战士', '法师', '道士'];
+        const info = document.createElement('div');
+        info.style.cssText = 'position:absolute;left:40px;top:307px;width:160px;height:44px;'
+            + 'font-size:12px;line-height:15px;color:#e8d9b0;pointer-events:none;';
+        info.textContent = `Lv.${msg.level || '?'}  ${JOBS[msg.job] || ''}`;
+        win.appendChild(info);
+
+        // ⑥ 关闭键：原版 DCloseUS1=Prguse[371] @ (8,39)，按下态图片平时隐藏
+        const close = this._mk('position:absolute;left:8px;top:39px;width:16px;height:23px;'
+            + 'cursor:pointer;', win);
+        close.addEventListener('click', () => { win.remove(); this._inspectWin = null; });
+        this.libUrl('prguse', 371).then((url) => {
+            if (url && close.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'visibility:hidden;display:block;';
+                close.appendChild(im);
+                close.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                const restore = () => { im.style.visibility = 'hidden'; };
+                close.addEventListener('mouseup', restore);
+                close.addEventListener('mouseleave', restore);
+            }
+        });
     }
 
     // ------------------------------------------------------------ 消息入口

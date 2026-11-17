@@ -356,6 +356,10 @@ export class PlayScene extends Scene {
         this.tradePartyUI = new TradePartyUI({
             container: gui, conn: this.conn,
             libUrl: (lib, idx) => this._libUrl(lib, idx),
+            libTexture: async (lib, idx) => {
+                const L = getLib(lib);
+                return L ? L.getTexture(idx) : null;
+            },
             onLog: (text, color) => this._log(text, color),
         });
 
