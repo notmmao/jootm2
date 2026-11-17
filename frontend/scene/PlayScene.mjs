@@ -16,6 +16,7 @@ import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.
 import { toggleFogTunePanel } from '../ui/FogTunePanel.mjs';
 import { TradePartyUI } from '../ui/TradePartyUI.mjs';
 import { findPath } from '../map/pathfind.mjs';
+import { TouchControls } from '../input/TouchControls.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
@@ -336,6 +337,18 @@ export class PlayScene extends Scene {
         this._canvas.addEventListener('mousedown', this._mdHandler);
         document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
         document.addEventListener('mousemove', this._mmHandler);
+
+        // 移动端触屏控制：只有移动触屏设备才创建虚拟 UI，桌面端完全不介入。
+        this.touch = new TouchControls(document.getElementById('stage'), {
+            onAttack: () => this._touchAttack(),
+            onPick: () => this._touchPick(),
+            onPotion: () => { this._takeOverAuto(); this._useQuickSlot(0); },
+            onSkill: (n) => { this._takeOverAuto(); this._castFromSlot(n); },
+            onBag: () => this._toggleBag(),
+            onMap: () => this._cycleMapView(),
+            onMenu: () => { if (!this._closeTopWindow()) this._toggleSystemMenu(); },
+        });
+        window.__touchControls = this.touch;   // 回归/调试：enabled + 控件状态
 
         // 升级光效 14 帧一次性预取。WIL 的 getTexture 是异步的，边播边取会
         // 留下整帧空白（用户反馈「闪得厉害」）；原版 GetCachedImage 是同步
@@ -1126,6 +1139,57 @@ export class PlayScene extends Scene {
         if (dir < 0) return;
         this.conn.send('move', { dir, run: false });
         this._lastMoveAt = now;
+    }
+
+    // ---- 移动端触屏输入 ----
+    /** 摇杆驱动：与鼠标按住/自动导航共用 _lastMoveAt 节流，手动方向优先。 */
+    _tickTouchMove(now) {
+        const t = this.touch;
+        if (!t || !t.enabled || !this.self || this._selfDead) return;
+        const dir = t.direction();
+        if (dir < 0) return;
+        if (this._navPath) this._cancelNav(true);
+        this.chaseTargetId = null;
+        const run = t.running();
+        if (now - this._lastMoveAt < (run ? RUN_INTERVAL : WALK_INTERVAL)) return;
+        this._takeOverAuto();
+        this.conn.send('move', { dir, run });
+        this._lastMoveAt = now;
+    }
+
+    /** 攻击键：锁定最近怪物并追击；附近没怪就朝当前朝向空挥。 */
+    _touchAttack() {
+        if (!this.self || this._selfDead) return;
+        this._takeOverAuto();
+        let target = null, best = 99;
+        for (const e of this.entities.values()) {
+            if (e.type !== 'monster' || e.dead || (e.hp != null && e.hp <= 0)) continue;
+            if (this._isOwnSlave(e)) continue;
+            const d = this._dist(this.self, e);
+            if (d < best) { best = d; target = e; }
+        }
+        if (target) {
+            this.castTarget = target.id;
+            this.chaseTargetId = target.id;
+            if (best <= 1 || (best === 2 && this.self._longHit)) this._tryAttack(target.id);
+        } else if (this.self.dir >= 0) {
+            this.chaseTargetId = null;
+            this._dirAttack(this.self.dir);
+        }
+    }
+
+    /** 拾取键：优先脚下，其次 1 格内最近掉落物。 */
+    _touchPick() {
+        if (!this.self || this._selfDead) return;
+        this._takeOverAuto();
+        let target = this._groundAt(this.self.x, this.self.y), best = 0;
+        if (!target) {
+            for (const g of this.groundItems.values()) {
+                const d = this._dist(this.self, g);
+                if (d <= 1 && (best === 0 || d < best)) { best = d; target = g; }
+            }
+        }
+        if (target) this.conn.send('pickup', { itemId: target.id });
     }
 
     // 角色是否空闲（动作已完成）：self 无动作或已回到 stand
@@ -4215,6 +4279,7 @@ export class PlayScene extends Scene {
         // 不会向服务端灌入一串 move 造成坐标跳跃与动画脱节。
         // 自动导航（大地图普通点击）：优先于按住手动移动，共用发送节流节奏
         this._tickAutoNav(now);
+        this._tickTouchMove(now);
         if ((this._holding || this._pendingStep) && !this._navPath
                 && this.self && this._mouseDir >= 0) {
             const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
@@ -4993,6 +5058,7 @@ export class PlayScene extends Scene {
     }
 
     onExit() {
+        if (this.touch) { this.touch.destroy(); this.touch = null; window.__touchControls = null; }
         if (this.tradePartyUI) { this.tradePartyUI.destroy(); this.tradePartyUI = null; }
         if (sound.terrainAt) sound.terrainAt = null;   // 场景切走：别让音效模块继续读这张地图
         document.removeEventListener('keydown', this._keyDown);

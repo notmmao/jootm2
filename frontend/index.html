@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
     <title>传奇 MIR2</title>
     <style>
         html, body {
@@ -33,6 +33,21 @@
             /* 内部逻辑坐标恒为 800×600；由 main.mjs 按窗口等比 scale */
             transform-origin: center center;
             will-change: transform;
+        }
+        /* 移动端触屏：禁长按选择/高亮与页面回弹；画布与摇杆各自 touch-action:none */
+        body.touch { -webkit-user-select: none; user-select: none;
+            -webkit-touch-callout: none; overscroll-behavior: none; }
+        body.touch #screen, body.touch #touch-ui { touch-action: none; }
+        body.touch #gui { touch-action: pan-y; }   /* 背包等窗口内仍可滚动 */
+        #rotate-tip { display: none; }
+        @media (orientation: portrait) and (pointer: coarse) and (max-width: 820px) {
+            body.touch #rotate-tip {
+                display: flex; position: fixed; left: 0; right: 0; top: 0; z-index: 80;
+                height: 34px; align-items: center; justify-content: center;
+                background: rgba(12, 16, 24, .88); color: #ffe6a8;
+                font: 13px SimSun, serif; letter-spacing: 1px;
+                padding-top: env(safe-area-inset-top, 0);
+            }
         }
         /* 游戏场景层（canvas 轮询绘制） */
         #screen {
@@ -117,6 +132,7 @@
     </style>
 </head>
 <body>
+    <div id="rotate-tip">↻ 横屏体验更佳 · 请旋转设备</div>
     <div id="stage">
         <canvas id="screen" width="800" height="600"></canvas>
         <div id="gui"></div>
