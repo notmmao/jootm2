@@ -525,3 +525,28 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **注意**：① 需**重启服务端**才生效（引擎/DB 改动）；浏览器 Ctrl+F5。② 老存档第一次启动会自动建 `character_quests` 表，存量角色 `[001]` 视为未领——若有玩家已领过但库里无标记，会再领一次（一次性，之后正常）。③ 原版 `@next1` 只判 `checklevel 3`、未二次校验 `[001]`，UI 正常路径进不去（@main 已分流到 @away），按保真不擅自加校验。
 
 **提交**：见本轮 git log（标签按 CLAUDE.md：跨脚本语义+数据持久化，拆为 `[逻辑]` 引擎语义 + `[数据]` 持久化）。
+
+## §103 交易 + 组队功能落地：服务端协议补齐 + 前端 UI（2026-11-17，用户要求）
+
+**用户要求**：「现在支持组队么？交易、组队这些功能都要加上。」
+
+**调研结论**：服务端原有骨架——`world_extra.py` 有 Party/TradeSession、`handlers_social.py` 有 6 个交易 + 3 个组队 handler、经验共享/同队拾取已实现；但①交易缺开窗下发/状态同步/移除物品/距离校验，②组队是「邀请即入队」无确认、无队员状态推送，③**前端完全没有 UI**（只有「交易功能未开放」「编组功能未开放」两个占位按钮）。
+
+**服务端改动**（原版依据火炬 ObjBase.pas:13918 ServerGetDealTry → :14241 SM_DEALSUCCESS；EnterGroup/LeaveGroup :6073-6084；HAM_GROUP Grobal2.pas:580）：
+- `handlers_social.py`：交易新增 `tradeReject/tradeRemoveItem/tradeSetGold`，`_push_trade` 在每步发 `tradeStart`（开窗）+ `tradeState`（双方物品/金币/确认，B 视角左右对调）+ `tradeEnd`（success/cancel）；加同图/距离≤2 校验、背包容量校验、取消退还。组队改为邀请须 `partyAccept` 确认（新增 `partyReject/partyInfo/partySys`），`partyInfo` 含成员 hp/maxHp/level/map/online。
+- `world_extra.py`：新增 `party_invites` 字典、`party_snapshot_msg`/`broadcast_party_info`，`tick_extra` 每 500ms 重发队伍血量（队员血条实时）。
+- `service.py`：新增消息分派；`on_disconnect` 退队 + 取消交易退还，避免对方窗口卡死/物品凭空消失。
+- `handlers_combat.py`：`_is_teammate` 在近战/刺杀/魔法三处 PvP 入口过滤同队目标（原版 HAM_GROUP 语义，本服无攻击模式切换 UI 用「同队互助」兜底）。
+
+**前端改动**：新增 `frontend/ui/TradePartyUI.mjs`（独立模块，挂 GUI 容器 800×600 随 stage 缩放）：
+- 交易：发起输入名字框、收到请求弹确认、双方窗口（self 可点格子取回物品/设金币/锁定确认，other 只读）、tradeState 增量刷新、tradeEnd 关窗。物品图走 items/looks，名称按原版 tooltip（title 属性）。
+- 组队：编组按钮开面板（队员名/等级/血条/离线标记）、邀请输入、退队、队伍聊天（回车）、收到邀请弹确认。
+- `frontend/scene/PlayScene.mjs`：import + `_buildHud` 里实例化 + 两个占位按钮接线 + `onMessage` 顶部转发 + `onExit` 销毁。
+
+**协议（前端↔服务端）**：上行新消息 `partyAccept/partyReject/partyInfo`、`tradeReject/tradeRemoveItem/tradeSetGold`；下发 `partyInfo/partySys/partyInvite`、`tradeInvite/tradeStart/tradeState/tradeEnd`。
+
+**验证**：新增 `scripts/test_trade_party.py` 33/0（邀请确认/拒绝、开窗状态对调、setGold 可下调、取回物品、取消退还、成交互换、距离校验、不伤队友）+ `scripts/test_trade_party_ui.py` 17/17（Playwright 3.9 无头，合成消息驱动 UI：面板/血条/聊天/邀请确认/交易窗口/关窗，零 JS 异常）。`test_all_messages` 95/0（更新组队断言为邀请+确认两步）、`test_pyserver` 128/0、`test_tick_systems` 180/0、`test_npc_mafa_guide` 18/0。
+
+**注意**：① 需重启服务端 + Ctrl+F5 生效。② 交易栏 14 格（原版 DDGrid 上限）。③ `tradeSetGold` 是设置交易栏金币**总额**（原版 CM_DEALCHGGOLD 语义），可下调取回；旧 `tradeAddGold` 累加语义保留兼容。④ 原版交易/组队窗口视觉用 DOM 近似（项目一贯做法），坐标非原版 DFM 像素级复刻。⑤ 行会/攻城仍未做前端 UI（本轮不在范围）。
+
+**提交**：见本轮 git log（按 CLAUDE.md 标签：服务端逻辑 `[逻辑]`、协议保真 `[保真]`、前端 `[前端]`、测试 `[测试]`、文档 `[文档]`，分提交）。
