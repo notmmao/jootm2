@@ -151,8 +151,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "guildAlly": self._guild_ally,
             # 组队
             "partyInvite": self._party_invite,
+            "partyAccept": self._party_accept,
+            "partyReject": self._party_reject,
             "partyLeave": self._party_leave,
             "partyChat": self._party_chat,
+            "partyInfo": self._party_info,
             # 仓库
             "storageOpen": self._storage_open,
             "storageStore": self._storage_store,
@@ -160,9 +163,12 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             # 交易
             "tradeRequest": self._trade_request,
             "tradeAccept": self._trade_accept,
+            "tradeReject": self._trade_reject,
             "tradeCancel": self._trade_cancel,
             "tradeAddItem": self._trade_add_item,
+            "tradeRemoveItem": self._trade_remove_item,
             "tradeAddGold": self._trade_add_gold,
+            "tradeSetGold": self._trade_set_gold,
             "tradeConfirm": self._trade_confirm,
         }
         if set(self._handlers) != set(MIGRATED_TYPES):
@@ -221,6 +227,16 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # 托管生命周期的唯一清理点：登出 / 退回选角 / 断线全部汇合于此。
         # 只清内存实例，不写任何状态到库，重登必须玩家显式再开一次。
         self.autopilot.on_disconnect(p)
+        # 社交会话清理：退队并通知队友、取消交易并退还双方物品/金币，
+        # 否则对方窗口卡死、交易栏物品随断线凭空消失。
+        party = self.world.party_of(p.id)
+        if self.world.leave_party(p.id) and party is not None:
+            self.world.broadcast_party_info(party)
+        self.world.party_invites.pop(p.id, None)
+        self.world.trade_requests.pop(p.id, None)
+        trade = self.world.trades.get(p.id)
+        if trade is not None:
+            self._trade_cancel_session(trade)
         self.persist(p)
         self.world.remove_player(p)
         self.world.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},

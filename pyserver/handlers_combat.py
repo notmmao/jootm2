@@ -417,10 +417,19 @@ class CombatHandlers:
             return 12, 0
         return 0, 0
 
+    def _is_teammate(self, p, target) -> bool:
+        """同队玩家不可互相攻击（原版 HAM_GROUP，Grobal2.pas:580）。
+        本服无攻击模式切换 UI，直接用「同队互助」兜底。"""
+        party = self.world.party_of(p.id)
+        return party is not None and target.id in party.member_ids
+
     def _attack_player(self, p, target) -> None:
         w = self.world
         if p.attack_mode == 0:
             w.send_system(p, "和平模式下无法攻击玩家。")
+            return
+        if self._is_teammate(p, target):
+            w.send_system(p, "不能攻击队友。")
             return
         if p.distance_to(target) > 1:
             return
@@ -501,6 +510,9 @@ class CombatHandlers:
         if p.attack_mode == 0:
             w.send_system(p, "和平模式下无法攻击玩家。")
             return
+        if self._is_teammate(p, target):
+            w.send_system(p, "不能攻击队友。")
+            return
         d = direction_from(p.x, p.y, target.x, target.y)
         dx, dy = direction_delta(d)
         if p.x + dx * 2 != target.x or p.y + dy * 2 != target.y:
@@ -565,7 +577,7 @@ class CombatHandlers:
             self._broadcast_physical_hit(p, target, second)
             self._kill_if_dead(p, target, now_ms())
         elif isinstance(target, Player):
-            if p.attack_mode == 0:
+            if p.attack_mode == 0 or self._is_teammate(p, target):
                 return
             target.hp = max(0, target.hp - second)
             # 原版 DirectAttack 副目标同样走 StruckDamage（ObjBase.pas:21980）
@@ -1079,6 +1091,10 @@ class CombatHandlers:
         # 不在此豁免之列。
         if (isinstance(target, Monster) and target.master_id == p.id
                 and not is_heal_magic(magic_id)):
+            target = None
+        # 同队玩家不可被攻击魔法选中（原版 HAM_GROUP）；治疗系不受限。
+        if (not is_heal_magic(magic_id) and isinstance(target, Player)
+                and self._is_teammate(p, target)):
             target = None
         if isinstance(target, Monster):
             p.target_id = target.id

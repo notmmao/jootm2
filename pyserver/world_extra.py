@@ -375,6 +375,7 @@ class WorldExtra:
         self.guilds: dict[str, Guild] = {}
         self.guild_of_player: dict[str, str] = {}
         self.parties: dict[int, Party] = {}
+        self.party_invites: dict[int, int] = {}   # 被邀请玩家 id → 邀请人 id
         self.trades: dict[int, TradeSession] = {}
         self.trade_requests: dict[int, int] = {}
         self.combat_state: dict[str, Any] = {"fire_walls": [], "pets": {}}
@@ -1290,9 +1291,43 @@ class WorldExtra:
 
     # ---- tick -----------------------------------------------------------
 
+    def party_snapshot_msg(self, party: "Party") -> dict:
+        """队员状态快照（血量/等级/地图），供前端队伍面板与血条。"""
+        from .world import Player   # 延迟导入，避免 world ↔ world_extra 循环
+        members = []
+        for pid in party.member_ids:
+            a = self.actor(pid)
+            if not isinstance(a, Player):
+                continue
+            members.append({
+                "id": a.id, "name": a.name, "level": a.level, "job": a.job,
+                "hp": a.hp, "maxHp": a.max_hp, "online": a.session is not None,
+                "map": a.map.name if a.map else "",
+            })
+        return {"type": "partyInfo", "leaderId": party.leader_id(),
+                "members": members}
+
+    def broadcast_party_info(self, party: "Party") -> None:
+        from .world import Player   # 延迟导入，避免循环
+        msg = self.party_snapshot_msg(party)
+        for pid in party.member_ids:
+            a = self.actor(pid)
+            if isinstance(a, Player) and a.session is not None:
+                a.session.send_json(msg)
+
     def tick_extra(self, now: int) -> None:
         for gid, gi in list(self.ground_items.items()):
             if now - gi.created_at >= GROUND_ITEM_TTL_MS:
                 del self.ground_items[gid]
                 self._broadcast_item_remove(gi)
         self.tick_siege(now)
+        # 组队血条实时性：每 500ms 给每个队伍推一次成员血量（原版队伍面板
+        # 随 SM_STR/HP 变化刷新；这里低频轮询，避免每次受击都遍历队伍广播）。
+        if now - getattr(self, "_party_hp_at", 0) >= 500:
+            self._party_hp_at = now
+            seen: set[int] = set()
+            for pid, party in list(self.parties.items()):
+                if party.leader_id() in seen:
+                    continue
+                seen.add(party.leader_id())
+                self.broadcast_party_info(party)
