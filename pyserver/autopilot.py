@@ -68,6 +68,15 @@ SPELL_INPUT_BASE_MS = 1100
 # 均不吃护身符；按「已学 + 有蓝 + 不在冷却」从高到低挑第一招。
 MAGE_ATTACK_SKILLS = (11, 5, 1)
 
+# 法师放风筝：被「强怪」贴身时不站着硬扛，先拉开到约 4 格再施法。
+# 这是托管策略（原版无托管，玩家手动走位），不是原版对齐项，数值为可调经验值。
+KITE_TRIGGER_DIST = 2          # 怪贴到 2 格内才考虑走位（切比雪夫）
+KITE_SAFE_DIST = 4             # 拉开到 4 格就停手重新施法（仍在 8 格射程内）
+KITE_STEP_MS = WALK_INTERVAL_MS  # 后撤走一步沿用走/跑节拍，不额外加速
+# 强怪判定（满足任一）：攻击上限够疼 或 血量够厚，避免对鸡/稻草人无脑后退
+KITE_STRONG_MAXDC = 12
+KITE_STRONG_HP = 200
+
 # ---- 默认策略档（管理员预置，玩家只选档）--------------------------------
 PRESETS: dict[str, dict] = {
     "safe": {
@@ -224,6 +233,8 @@ class AutoPilot:
     last_attack_at: int = 0
     last_cast_at: int = 0           # 上次施法：原版客户端 500+200+Delay 节拍
     last_cast_beat: int = 0         # 上次施法对应的动作锁时长（ms）
+    kite_until: int = 0             # 放风筝走位目标锁过期时刻（避免来回抖动）
+    kite_target_id: int = 0         # 正在放风筝拉开的那只怪
     last_pickup_at: int = 0
     last_potion_at: int = 0
     last_mp_potion_at: int = 0
@@ -577,6 +588,64 @@ class AutoPilot:
             return True
         return False
 
+    def _kite_worthy(self, w, target) -> bool:
+        """是否值得为这只怪放风筝。弱鸡（鸡/鹿/稻草人）一发就秒，后退纯
+        浪费输出；只有攻击够疼或血够厚的怪贴身才有走位价值。
+        判定只读模板字段（maxDc/hp），不估算技能伤害，稳定可预期。"""
+        t = target.template
+        if t is None:
+            return False
+        return int(getattr(t, "maxDc", 0) or 0) >= KITE_STRONG_MAXDC \
+            or int(getattr(t, "hp", 0) or 0) >= KITE_STRONG_HP
+
+    def _kite_step(self, srv, w, p, target, now: int) -> bool:
+        """被强怪贴身时后撤一步，拉开到 KITE_SAFE_DIST 再恢复施法。
+
+        返回 True = 本 tick 已被走位占用（含「该走但还在硬直/走位节拍未到」
+        的等待），调用方不要再施法；False = 已拉开到安全距离 / 无路可退，
+        回落正常施法。方向从 8 邻格挑「可走且离怪更远」的最佳一格；若所有
+        方向都拉不开（墙角被堵），放弃走位硬扛，绝不原地抖动。
+        """
+        dist = p.distance_to(target)
+        if dist >= KITE_SAFE_DIST:
+            self.kite_until = 0
+            self.kite_target_id = 0
+            return False
+        # 走位目标锁：期限内持续为这只怪拉开，避免怪晃一下就换目标来回横跳。
+        if self.kite_target_id != target.id and now < self.kite_until:
+            return False
+        # 施法/出刀硬直期不能移动（对齐原版 ActionLock）；但保留走位意图，
+        # 下一 tick 硬直落地再撤。设置状态方便玩家看懂「为何Stand住」。
+        if self._action_busy(p, now):
+            self.set_status("放风筝 · 等待动作落地", now)
+            return True
+        if now - self.last_move_at < KITE_STEP_MS:
+            return True                      # 走位节拍未到，保持占位不施法
+        gm = p.map
+        if gm is None or now_ms() - getattr(p, "map_change_at", 0) < 350:
+            return True
+        # 挑离怪最远的可走邻格；同距离时偏好不超出射程、且与上次方向一致。
+        best_dir, best_dist = -1, dist
+        for d in range(8):
+            dx, dy = direction_delta(d)
+            nx, ny = p.x + dx, p.y + dy
+            if not _walkable(gm, nx, ny):
+                continue
+            nd = max(abs(nx - target.x), abs(ny - target.y))
+            if nd > best_dist:
+                best_dir, best_dist = d, nd
+        if best_dir < 0:
+            # 被墙角堵死，拉不开：放弃走位，回落施法（站桩硬扛好过原地抖）
+            self.kite_until = 0
+            self.kite_target_id = 0
+            return False
+        self.kite_target_id = target.id
+        self.kite_until = now + 6_000
+        self.last_move_at = now
+        srv._move(p.session, {"type": "move", "dir": best_dir, "run": False})
+        self.set_status(f"放风筝 · 拉开到 {KITE_SAFE_DIST} 格", now)
+        return True
+
     # ---- 目标决策：掉落物 → 选怪 → 寻路 → 攻击 --------------------------
     def _fight(self, srv, w, p, cfg, now: int) -> None:
         if self.acted:               # 治愈术等生存动作已占用本 tick
@@ -623,6 +692,17 @@ class AutoPilot:
         # 不贴身砍（法师物理输出极低），原地等回蓝；超射程照常走近。
         if p.job == 1:
             if dist <= 8:
+                # 被强怪贴身：先拉开距离再施法（法师脆皮，站着硬扛会很快死）。
+                # 硬直期动作锁会挡住走位，此时不施法也不动，等动作落地那一拍
+                # 再撤——否则刚施完法就想跑，原版动作锁不允许（上一轮对齐项）。
+                # 一旦进入放风筝（kite_target_id 锁未过期）就持续撤到 4 格，
+                # 不能怪刚被拉开到 3 格就停手，否则永远贴着射程边缘挨打。
+                kiting = (self.kite_target_id == target.id
+                          and now < self.kite_until)
+                if kiting or (dist <= KITE_TRIGGER_DIST
+                              and self._kite_worthy(w, target)):
+                    if self._kite_step(srv, w, p, target, now):
+                        return
                 if self._mage_fire(srv, w, p, target, now):
                     return
                 self.set_status("法力不足 · 等待回蓝", now)
@@ -1086,6 +1166,8 @@ class AutoPilotManager:
         pilot.last_attack_at = 0
         pilot.last_cast_at = 0
         pilot.last_cast_beat = 0
+        pilot.kite_until = 0
+        pilot.kite_target_id = 0
         self._ensure_thrust(p, key)
         pilot.set_status("托管已开启", stamp, force=True)
         self.service.world.send_system(

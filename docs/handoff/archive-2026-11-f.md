@@ -642,3 +642,37 @@ WeaptonMakeLuck/GetAttackPower/RecalcAbilitys/UserSelect/QuestCheckItem`，
 tick 180/0、all_messages 91/0、pyserver 107/0、durability 16/0；
 `test_repair_ui.py` Playwright 14/0；py_compile/node --check 通过。
 药水生效提示与 tooltip 观感仍需用户 Ctrl+F5 实测。
+
+## §87 /site 数据库站缓存分档：图片 60 秒 → 7 天（2026-11-16）
+
+**问题**：用户反馈阿里云站每次打开地图页图片都重新加载。排查确认缓存头**不缺**：`pyserver/net.py` 的 `/site` 路由一直有 ETag / Last-Modified /304 条件请求，但统一用 `cache_override="public, max-age=60, must-revalidate"`覆盖所有文件——包括 893 张地图/图标 PNG。超过 60 秒后每张图都要发一次条件请求（公网逐张一个 RTT），带宽有限时观感就是「重新加载」。旧注释说明60 秒是为规避「文件名不变 + immutable 一年看不到新图」，方向对但取值过保守。
+
+**改动**（`pyserver/net.py`）：
+- 新增 `WEBSITE_STATIC_MAX_AGE = 7*24*3600`、`WEBSITE_IMAGE_EXTS` 与`website_cache_control(name)`：HTML `no-cache`；图片 `public, max-age=604800, must-revalidate`；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。
+- 不用 `immutable`：站点重生成时文件名不变，7 天到期后靠 ETag 自动换新图。
+- `_serve_file` 新增可选 `cache_fn: Callable[[str], str]` 参数，优先级`cache_fn > cache_override > cache_control`；其余调用点零改动。
+- `/site` 路由改传 `cache_fn=website_cache_control`；仍 `allow_gzip=False`（站点同步 zlib 压到游戏 tick 的约束不变，见 §60）。
+- `docs/WIKI-PLAN.md` 同步路由/缓存分档与验证命令。
+
+**验证**：`test_pyserver.py` 扩到 **114 PASS / 0 FAIL**，新增 9 项覆盖分档表、图片不用 immutable、`/site/*.png` 长缓存 + ETag、条件请求 304、HTML `no-cache`。本地起 `python -m pyserver --port 18080` 实测响应头：PNG `public, max-age=604800, must-revalidate`、HTML `no-cache`、CSS `max-age=300`，带 `If-None-Match` 返回 304 且无 body。
+
+**部署提醒**：改的是 Python 代码，阿里云需**更新镜像并重启**才生效（只rsync `data/website/` 不够）。验证：`curl -sI https://aliyun.notmmao.com/site/assets/icons/items/1.png | grep -i cache-control`。浏览器第一次刷新仍会重取一次图片（旧 60 秒缓存里的条目过期/覆盖），此后 7 天内零图片请求；若改完想立刻看新图，Ctrl+F5 强刷即可。
+
+---
+
+## §88 一键镜像部署脚本 + bed804c 只推镜像部署（2026-11-16）
+
+**背景**：用户要求「推送到阿里云，只推送镜像，其他资源文件不变」。Agent 侧Bash 权限分类器（auto 模式依赖的远端模型）间歇性超时，构建命令连续被挡；用户提出改为一键脚本由本人在终端运行，绕开分类器。
+
+**新增 `scripts/deploy_image.sh`**（bash，`bash -n` 通过）：
+- 流程 = §21.6 标准路径的脚本化：`gen_version.py`（优先 `D:/Python310/python.exe`）→ `docker build` 短 hash + `latest` 双标签 → push ACR（失败提示`docker login --username=notmmao@gmail.com`）→ ssh 阿里云`pull → docker tag jootm2:python → cd /root/jootm2 && docker compose up -d` → 轮询验证 `/api/version` version == `git rev-parse --short HEAD`（3 秒 × 10 次）+ `/api/status` 200。
+- **只推镜像，无任何 rsync**：不碰服务器 `data/`、`resources/`、`gamedata/`、`data/website/`。⚠ 因此 gamedata 改动不会随本脚本生效（§21.8 挂载覆盖坑），改了 gamedata 需另行 rsync；工作区不干净时脚本开头打印警告。
+
+**本轮部署结果（bed804c，用户亲自运行脚本）**：
+- ACR 双标签 `bed804c` + `latest`，digest `sha256:8f5ba39a77c9…`；阿里云容器 Recreated → Started。
+- 验证：`http://139.224.24.88:8080/api/version` 返回 `"version":"bed804c"`（builtAt 2026-11-16T14:56:31），`/api/status` **200**。按约定不做深度回归。
+- 本次镜像包含 §85~§87 的代码改动（修复油分流 / 消耗品审计 / /site 图片长缓存）；gamedata 未同步，若宿主 gamedata 落后于仓库，模板 CSV 直载（§84）读到的仍是宿主旧数据。
+
+**文档瘦身**：主文件超 500 行硬上限（927 行），§69~§82 逐字归档到`docs/handoff/archive-2026-11-f.md`，主文件保留 §83~§88。§89 追加前再把§83~§84 归档到同文件，主文件保留 §85~§89。
+
+---

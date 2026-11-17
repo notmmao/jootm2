@@ -7,6 +7,8 @@
   (500+200+技能Delay) 节流，不机关枪连发（基础节拍 SPELL_INPUT_BASE_MS）；
   「空蓝才喝」——蓝量（含回蓝池）不够放最低耗蓝技能时才喝蓝药。
 - 动作锁：出刀/施法未落地（CanNextAction 要求 IsIdle）前不移动，对齐原版。
+- 法师放风筝：被强怪(maxDc≥12 或 hp≥200)贴到 2 格内，先拉开到 4 格再施法；
+  弱鸡不触发；硬直期内不移动（仍守动作锁）。
 - 背包：余量不足停挖肉；背包 8 格告警时按品质从差到好丢肉，留 MEAT_KEEP 份。
 - 装备：武器清槽后从背包自动穿耐久最高的下一把；护身符/毒粉耗尽自动补戴。
   施法前即时补符，避免「有符在背包却回落近战」。
@@ -424,6 +426,114 @@ def main() -> None:
     tick(srv, 3, step=0.75)
     check("关掉开关后恢复挖肉", rec.butches >= 1, f"butches={rec.butches}")
     ap.disable(p7, "测试结束")
+
+    # ============ 8. 法师放风筝（被强怪贴身拉开距离） ============
+    print("\n[8] 法师被强怪贴身时放风筝拉开到 4 格再施法")
+    from pyserver.autopilot import KITE_SAFE_DIST, KITE_TRIGGER_DIST
+    # 强怪模板：maxDc 拉高到 20（超过 KITE_STRONG_MAXDC）触发放风筝；
+    # level 保持低，别触发 _choose_target 的「血厚且高太多级」过滤；
+    # hp 给足保证连续走位/施法期间不会被打死，便于观察行为。
+    strong_t = replace(next(iter(w.monster_templates.values())),
+                       name="测试强怪", maxDc=20, hp=99999, level=3, dc=10)
+    weak_t = replace(next(iter(w.monster_templates.values())),
+                     name="测试弱鸡", maxDc=2, hp=20, level=1, dc=1)
+
+    def _spawn_at(player, tmpl, dx, dy):
+        m = Monster(id=w.new_id(), name=tmpl.name, x=player.x + dx, y=player.y + dy,
+                    hp=tmpl.hp, max_hp=tmpl.hp, level=tmpl.level, exp=10,
+                    race=tmpl.race, race_img=tmpl.raceImg, appr=tmpl.appr,
+                    template=tmpl, spawn_x=player.x + dx, spawn_y=player.y + dy,
+                    spawn_map=player.map)
+        w.add_actor(m, player.map)
+        return m
+
+    # 8a 强怪贴身 → 后撤走位，不施法
+    p8, sess8 = login(srv, "KITE", job=1)
+    p8.skills[1] = {"level": 0, "train": 0, "key": 0}
+    p8.mp = 2000
+    ap.enable(p8, "balanced")
+    clear_mobs(srv, p8)
+    m8 = _spawn_at(p8, strong_t, 1, 0)
+    p8.skill_cooldown.clear()
+    pilot8 = ap.get(p8)
+    pilot8.last_cast_at = 0
+    pilot8.last_attack_at = 0
+    pilot8.last_move_at = 0
+    start_d = p8.distance_to(m8)
+    rec.reset()
+    srv.autopilot.tick(now_ms())
+    check("强怪贴身触发后撤走位", len(rec.moves) >= 1,
+          f"moves={rec.moves} start_d={start_d}")
+    check("后撤后距离变大", p8.distance_to(m8) > start_d,
+          f"{start_d} -> {p8.distance_to(m8)}")
+    check("放风筝当拍不施法(先拉开)", len(rec.casts) == 0,
+          f"casts={rec.casts}")
+    check("放风筝有状态提示", "放风筝" in pilot8.status, pilot8.status)
+    ap.disable(p8, "测试切换")
+
+    # 8b 弱怪贴身 → 不触发放风筝，正常施法
+    p9, sess9 = login(srv, "KITEWEAK", job=1)
+    p9.skills[1] = {"level": 0, "train": 0, "key": 0}
+    p9.mp = 2000
+    ap.enable(p9, "balanced")
+    clear_mobs(srv, p9)
+    m9 = _spawn_at(p9, weak_t, 1, 0)
+    m9.hp = m9.max_hp = 99999                             # 别被打死
+    p9.skill_cooldown.clear()
+    pilot9 = ap.get(p9)
+    pilot9.last_cast_at = 0
+    pilot9.last_attack_at = 0
+    pilot9.last_move_at = 0
+    rec.reset()
+    srv.autopilot.tick(now_ms())
+    check("弱鸡贴身不放风筝(不后退)", len(rec.moves) == 0,
+          f"moves={rec.moves}")
+    check("弱鸡贴身正常施法", len(rec.casts) >= 1,
+          f"casts={rec.casts}")
+    ap.disable(p9, "测试切换")
+
+    # 8c 硬直期不移动：强怪贴身但施法动作未落地
+    p10, sess10 = login(srv, "KITEBUSY", job=1)
+    p10.skills[1] = {"level": 0, "train": 0, "key": 0}
+    p10.mp = 2000
+    ap.enable(p10, "balanced")
+    clear_mobs(srv, p10)
+    _spawn_at(p10, strong_t, 1, 0)
+    p10.skill_cooldown.clear()
+    pilot10 = ap.get(p10)
+    stamp = now_ms()
+    pilot10.last_cast_at = stamp
+    pilot10.last_cast_beat = 1106
+    pilot10.last_attack_at = 0
+    rec.reset()
+    srv.autopilot.tick(stamp + 100)                       # 硬直未落地
+    check("放风筝也守动作锁(硬直期不移动)", len(rec.moves) == 0,
+          f"moves={rec.moves}")
+    # 硬直落地后应立刻开始走位
+    srv.autopilot.tick(stamp + 1200)
+    check("硬直落地后开始放风筝", len(rec.moves) >= 1,
+          f"moves={rec.moves}")
+    ap.disable(p10, "测试结束")
+
+    # 8d 连续走位拉开到 4 格后恢复施法（需求核心：拉开距离后施法）
+    p11, sess11 = login(srv, "KITEDONE", job=1)
+    p11.skills[1] = {"level": 0, "train": 0, "key": 0}
+    p11.mp = 2000
+    ap.enable(p11, "balanced")
+    clear_mobs(srv, p11)
+    m11 = _spawn_at(p11, strong_t, 1, 0)
+    p11.skill_cooldown.clear()
+    pilot11 = ap.get(p11)
+    pilot11.last_cast_at = 0
+    pilot11.last_attack_at = 0
+    pilot11.last_move_at = 0
+    rec.reset()
+    tick(srv, 5, step=0.6)                                # 贴身 → 逐步后撤到 4 格
+    check("连续走位后距离拉开到 4 格", p11.distance_to(m11) >= KITE_SAFE_DIST,
+          f"dist={p11.distance_to(m11)}")
+    check("拉开到安全距离后恢复施法(有火球)", 1 in rec.casts,
+          f"casts={rec.casts}")
+    ap.disable(p11, "测试结束")
 
     print(f"\n结果: {PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
