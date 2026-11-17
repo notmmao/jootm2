@@ -653,3 +653,35 @@ B011/B105/T105 等赌场图及 MapInfo 条目保留；④ MerChant 注释行仍�
 
 **提交**：**未提交**（用户明确要求确认后提交）。改动面：gamedata/Mir200/Envir/MerChant.txt、
 Market_Def/（159 改名+82 删）、scripts/test_pyserver.py、docs/GAMEDATA_GUIDE.md、本文。
+
+## §99 新增 mir2-resource-converter skill：WIL/WIX 格式规范 + 转换工具 wil_pack.py（2026-11-17）
+
+**需求**：整理当前游戏资源格式（WIX/WIL 等，重点是精灵组织形式），形成 skill 让
+AI Agent 能把外部资源快速转换成可直接使用的格式，并生成可验证的预览。
+
+**产物**：
+- `.claude/skills/mir2-resource-converter/SKILL.md`——WIL/WIX 二进制规范（实测核验）+
+  帧号契约（hum 600/外观三层、mon appr→图库/偏移、npc 60/外观、tiles/objects/items/magic
+  指针）+ 转换工作流 + 验证清单 + 坑。
+- `scripts/wil_pack.py`（纯标准库）——`info/dump/pack/preview` 四个子命令：
+  PNG 帧目录 → 8 位索引色 WIL/WIX（HA/MA 动作表**运行时从 actorData.mjs 解析**，
+  保持单一数据源）；`--merge` 把新帧字节级保真地拼进现有库；打包后用
+  `wil_extract.WIL` 真实解码路径读回逐帧比对自校验；`preview` 产出自包含 HTML
+  动画预览（按帧号契约播动作 × 8 方向、48×32 格锚点虚线可视化，与游戏渲染一致）。
+
+**格式核验结论**（对照 `frontend/gfx/wil.mjs`、原版 `MirClient/Actor.pas:2089`）：
+- WIL 头 1080B = 44 标题 + u16 帧数@44 + u16 colorcount@46(=0) + u32 256@48 +
+  u32 1024@52 + 256×4 内嵌调色板@56（字节序 B,G,R,0）；**前端不读内嵌调色板**，
+  统一用 `palette.mjs` 硬编码表（index 0 = 透明，其余 alpha=255）。
+- 位深无标志位，按 `下一帧偏移−本帧偏移 ≥ 8+w×h×2` 判 16 位 RGB565（黑=透明），
+  故帧间不得有填充；行序自底向上，4 字节行对齐由字节数反推（写时不补最稳）。
+- `px/py` = 绘制左上角相对实体格**左上角**的偏移（原版与前端都是相加），
+  原版美术数据不统一（Hum 帧0：60×71 px=8 py=-48），新美术缺省「水平居中、脚踩格底」。
+- 空图 = WIX 偏移 <1080 或 h==1 占位帧。
+- 全部 58 个原版库首图偏移恒 1080、v1.0 头，实测一致。
+
+**验证**：工具链实测——Hum dump→pack 回环像素全等；合成 MA11 怪物（232 帧，
+appr205→mon21 偏移 1800）打包/校验/预览通过，agent-browser 截图确认动画与锚点
+渲染正确；merge 进现有库后旧帧字节保真（1800 帧原样）。回归 test_pyserver
+**122/0**（D:/Python310/python.exe）。预览页样例：`data/wil_pack_test/*.preview.html`
+（gitignored，可随时用 preview 命令重新生成）。
