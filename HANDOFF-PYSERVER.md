@@ -615,3 +615,21 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **注意**：① 需重启服务端 + Ctrl+F5。② `character_pk` 是新增独立表，老角色 pk_point 缺省 0。③ PK 点衰减只在在线 tick 推进，离线不扣（对齐原版）。④ 灰名/红名通过 brief_json 的 nameColor 下发，无需新消息类型。⑤ 安全区禁 PK / 换图3秒保护（原版 CheckAttackRule2 另两条）本项目无对应状态，未实现；攻击魔法打玩家分支目前不存在，等级压制仅接在物理 PvP 三入口。
 
 **提交**：见本轮 git log（按 CLAUDE.md 标签拆分：`[修复]`×2 尸体与弹窗、`[保真]` PK 协议与惩罚、`[前端]` 名字色、`[测试]`、`[文档]`）。
+
+## §107 查看他人装备窗对齐原版 DUserState1（2026-11-17，用户反馈「UI 不对、没对齐、很怪异」）
+
+**用户反馈**：原版怎么查看装备？有没有对应 UI？现在这个 UI 感觉不对、没对齐、很怪异，要求截图确认。
+
+**原版核实（火炬 Delphi，权威）**：Ctrl+右键玩家 → `ClMain.pas:2476-2489` 发 `CM_QUERYUSERSTATE(82)`（近距 + Race=0 + 非死亡 + 隔 1s）→ `ObjBase.pas:14284-14319 ServerGetQueryUserState` 回 `SM_SENDUSERSTATE` → `ClMain.pas:6313-6320 FrmDlg.OpenUserState` → `FState.pas DUserState1`。窗口**不是方格列表**，而是：① 底图 `WProgUse[370]`（232×325，火炬，`Left=800-232*2=336,Top=0`，FState.pas:1266-1270）；② 人物半身像 `WProgUse[376 男/377 女]` 画在 `Left+38,Top+52`；③ 头发/衣服/武器/头盔叠画在人物身上，基准 `bbx=Left+38-7=31, bby=Top+52+44=96`（:5295-5332）；④ 13 槽透明热区坐标 = DSWxxx（:1272-1325），与本项目 F10 `EQUIP_SLOTS` 同口径；⑤ 名字居中 `Left+122,Top+23` 用 NameColor，行会名 `Left+45,Top+58`；⑥ 关闭键 `DCloseUS1=371` @ (8,39)。
+
+**根因**：`TradePartyUI._showUserState` 是自造黑底 DOM + 13 个 34×31 方格，且坐标 `96,58 / 47,16 …` 是**错的另一套**（与原版 DSWxxx 完全不同），没有人物立绘、装备没穿身上，`prguse[370]` 底图还被压成 25% 透明 → 所以「对齐不了、很怪异」。
+
+**修复（前端）**：
+- `TradePartyUI.mjs`：重写 `_showUserState` 为原版 DUserState1 结构——底图 `Prguse3[207]`（232×362，与 F10 同源、自带底部描述框；火炬 1.80 底图 370 是 232×325，本项目统一用 207）、半身像 `Prguse3[29/30]`@(38,52)、头发/衣服/武器/头盔 `overlay()` 叠在 (31,96)+纹理 px/py、13 槽改 DSWxxx 坐标（0/1/4 仅热区不画图标，因为已叠在身上）、名字居中用 `paletteFill(nameColor)`、等级/职业放底部框、关闭键 `Prguse[371]`@(8,39)。新增模块级 `DSW_SLOTS` 常量与 `paletteFill`（引入 `PALETTE_RGBA`）。纹理用**非阻塞**异步补齐，DOM 骨架同步建完（否则测试 180ms 内看不到名字/槽位）。
+- `PlayScene.mjs`：构造 TradePartyUI 时注入 `libTexture: (lib,idx)=>getLib(lib)?.getTexture(idx)`（叠装要纹理像素偏移 px/py，仅 `libUrl` 拿不到）。
+- `scripts/test_multiplayer_ui.py`：断言从旧「XX 的装备」标题栏改为原版行为（顶部名字 + 等级职业 + tooltip + `DSW_SLOTS` 坐标布局），16/16。
+- `scripts/test_window_close.py`：装备窗断言从文字 × 改为原版图片关闭键 @(8,39)，12/12。
+
+**验证**：`test_multiplayer_ui` 16/16、`test_window_close` 12/12、`test_trade_party_ui` 17/17、`test_multiplayer_features`(3.10) 30/0，无 JS 异常。抓帧对照（1000×700）：原黑框方格 → 右上角完整状态窗 + 人物半身像 + 装备穿身上 + DSW 凹槽，与原版一致。
+
+**注意**：① 需 Ctrl+F5 强刷前端（纯前端改动，无需重启服务端）。② 这是 1.80 资源的视觉近似：火炬底图 370 与本项目 `Prguse3[207]` 尺寸不同（325 vs 362），本项目沿用 F10 同源的 207 保证视觉一致。③ 原版行会名 `Left+45,Top+58` 未实现（服务端 userState 快照未带 guild 字段）；头顶"角"是测试假数据 looks=60 的图标，真实装备不会。④ 查看入口仍是 Ctrl+右键（与 `ClMain.pas` 一致）。
