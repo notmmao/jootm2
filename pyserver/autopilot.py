@@ -53,8 +53,15 @@ EQUIP_CHECK_INTERVAL_MS = 1_000 # 武器/护身符自动补戴检查间隔
 # 会比真人快一截。注意项目 MagicTemplate.delay 已把 DB 的 Delay ×10 转成
 # 毫秒（templates.py:162，火球 60→600ms），而原版公式用的是 DB 原值，
 # 所以还原成 t.delay / 10；实际间隔取「服务端技能 CD」与「客户端节拍」
-# 的较大值。火球：max(600, 700+6)=760ms；雷电：max(1000, 700+10)=1000ms。
-SPELL_INPUT_BASE_MS = 700
+# 的较大值。2026-11-18 用户反馈施法仍偏快，基础节拍 700→1100：
+# 火球 max(600,1100+6)=1106≈1.2s；雷电 max(1000,1100+10)=1110≈1.2s。
+SPELL_INPUT_BASE_MS = 1100
+
+# 攻击/施法后的动作锁：原版 SendActMsg/SendSpellMsg 发出即置
+# ActionLock=TRUE（ClMain.pas:3581/3592），CanNextAction 要求 IsIdle
+# （:3975），动作未落地前不能移动。托管把「出刀/施法时刻」记进
+# last_attack_at / last_cast_at，_step_to 在动作未完成时拒绝移动。
+# 施法看 last_cast_at，近战看 last_attack_at，取各自原版节拍（毫秒）。
 
 # 法师单体输出技能优先级：雷电术(11) > 大火球(5) > 火球术(1)。
 # 三招都是 ``_resolve_magic`` 里对单目标生效的 RM_DELAYMAGIC（Magic.pas:279/407），
@@ -65,24 +72,24 @@ MAGE_ATTACK_SKILLS = (11, 5, 1)
 PRESETS: dict[str, dict] = {
     "safe": {
         "name": "安全", "level_delta": 0, "sight": 9, "loot_sight": 6,
-        "potion_hp": 0.70, "retreat_hp": 0.42, "potion_mp": 0.50,
+        "potion_hp": 0.70, "retreat_hp": 0.42,
         "max_target_dc": 12,
         "pickup_min_price": 0, "thrust": False, "butch": True,
-        "desc": "只打不高于自身等级的怪，血线 70% 喝药、蓝线 50% 补蓝，顺手挖肉赚钱",
+        "desc": "只打不高于自身等级的怪，血线 70% 喝药、法师蓝不够放技能才喝，顺手挖肉赚钱",
     },
     "balanced": {
         "name": "均衡", "level_delta": 3, "sight": 12, "loot_sight": 8,
-        "potion_hp": 0.55, "retreat_hp": 0.28, "potion_mp": 0.35,
+        "potion_hp": 0.55, "retreat_hp": 0.28,
         "max_target_dc": 18,
         "pickup_min_price": 0, "thrust": True, "butch": True,
-        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药、蓝线 35% 补蓝，顺手挖肉赚钱",
+        "desc": "默认档，允许高 3 级的怪，血线 55% 喝药、法师蓝不够放技能才喝，顺手挖肉赚钱",
     },
     "efficient": {
         "name": "效率", "level_delta": 8, "sight": 12, "loot_sight": 10,
-        "potion_hp": 0.45, "retreat_hp": 0.20, "potion_mp": 0.30,
+        "potion_hp": 0.45, "retreat_hp": 0.20,
         "max_target_dc": 26,
         "pickup_min_price": 50, "thrust": True, "butch": False,
-        "desc": "接受高 8 级的怪、只捡值钱物品，蓝线 30% 补蓝，不挖肉专注升级",
+        "desc": "接受高 8 级的怪、只捡值钱物品，法师蓝不够放技能才喝，不挖肉专注升级",
     },
 }
 DEFAULT_PRESET = "balanced"
@@ -205,6 +212,7 @@ class AutoPilot:
     manager: "AutoPilotManager"
     player_id: int
     preset: str = DEFAULT_PRESET
+    no_butch: bool = False          # 用户独立开关：勾选后任何档位都不挖肉
     active: bool = True
     reason: str = ""
     status: str = "托管已开启"
@@ -215,6 +223,7 @@ class AutoPilot:
     last_move_at: int = 0
     last_attack_at: int = 0
     last_cast_at: int = 0           # 上次施法：原版客户端 500+200+Delay 节拍
+    last_cast_beat: int = 0         # 上次施法对应的动作锁时长（ms）
     last_pickup_at: int = 0
     last_potion_at: int = 0
     last_mp_potion_at: int = 0
@@ -314,21 +323,22 @@ class AutoPilot:
                 srv._use_item(p.session, {"type": "useItem",
                                           "makeIndex": int(potion.get("makeIndex", 0))})
                 self.set_status("喝药中", now)
-        # 法师没有治愈术，蓝见底就只能站桩挨打。蓝线到了自动喝蓝药：
-        # StdMode 0 且 MAC>0（Shape1 太阳水即时回蓝，其余走 inc_spell 池）。
-        # 和血药一样把回蓝池算进当前蓝量，避免池子还没滴完就连续灌药。
+        # 法师没有治愈术，蓝见底就只能站桩挨打。喝蓝改为「空蓝才喝」：
+        # 当前蓝量（含 inc_spell 回蓝池）连最便宜的一招都放不出来时才补，
+        # 不再按固定蓝线 35% 一掉就灌（用户 2026-11-18 反馈太激进）。
         if p.job == 1:
-            max_mp = max(1, p.max_mp)
-            mp_pool = int(getattr(p, "inc_spell", 0) or 0)
-            if (p.mp + mp_pool) / max_mp <= cfg["potion_mp"]:
-                mana = _find_mana_potion(w, p)
-                if (mana is not None
-                        and now - self.last_mp_potion_at >= POTION_INTERVAL_MS
-                        and now_ms() - getattr(p, "last_use_item_at", 0) >= 300):
-                    self.last_mp_potion_at = now
-                    srv._use_item(p.session, {"type": "useItem",
-                                              "makeIndex": int(mana.get("makeIndex", 0))})
-                    self.set_status("补充魔法值", now)
+            need = _min_mage_spell_cost(w, p)
+            if need is not None:
+                available = p.mp + int(getattr(p, "inc_spell", 0) or 0)
+                if available < need:
+                    mana = _find_mana_potion(w, p)
+                    if (mana is not None
+                            and now - self.last_mp_potion_at >= POTION_INTERVAL_MS
+                            and now_ms() - getattr(p, "last_use_item_at", 0) >= 300):
+                        self.last_mp_potion_at = now
+                        srv._use_item(p.session, {"type": "useItem",
+                                                  "makeIndex": int(mana.get("makeIndex", 0))})
+                        self.set_status("补充魔法值", now)
         # 背包压力：满包不再直接回城停机。先停挖肉（肉占格、金币不占），
         # 再按品质从差到好丢弃多余的肉，保住「挖肉赚钱」又避免打一会就回城。
         # 实在塞满（全是装备/药水等非肉物品）才退回原行为：回城并停机。
@@ -373,8 +383,9 @@ class AutoPilot:
         self.set_status("整理背包 · 丢弃低品质肉", now)
 
     def _butch_enabled(self, p) -> bool:
-        """背包吃紧时停挖肉的开关：预设允许挖肉，且还有余量。"""
-        return bool(PRESETS[self.preset].get("butch")) and len(p.bag) < BAG_SIZE
+        """挖肉总开关：用户「不挖肉」勾选优先，再看预设、背包余量。"""
+        return (not self.no_butch and bool(PRESETS[self.preset].get("butch"))
+                and len(p.bag) < BAG_SIZE)
 
     # ---- 装备维护：武器/护身符损毁后从背包自动补戴 --------------------
     def _ensure_equipment(self, srv, w, p, now: int) -> None:
@@ -478,6 +489,7 @@ class AutoPilot:
                                     "targetY": p.y})
         self.acted = True            # 一个 tick 一个主动动作（原版节拍）
         self.last_cast_at = now      # 治愈术也占客户端施法节拍，别紧接火符
+        self.last_cast_beat = max(t.delay, int(SPELL_INPUT_BASE_MS + t.delay / 10))
         self.set_status("治愈术中", now)
         if p.exp != exp_before:
             self.last_exp = p.exp
@@ -515,6 +527,7 @@ class AutoPilot:
                                     "targetX": target.x, "targetY": target.y})
         self.last_attack_at = now
         self.last_cast_at = now
+        self.last_cast_beat = max(t.delay, int(SPELL_INPUT_BASE_MS + t.delay / 10))
         self.set_status(f"火符 · {target.name}", now)
         if p.exp != exp_before:
             self.kills += 1
@@ -555,6 +568,7 @@ class AutoPilot:
                                         "targetX": target.x, "targetY": target.y})
             self.last_attack_at = now
             self.last_cast_at = now
+            self.last_cast_beat = max(t.delay, int(SPELL_INPUT_BASE_MS + t.delay / 10))
             self.set_status(f"{t.name} · {target.name}", now)
             if p.exp != exp_before:
                 self.kills += 1
@@ -655,7 +669,7 @@ class AutoPilot:
         * 挖空一次就 ``TakeBagItems`` 一次性拿走全部产出（bag_looted）。
         只在视野里没有活怪可打时进行——有怪先清怪，挖肉不打断战斗节奏。
         """
-        if not cfg.get("butch"):
+        if self.no_butch or not cfg.get("butch"):
             return False
         # 限流：背包只剩 few 格就别再挖肉塞满，继续打怪捡金币（不占格）。
         if len(p.bag) >= BAG_SIZE - BUTCH_BAG_RESERVE:
@@ -832,7 +846,14 @@ class AutoPilot:
         距离 >=3 格按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去；逼近时
         仍用走。路径 A* 与 ``try_move`` 共用阻挡判定，找不到路**绝不退化成
         direction_toward 朝墙直线撞**，而是短时拉黑目标重新选。
+
+        动作锁：原版 ``CanNextAction`` 要求 ``IsIdle``（ClMain.pas:3975），
+        ``SendActMsg/SendSpellMsg`` 发出即置 ``ActionLock=TRUE``（:3581/:3592），
+        出刀/施法动作未落地前不接受移动。托管刚出刀或施法的一拍内原地不动，
+        等动作完成再走；但「走向拾取物」也走这里，锁只挡移动、不放弃目标。
         """
+        if self._action_busy(p, now):
+            return True                  # 动作未落地：本 tick 保持站位，目标不变
         dist = max(abs(p.x - tx), abs(p.y - ty))
         if dist <= (0 if exact else 1):
             return True
@@ -875,6 +896,24 @@ class AutoPilot:
         else:
             self.blocked_steps = 0
         return True
+
+    def _action_busy(self, p, now: int) -> bool:
+        """原版 ``ActionLock``：出刀/施法落地前不能移动。
+
+        两条动作时间线取其一：近战出刀看 ``last_attack_at``（节拍 =
+        攻速 ``attack_interval_ms``）；远程施法看 ``last_cast_at``（节拍 =
+        ``last_cast_beat`` = 500+200+Delay 与服务端 CD 取大）。两者都可能
+        更新在最近一拍，取「离现在更近、且节拍未走完」的那个为准。
+        注意 ``last_attack_at`` 在火符/法师施法时也会更新（同一动作），
+        不能把近战节拍和施法节拍叠加，否则会锁出比原版更长的硬直。
+        """
+        if self.last_cast_at >= self.last_attack_at:
+            beat = self.last_cast_beat
+            stamp = self.last_cast_at
+        else:
+            beat = attack_interval_ms(p.level)
+            stamp = self.last_attack_at
+        return beat > 0 and 0 <= now - stamp < beat
 
     def _give_up_target(self, key: tuple, now: int) -> None:
         """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
@@ -937,6 +976,26 @@ def _find_mana_potion(w, p):
     return best
 
 
+def _min_mage_spell_cost(w, p):
+    """法师已学单体技能里的最低耗蓝；一招都没学返回 None（无需补蓝）。
+
+    「空蓝才喝」的判据：当前蓝量（含回蓝池）连最便宜的一招都放不出来，
+    才值得喝蓝药。`spell_cost` 与 `_cast_magic` 用同一公式
+    （handlers_combat.py:60），避免判据和实际扣蓝口径不一致。
+    """
+    best = None
+    for magic_id in MAGE_ATTACK_SKILLS:
+        if magic_id not in p.skills:
+            continue
+        t = w.magic_templates.get(magic_id)
+        if t is None:
+            continue
+        cost = spell_cost(t, skill_level(p, magic_id))
+        if best is None or cost < best:
+            best = cost
+    return best
+
+
 def _best_wearable(w, p, slot: int, accept):
     """从背包挑一件可放进 ``slot`` 且满足 accept(t) 的装备，耐久高者优先。
 
@@ -996,7 +1055,8 @@ class AutoPilotManager:
         if p is not None:
             self._pilots.pop(p.id, None)
 
-    def enable(self, p, preset=None, now: int | None = None) -> tuple[bool, str]:
+    def enable(self, p, preset=None, now: int | None = None,
+               no_butch: bool | None = None) -> tuple[bool, str]:
         if p is None or p.session is None:
             return False, "角色不在线"
         if getattr(p, "dead", False) or not p.alive:
@@ -1009,6 +1069,8 @@ class AutoPilotManager:
                               last_exp=p.exp, last_progress_at=stamp)
             self._pilots[p.id] = pilot
         pilot.preset = key
+        if no_butch is not None:
+            pilot.no_butch = bool(no_butch)
         pilot.active = True
         pilot.reason = ""
         pilot.path.clear()
@@ -1022,6 +1084,8 @@ class AutoPilotManager:
         pilot.last_exp = p.exp
         pilot.last_move_at = 0
         pilot.last_attack_at = 0
+        pilot.last_cast_at = 0
+        pilot.last_cast_beat = 0
         self._ensure_thrust(p, key)
         pilot.set_status("托管已开启", stamp, force=True)
         self.service.world.send_system(
@@ -1083,6 +1147,7 @@ class AutoPilotManager:
             "paused": bool(pilot is not None and not pilot.active),
             "preset": pilot.preset if pilot else key,
             "presetName": PRESETS[pilot.preset if pilot else key]["name"],
+            "noButch": bool(pilot.no_butch) if pilot else False,
             "status": pilot.status if pilot else ("已暂停" if reason else "未开启"),
             "reason": reason or (pilot.reason if pilot else ""),
             "kills": pilot.kills if pilot else 0,
@@ -1124,7 +1189,8 @@ class AutoPilotManager:
             if p is None:
                 continue
             out.append({"name": p.name, "level": p.level, "active": pilot.active,
-                        "preset": pilot.preset, "status": pilot.status,
+                        "preset": pilot.preset, "noButch": pilot.no_butch,
+                        "status": pilot.status,
                         "kills": pilot.kills, "exp": p.exp,
                         "map": p.map.name if p.map else "",
                         "x": p.x, "y": p.y, "hp": p.hp, "maxHp": p.max_hp,

@@ -633,3 +633,26 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **验证**：`test_multiplayer_ui` 16/16、`test_window_close` 12/12、`test_trade_party_ui` 17/17、`test_multiplayer_features`(3.10) 30/0，无 JS 异常。抓帧对照（1000×700）：原黑框方格 → 右上角完整状态窗 + 人物半身像 + 装备穿身上 + DSW 凹槽，与原版一致。
 
 **注意**：① 需 Ctrl+F5 强刷前端（纯前端改动，无需重启服务端）。② 这是 1.80 资源的视觉近似：火炬底图 370 与本项目 `Prguse3[207]` 尺寸不同（325 vs 362），本项目沿用 F10 同源的 207 保证视觉一致。③ 原版行会名 `Left+45,Top+58` 未实现（服务端 userState 快照未带 guild 字段）；头顶"角"是测试假数据 looks=60 的图标，真实装备不会。④ 查看入口仍是 Ctrl+右键（与 `ClMain.pas` 一致）。
+
+## §108 托管四连调：攻击动作锁 / 施法放慢 / 空蓝才喝 / 不挖肉开关（2026-11-18，用户四点反馈）
+
+**用户反馈**：① 攻击时不能移动（跟原版对齐），现在法师托管能移动施法；② 法师施法还是偏快；③ 喝蓝太激进，最好空蓝再喝；④ 加一个「托管时不挖肉」选项。用户拍板：施法放慢到火球约 1.2s / 不挖肉用独立勾选框覆盖档位 / 空蓝口径 = 蓝不够放最低级技能。
+
+**原版依据（本地 Delphi 逐行）**：
+- 动作锁：`SendActMsg`/`SendSpellMsg` 发出即置 `ActionLock := TRUE; ActionLockTime := GetTickCount`（`MirClient/ClMain.pas:3575-3595`）；`CanNextAction` 要求 `g_MySelf.IsIdle and (m_nState and $04000000 = 0) and 眩晕过期`（:3975-3984）；`ServerAcceptNextAction` 在 ActionLock 未应答时返回 FALSE（:3962-3973）。即出刀/施法动作落地前不能移动。
+- 施法节拍（§95 已立）：`g_dwMagicDelayTime := 200 + dwDelayTime`（:2428），下一次 F1-F8 施法过 `g_dwSpellTime(500) + g_dwMagicDelayTime`（:2040）。本轮把基础节拍 700→1100（用户嫌快，主动偏离原版）。
+
+**改动**：
+- `pyserver/autopilot.py`：
+  - 动作锁：新增 `last_cast_beat` 字段 + `_action_busy()`（施法看 last_cast_at/beat = max(t.delay, 1100+t.delay/10)，近战看 last_attack_at/攻速节拍，取较晚者不叠加）；`_step_to()` 开头动作未落地直接 return True 保持站位。三处施法（治愈/火符/法师）写 `last_cast_beat`。`enable` 重置节拍字段。
+  - 施法放慢：`SPELL_INPUT_BASE_MS` 700→1100，火球/雷电托管均约 1.2s（`max(服务端CD, 客户端节拍)` 口径不变）。
+  - 空蓝才喝：删三档 `potion_mp` 固定阈值，新增 `_min_mage_spell_cost(w,p)`（已学单体技能最低耗蓝，火球 lv0=2/大火球=6/雷电=9）；`available = mp + inc_spell` 小于最低耗蓝才 useItem。`desc` 同步。
+  - 不挖肉开关：`AutoPilot.no_butch` 字段；`enable(p,preset,now,no_butch)`；`_butch_enabled()` 与 `_butch_corpses()` 两处加 `not self.no_butch`；`state_dict`/`snapshot` 回传 `noButch`/`noButch`。
+- `pyserver/service.py`：`_autopilot` 解析 `noButch`，新增 `action == "option"` 运行中即时切档（不动档位/其他状态），`action == "on"` 时把 noButch 传给 enable。
+- `frontend/scene/PlayScene.mjs`：托管条加宽（left 556/width 236），新增 `#autoPilotNoButch` 勾选框 + localStorage `jootm2.autopilotNoButch`；`_toggleAutopilot` on 带 noButch；`_changeNoButch` 发 `option` 消息；`_onAutoState` 回写勾选状态；状态条文案带「挖肉/不挖肉」。
+- `scripts/test_autopilot_hosted_opt.py`：改喝蓝断言为空蓝口径（蓝够不喝/不够才喝）、施法节拍 sleep 用常量算；Recorder 加 moves 记录；新增 §6 动作锁（2 条）+ §7 不挖肉开关（4 条，含 option 消息即时切换、state_dict 回传、关掉恢复挖肉）。
+- `scripts/test_autopilot_ui.py`：新增 5 条勾选框 UI 断言；手动接管段前 blur 焦点（否则 checkbox 抢焦点致 P 键失效）。
+
+**验证**：`test_autopilot_hosted_opt` 26/0；autopilot 39/0、taoist 18/0、ws 16/0、hosted_fixes 14/0、all_messages 95/0、pyserver 128/0；浏览器 UI `test_autopilot_ui` 13/13（含勾选持久化 + REST 回读 noButch），无 JS 异常。全部用 `D:/Python310/python.exe`（UI 用 Python39 的 Playwright）。
+
+**注意**：① 前端改动需 Ctrl+F5 强刷；服务端改动（动作锁/喝蓝/消息字段）需重启服务端才生效。② 施法 1.2s 是用户主动要求的放慢，已偏离原版 760ms，后续若反馈太慢回调 `SPELL_INPUT_BASE_MS` 即可。③ 动作锁按「攻速节拍/施法节拍」近似原版 IsIdle 硬直（原版是动画状态，服务端无精确对应），偏保守——出刀后要等一个攻速周期才走位，观感是「站定打完再走」。④ 截图 `docs/autopilot-hud.png` 已随 UI 测试重生成。

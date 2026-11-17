@@ -143,7 +143,26 @@ def main() -> int:
             check("状态跟随 tick 更新", text_busy != "" and "托管中" in text_busy,
                   text_busy)
 
+            print("\n=== 「不挖肉」勾选框 ===")
+            page.wait_for_selector("#autoPilotNoButch", timeout=5000)
+            check("不挖肉勾选框已渲染", True)
+            page.check("#autoPilotNoButch")
+            page.wait_for_timeout(300)
+            check("勾选后状态条显示不挖肉",
+                  "不挖肉" in page.inner_text("#autoPilotStatus"),
+                  page.inner_text("#autoPilotStatus"))
+            check("勾选已持久化到 localStorage",
+                  page.evaluate("localStorage.getItem('jootm2.autopilotNoButch')") == "1")
+            check("服务端已收到不挖肉选项",
+                  api(base, "/api/autopilot")["pilots"][0]["noButch"] is True)
+            page.uncheck("#autoPilotNoButch")
+            page.wait_for_timeout(300)
+            check("取消勾选后恢复挖肉文案",
+                  "挖肉" in page.inner_text("#autoPilotStatus"),
+                  page.inner_text("#autoPilotStatus"))
+
             print("\n=== 手动接管 / 恢复 / 关闭 ===")
+            page.evaluate("document.activeElement && document.activeElement.blur()")
             page.keyboard.press("1")       # 游戏动作键 → 立即接管
             page.wait_for_function(
                 "document.querySelector('#autoPilotStatus').textContent.includes('已暂停')",

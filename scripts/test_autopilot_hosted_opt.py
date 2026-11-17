@@ -4,10 +4,13 @@
 行为规格：
 - 法师(job=1)：射程内按 雷电术(11)>大火球(5)>火球术(1) 优先级施法；没蓝/没学
   不贴身砍怪（等回蓝）；超射程照常走近。施法按原版客户端节拍
-  (500+200+技能Delay) 节流，不机关枪连发；蓝线到了自动喝蓝药。
+  (500+200+技能Delay) 节流，不机关枪连发（基础节拍 SPELL_INPUT_BASE_MS）；
+  「空蓝才喝」——蓝量（含回蓝池）不够放最低耗蓝技能时才喝蓝药。
+- 动作锁：出刀/施法未落地（CanNextAction 要求 IsIdle）前不移动，对齐原版。
 - 背包：余量不足停挖肉；背包 8 格告警时按品质从差到好丢肉，留 MEAT_KEEP 份。
 - 装备：武器清槽后从背包自动穿耐久最高的下一把；护身符/毒粉耗尽自动补戴。
   施法前即时补符，避免「有符在背包却回落近战」。
+- 「不挖肉」独立开关：勾选后任何档位都不挖肉（含清空低品质肉动作）。
 
 用法（务必用 3.10）：
     D:/Python310/python.exe scripts/test_autopilot_hosted_opt.py
@@ -25,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from pyserver.autopilot import (BAG_SIZE, BUTCH_BAG_RESERVE, MEAT_KEEP,  # noqa: E402
-                                SPELL_INPUT_BASE_MS)
+                                SPELL_INPUT_BASE_MS, _min_mage_spell_cost)
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
@@ -109,18 +112,21 @@ class Recorder:
         self.drops: list[int] = []
         self.uses: list[int] = []
         self.butches: int = 0
+        self.moves: list[int] = []
         self._orig_use = srv._use_item
         self._orig_cast = srv._cast_magic
         self._orig_attack = srv._attack
         self._orig_take_on = srv._take_on_item
         self._orig_drop = srv._drop
         self._orig_butch = srv._butch
+        self._orig_move = srv._move
         srv._use_item = self._use_rec
         srv._cast_magic = self._cast_rec
         srv._attack = self._attack_rec
         srv._take_on_item = self._take_on_rec
         srv._drop = self._drop_rec
         srv._butch = self._butch_rec
+        srv._move = self._move_rec
 
     def _use_rec(self, s, m):
         self.uses.append(int(m.get("makeIndex", 0)))
@@ -146,6 +152,10 @@ class Recorder:
         self.butches += 1
         return self._orig_butch(s, m)
 
+    def _move_rec(self, s, m):
+        self.moves.append(int(m.get("dir", 0)))
+        return self._orig_move(s, m)
+
     def reset(self):
         self.casts.clear()
         self.take_on.clear()
@@ -153,6 +163,7 @@ class Recorder:
         self.uses.clear()
         self.attacks = 0
         self.butches = 0
+        self.moves.clear()
 
 
 def tick(srv, n=1, step=0.65):
@@ -202,8 +213,9 @@ def main() -> None:
     del p.skills[5]
     p.skill_cooldown.clear()
     rec.reset()
-    # 原版客户端施法节拍 = 700 + 火球Delay(60) = 760ms，间隔要够一拍
-    tick(srv, 1, step=0.9)
+    # 原版客户端施法节拍 = SPELL_INPUT_BASE_MS + 火球Delay(60/10) ≈ 1106ms
+    fireball_beat = (SPELL_INPUT_BASE_MS + w.magic_templates[1].delay / 10) / 1000
+    tick(srv, 1, step=fireball_beat + 0.05)     # 间隔要够一拍
     check("只学火球术→放火球术(1)", rec.casts[:1] == [1], f"casts={rec.casts}")
 
     print("\n[2] 法师没蓝不贴身砍怪")
@@ -237,11 +249,11 @@ def main() -> None:
     check("过一拍才放第 2 发", len(rec.casts) == 2, f"casts={rec.casts}")
     ap.disable(p4, "测试切换")
 
-    # ============ 2c. 法师自动喝蓝药 ============
-    print("\n[2c] 法师蓝线到了自动喝蓝药")
+    # ============ 2c. 法师「空蓝才喝」============
+    print("\n[2c] 法师空蓝（不够放最低耗蓝技能）才喝蓝药")
     p5, sess5 = login(srv, "MANAOPT", job=1)
     p5.skills[1] = {"level": 0, "train": 0, "key": 0}
-    ap.enable(p5, "balanced")   # potion_mp = 0.35
+    ap.enable(p5, "balanced")
     clear_mobs(srv, p5)
     idx_mana = idx + 4
     w.item_templates[idx_mana] = replace(base, index=idx_mana, stdMode=0,
@@ -250,11 +262,22 @@ def main() -> None:
     mana = w.new_item_instance(w.item_templates[idx_mana])
     p5.bag.append(mana)
     p5.inc_spell = 0
-    p5.mp = max(1, int(p5.max_mp * 0.2))
+    min_cost = _min_mage_spell_cost(w, p5)
+    assert min_cost is not None and min_cost > 0
+
+    # 蓝够放技能时不喝（新口径：不再按 20%/35% 蓝线就灌）
+    p5.mp = min_cost + 5
+    rec.reset()
+    tick(srv, 1)
+    check("蓝够时不喝蓝药", mana["makeIndex"] not in rec.uses,
+          f"mp={p5.mp} need={min_cost} uses={rec.uses}")
+
+    # 蓝不够放最低一招 → 喝
+    p5.mp = min_cost - 1
     mp_before = p5.mp
     rec.reset()
     tick(srv, 1)
-    check("低蓝自动喝蓝药(useItem)", mana["makeIndex"] in rec.uses,
+    check("空蓝自动喝蓝药(useItem)", mana["makeIndex"] in rec.uses,
           f"uses={rec.uses}")
     check("喝药后 MP 实际提升", p5.mp > mp_before, f"{mp_before} -> {p5.mp}")
     check("蓝药已从背包消耗",
@@ -343,6 +366,64 @@ def main() -> None:
     check("保留的肉不超过 MEAT_KEEP 上限", remaining_meat <= MEAT_KEEP,
           f"剩 {remaining_meat} 份")
     ap.disable(p3, "测试结束")
+
+    # ============ 6. 攻击/施法动作锁：动作未落地不移动 ============
+    print("\n[6] 施法/出刀未落地时不移动（对齐原版 CanNextAction=IsIdle）")
+    p6, sess6 = login(srv, "ACTLOCK", job=1)
+    p6.skills[1] = {"level": 0, "train": 0, "key": 0}     # 火球术
+    p6.mp = 2000
+    ok, _ = ap.enable(p6, "balanced")
+    assert ok
+    clear_mobs(srv, p6)
+    mob6 = spawn(srv, p6, 10, 0)                          # 10 格外：需要先走近
+    mob6.hp = mob6.max_hp = 99999
+    p6.skill_cooldown.clear()
+    pilot6 = ap.get(p6)
+    # 手动制造「刚施法」状态（动作锁起点），怪在射程外本应触发 _step_to
+    stamp = now_ms()
+    pilot6.last_cast_at = stamp
+    pilot6.last_cast_beat = 1106
+    pilot6.last_attack_at = 0
+    rec.reset()
+    srv.autopilot.tick(stamp + 100)                        # 动作 100ms，远未落地
+    check("施法动作未落地不移动", len(rec.moves) == 0, f"moves={rec.moves}")
+    # 动作落地后再 tick → 允许移动
+    srv.autopilot.tick(stamp + 1200)
+    check("动作落地后可继续移动", len(rec.moves) >= 1, f"moves={rec.moves}")
+    ap.disable(p6, "测试切换")
+
+    # ============ 7. 不挖肉独立开关 ============
+    print("\n[7] 「不挖肉」勾选后任何档位都不挖肉")
+    p7, sess7 = login(srv, "NOBUTCH", job=0)
+    ok, _ = ap.enable(p7, "safe", no_butch=True)           # safe 档默认挖肉，但开关覆盖
+    assert ok
+    assert ap.get(p7).no_butch is True
+    clear_mobs(srv, p7)
+    # 造一具可挖尸体放在身边（挖肉只需距离 ≤2）；butchable 看 template.race
+    from pyserver.world import Monster as _M
+    chicken_t = next((t for t in w.monster_templates.values()
+                      if int(t.race) == 51), None)
+    assert chicken_t is not None, "找不到鸡模板，无法测挖肉"
+    m7 = _M(id=w.new_id(), name=chicken_t.name, x=p7.x + 1, y=p7.y,
+            hp=1, max_hp=1, level=1, exp=1, race=51, race_img=chicken_t.raceImg,
+            appr=chicken_t.appr, template=chicken_t,
+            spawn_x=p7.x + 1, spawn_y=p7.y, spawn_map=p7.map)
+    m7.alive = False
+    m7.corpse_until = now_ms() + 180_000
+    w.add_actor(m7, p7.map)
+    rec.reset()
+    tick(srv, 3, step=0.3)
+    check("勾选不挖肉→safe 档也不出刀", rec.butches == 0, f"butches={rec.butches}")
+    check("state_dict 回传 noButch",
+          ap.state_dict(p7, ap.get(p7), "safe")["noButch"] is True)
+    # 关闭开关 → 恢复挖肉
+    srv.on_message(sess7, json.dumps({"type": "autopilot", "action": "option",
+                                      "noButch": False}, ensure_ascii=False))
+    check("option 消息即时关掉不挖肉", ap.get(p7).no_butch is False)
+    rec.reset()
+    tick(srv, 3, step=0.75)
+    check("关掉开关后恢复挖肉", rec.butches >= 1, f"butches={rec.butches}")
+    ap.disable(p7, "测试结束")
 
     print(f"\n结果: {PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

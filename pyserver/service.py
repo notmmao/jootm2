@@ -500,6 +500,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         action = str(msg.get("action") or "status").lower()
         raw = msg.get("preset")
         preset = normalize_preset(raw) if raw is not None else None
+        no_butch = (bool(msg.get("noButch")) if "noButch" in msg else None)
         cur = self.autopilot.get(p)
         if action in ("off", "stop") or (action == "toggle" and cur is not None
                                          and cur.active):
@@ -509,6 +510,18 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             self.autopilot.pause(p)
             return
         if action == "status":
+            self.autopilot.push_state(p)
+            return
+        if action == "option":
+            # 运行中即时切换「不挖肉」开关，不动档位/其他状态
+            if cur is not None:
+                if no_butch is not None:
+                    cur.no_butch = no_butch
+                cur.set_status(
+                    f"已关闭挖肉 · 专注练级" if cur.no_butch
+                    else f"已开启挖肉 · 顺手赚钱", now_ms(), force=True)
+                self.world.send_system(
+                    p, "[托管] 已切换为" + ("不挖肉" if cur.no_butch else "挖肉") + "模式。")
             self.autopilot.push_state(p)
             return
         if action == "preset":
@@ -524,7 +537,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             return
         # action == on / toggle（当前未开启）
         key = preset or (cur.preset if cur else DEFAULT_PRESET)
-        ok, why = self.autopilot.enable(p, key)
+        ok, why = self.autopilot.enable(p, key, no_butch=no_butch)
         if not ok:
             self.autopilot.push_state(p, preset=key, reason=why, ok=False)
 
