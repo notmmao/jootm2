@@ -502,3 +502,26 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **验证**：`test_pyserver.py` 128/0（新增 8 项：裸路径/子路径/中文编码/query 透传/HEAD 无 body/关闭回退等）；本地 18081 实测 `/site`→302 list2、`/site/maps.html`→302 对应路径、中文路径正确 percent-encode；tick 180/0、all_messages 95/0。`docs/WIKI-PLAN.md` 已同步。
 
 **未提交的外来改动**：`.claude/skills/mir2-resource-converter/`（wil_pack.py / format-spec.md，时间戳 18:24，非本轮），提交时已排除。
+
+## §102 玛法领路人 5000 金币可重复领：CHECK 语义 + 任务变量不落库（2026-11-17，用户反馈两问）
+
+**用户反馈（两条）**：① 问「对比原版，怪攻击力 < 我防御是不是永远打不掉血？」；② 「玛法领路人给的一次性奖励可以重复领取（3 级后 5000 金币）」。本条记②与①的结论。
+
+**问题① 结论：是的，符合原版。** 火炬 `M2Server/ObjBase.pas:3431` `GetHitStruckDamage`：
+`armor := LoByte(AC)+Random(HiByte(AC)-LoByte(AC)+1); damage := _MAX(0, damage-armor)`。
+`ObjAxeMon.pas:67-72` 里保底 1 点的代码 `//if dam<=0 then if dam>-10 then dam:=1` **被注释掉**，原版物理攻击确实没有保底伤害——攻击掷点 ≤ 防御掷点就一点不掉（也不播受击/飘字）。本项目 `world.py:2543 _ranged_damage` = `roll_attack()-ac`，`dmg<=0` 走 noDamage 分支（`world.py:2177`），已对齐；魔法另走 `GetMagStruckDamage`（扣 MAC）同理。注意 PvP/玩家打怪仍用 `max(1,…)`（见已知边界），此处是「怪打玩家/召唤物」路径。
+
+**问题② 根因（两个 bug 叠加，均自 Java 上游继承）**：
+1. **CHECK 语义错**：原版 `QI_CHECK`（ObjNpc.pas:670-679）是「零/非零匹配」——`n := GetQuestMark(param)` 只返回 0/1，`(quest==0)==(tag==0)` 才通过；**不是**数值 `>=`。Java `NpcScriptEngine.java:192` 和本项目 `npc_script.py:431` 都写成 `quest >= tag`，于是 `check [001] 0` **恒真**。玛法领路人 `@away`（「未领过则补领」）因此永远 `goto @next1` → 无限 `give 5000`。全局 214 处 `check [N] 0/1`（24 个 0、190 个 1）全是布尔标记用法；tag=1 时 `>=1` 与「非零」等价，行为不变，只 tag=0 被修。
+2. **任务变量不落库**：`Player.quest_params` 只在内存——`service.py` 读档构造 Player 不加载、`persist()` 不写、`db.py` characters 表无该列；Java 侧 `Player.java:54 questParams=new int[1000]` 同样从不存档。即使修好①，重登后 `[001]` 归零仍可再领。
+
+**改动**：
+- `npc_script.py::_eval_condition` check 分支 → `(quest==0)==(tag==0)`（原版零/非零匹配）；注释写明依据与旧 bug。
+- `db.py` 新增独立表 `character_quests(character_id PK, params TEXT, FK→characters ON DELETE CASCADE)` + `load_quest_params` / `save_quest_params`（`ON CONFLICT DO UPDATE`）。**独立表不动 characters 结构**——该表与 Java 共用，绝不往里加列。
+- `service.py` 读档构造 Player 后 `p.quest_params = db.load_quest_params(rec["id"])`；`persist()` 末尾 `db.save_quest_params(p.character_id, p.quest_params)`（空 dict 也写，避免读到缺省）。
+
+**验证**：新增 `scripts/test_npc_mafa_guide.py`（18/0）：CHECK 四种组合 + 值 2、2 级不发钱、3 级首领 +5000 且 SET [001]、@main/@away 重进不再发、存档→重登标记保留、新角色不串号。`test_pyserver` 128/0、`test_tick_systems` 180/0、`test_autopilot` 39/0、py_compile 通过。`test_npc_home_quest.py` 报「找不到高级道士 NPC 9Eht」——**git stash 还原源码后同样失败，是基线问题，与本修复无关**。
+
+**注意**：① 需**重启服务端**才生效（引擎/DB 改动）；浏览器 Ctrl+F5。② 老存档第一次启动会自动建 `character_quests` 表，存量角色 `[001]` 视为未领——若有玩家已领过但库里无标记，会再领一次（一次性，之后正常）。③ 原版 `@next1` 只判 `checklevel 3`、未二次校验 `[001]`，UI 正常路径进不去（@main 已分流到 @away），按保真不擅自加校验。
+
+**提交**：见本轮 git log（标签按 CLAUDE.md：跨脚本语义+数据持久化，拆为 `[逻辑]` 引擎语义 + `[数据]` 持久化）。
