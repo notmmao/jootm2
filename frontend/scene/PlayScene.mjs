@@ -14,6 +14,7 @@ import { scheduler } from '../gfx/scheduler.mjs';
 import { toLocal } from '../core/viewport.mjs';
 import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.mjs';
 import { toggleFogTunePanel } from '../ui/FogTunePanel.mjs';
+import { TradePartyUI } from '../ui/TradePartyUI.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
@@ -351,6 +352,13 @@ export class PlayScene extends Scene {
         this.hudEl = root;
         gui.appendChild(root);
 
+        // 面对面交易 / 组队 UI（独立模块，窗口挂在同一个 GUI 容器里随 stage 缩放）
+        this.tradePartyUI = new TradePartyUI({
+            container: gui, conn: this.conn,
+            libUrl: (lib, idx) => this._libUrl(lib, idx),
+            onLog: (text, color) => this._log(text, color),
+        });
+
         // 底板 Prguse[1]（800×251）
         this._libUrl('prguse', 1).then((url) => {
             if (!url || !root.isConnected) return;
@@ -473,9 +481,9 @@ export class PlayScene extends Scene {
         // 底板中部/右下按钮（Prguse 128..142，28×13）
         const botBtns = [
             { x: 219, icon: 130, tip: '小地图(V)', action: () => this._toggleMiniMap() },
-            { x: 249, icon: 132, tip: '交易', action: () => this._log('交易功能未开放。') },
+            { x: 249, icon: 132, tip: '交易', action: () => this.tradePartyUI && this.tradePartyUI.promptTrade() },
             { x: 279, icon: 134, tip: '行会', action: () => this._log('行会功能未开放。') },
-            { x: 309, icon: 128, tip: '编组', action: () => this._log('编组功能未开放。') },
+            { x: 309, icon: 128, tip: '编组', action: () => this.tradePartyUI && this.tradePartyUI.toggleParty() },
             // 属性加点：原版只有「有可分配点数」时才显示（且会闪烁），当前没有属性点系统 → 默认隐藏
             { x: 339, icon: 140, tip: '属性加点', hidden: true, action: () => this._log('暂无可分配点数。') },
             { x: 530, icon: 136, tip: '退出角色', action: () => this._backToSelect() },
@@ -1353,6 +1361,8 @@ export class PlayScene extends Scene {
     }
 
     onMessage(type, msg) {
+        // 面对面交易 / 组队状态交给独立 UI 模块处理（与游戏画面消息互不干扰）
+        if (this.tradePartyUI) this.tradePartyUI.handleMessage(type, msg);
         switch (type) {
             case 'backToSelectResult':
                 // 原版 Alt-X：服务端保留登录态与连接，客户端切回人物选择场景。
@@ -4771,6 +4781,7 @@ export class PlayScene extends Scene {
     }
 
     onExit() {
+        if (this.tradePartyUI) { this.tradePartyUI.destroy(); this.tradePartyUI = null; }
         if (sound.terrainAt) sound.terrainAt = null;   // 场景切走：别让音效模块继续读这张地图
         document.removeEventListener('keydown', this._keyDown);
         if (this._keyUp) document.removeEventListener('keyup', this._keyUp);
