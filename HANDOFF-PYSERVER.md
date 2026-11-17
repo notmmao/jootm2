@@ -588,3 +588,30 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **验证**：新增 `scripts/test_input_shortcuts.py` 9/9——用 Playwright 真实 `keyboard.type('t1')` 验证组队邀请框数字完整、不触发快捷用药水、回车发 `partyInvite{name:'t1'}`；交易发起框同样可输入 `t1`；失焦后按 `1` 仍能触发快捷用药水（防止过度屏蔽）；零 JS 异常。回归 `test_trade_party_ui` 17/17、`test_multiplayer_ui` 15/15。
 
 **注意**：① 需 Ctrl+F5 强刷（纯前端改动，无需重启服务端）。② 测试必须用真实键盘输入，不能用 JS 直接 `input.value = 't1'`——后者绕开 keydown，测不出 `preventDefault` 吞字符。③ Esc 在输入框内只失焦、不关窗；关窗仍走窗口关闭按钮或全局 Esc（失焦后）。
+
+## §106 PvP 尸体表现、弹窗×关闭、完整 PK 惩罚体系（2026-11-17，用户三连反馈）
+
+**用户反馈三条**：① 角色1被角色2杀死后，角色2仍看到角色1站立；② 「实现完整的PK惩罚」（承接上一问「恶意PK有哪些惩罚？黄名红名」）；③ 在线玩家界面点×关不掉、之后一直关不掉（严重 bug）。
+
+### 一、PvP 尸体表现（击杀者视角站立的根因）
+服务端 `kill_player` 广播的 `death` 消息不带 corpse，前端 `case 'death'` 给**所有**玩家设 `_action='die'` 播 1400ms 动画，播完渲染循环切 `_action='death'`；但玩家动作段表 `PLAYER_SEG` **没有 death 键** → `|| 'stand'` 回退站立帧。原版 `SM_DEATH`（Client/Actor.pas:1036-1043）是 `startframe := endframe` **直接定格 ActDie 末帧不播动画**，只有 `SM_NOWDEATH`（自己死，:1044-1050/:2759-2765）播完整。修复：`PLAYER_SEG` 加 `death:'die'`；`ActorSprite.prefetchDeathFrame` 支持玩家（hum/weapon/hair 三层同 cf 预取，否则后进视野看到尸体时末帧未加载会回退站立帧）；`_frameSpec` 玩家 death 定格 `af.count-1`；`case 'death'` 只给自己播动画（4×120ms），别人直接定格。
+
+### 二、弹窗×关闭（严重 bug）
+`TradePartyUI._window` 的 × 只调 `onClose`。在线玩家窗与查看装备窗的回调**只清引用、未 `win.remove()`** → 点×后 DOM 还在、引用丢了，再点按钮新建第二个窗，旧窗永远关不掉。两处回调改为 `win.remove(); this._xxx=null`（装备窗连 `_inspectWin` 一并清）。已逐一审计 8 个窗口回调，其余走 `tradeCancel`/`respondTrade`/`respondParty`/`tradeEnd`，无同类遗漏。
+
+### 三、完整 PK 惩罚体系（对照火炬源码落地）
+原版核实（权威，ObjBase.pas）：`PKLevel = PlayerKillingPoint div 100`（:3863-3865）；白(255)/黄(251,PK100-199)/红(249,PK≥200)（:3878-3882）；灰名=BoIllegalAttack 索引47 60秒（:2824-2837/:2866-2870/:3894-3898）；杀人+100、正当防卫（死者灰名）不加（:2707-2718/:2894-2910）；在线每2分钟-1（:7719-7724）；红名死亡爆全部背包（:2395-2399）、装备掉率1/15 vs 1/30（:2547-2548，被玩家杀不掉装备 :21005）；守卫主动攻击红名（ObjGuard.pas:87/ObjMon2.pas:878）；等级压制（:7917-7935）；红名回城/复活到地图'3'(845,674)（:3170-3177/UsrEngn.pas:576-600）。**民间传说但源码无**：禁止红名进城/安全区、通缉悬赏、红名不能交易摆摊（仅脚本条件 QI_CHECKPKPOINT 供 GM 自定义）。
+
+实现（核心从「pk_point 恒 0 死链路」变为真正生效）：
+- `util.py`：新增 `PK_DECAY_INTERVAL_MS=120000` / `ILLEGAL_ATTACK_MS=60000` / `PK_POINT_PER_KILL=100`。
+- `world.py`：Player 加 `illegal_attack_until`/`pk_decay_at`；`name_color()` 增灰名分支（红>黄>灰>白优先序）；新增 `mark_illegal_attack`（原版 AddPkHiter）；`wear_struck(target, damage, attacker=None)` 加攻击者参数，挨打时给攻击者打灰名；新增 `_tick_pk`（灰名到期 + 每2分钟-1，读档/新角色以当前时刻为基准不补算离线），接入 `tick` 每轮；衰减/灰名变化时 `broadcast_entity_add` 即时刷新名字色。
+- `handlers_combat.py`：4 处 PvP `wear_struck` 补 `attacker=p`；新增 `_pvp_block_reason`（等级压制 + 同队），替换 3 处 PvP 入口 + 魔法选目标的 `_is_teammate` 检查。
+- `world_extra.py`：`kill_player` 集中加 PK 点（死者灰名=正当防卫则豁免），结算双方灰名。
+- `db.py` + `service.py`：新增独立表 `character_pk(character_id PK, pk_point)`（**不动 Java 共用的 characters 表**），读档 load_pk_point、persist save_pk_point；重登复活按红名切红名村地图 '3'（原本注释说要切但代码没实现）。
+- `MapActor.mjs`：玩家名字颜色改为**始终**按服务端 nameColor 绘制（原版核心信息），不再受 `jootm2.hudEnhanced` 默认 false 遮蔽；增强模式仅保留自己的金黄美术习惯，PK 色优先。
+
+**验证**：新增 `scripts/test_pk_punishment.py` 21/0（加点/正当防卫/灰名打标与到期/2分钟衰减/红名爆背包/守卫敌意/等级压制/独立表持久化不污染 characters）、`scripts/test_pk_name_color_ui.py` 7/7（四色实际渲染采样）、`scripts/test_pvp_death_visual.py` 11/11、`scripts/test_window_close.py` 12/12。全量回归：`test_pyserver` 128/0、`test_all_messages` 95/0、`test_tick_systems` 180/0、`test_trade_party` 33/0、`test_npc_mafa_guide` 18/0、`test_multiplayer_features` 30/0、`test_trade_party_ui` 17/17、`test_multiplayer_ui` 15/15、`test_input_shortcuts` 9/9。`test_corpse_fx` 的「尸体帧纹理已加载」1 FAIL 经 git stash 验证**基线即失败**（异步纹理时序），与本轮无关。
+
+**注意**：① 需重启服务端 + Ctrl+F5。② `character_pk` 是新增独立表，老角色 pk_point 缺省 0。③ PK 点衰减只在在线 tick 推进，离线不扣（对齐原版）。④ 灰名/红名通过 brief_json 的 nameColor 下发，无需新消息类型。⑤ 安全区禁 PK / 换图3秒保护（原版 CheckAttackRule2 另两条）本项目无对应状态，未实现；攻击魔法打玩家分支目前不存在，等级压制仅接在物理 PvP 三入口。
+
+**提交**：见本轮 git log（按 CLAUDE.md 标签拆分：`[修复]`×2 尸体与弹窗、`[保真]` PK 协议与惩罚、`[前端]` 名字色、`[测试]`、`[文档]`）。
