@@ -12,6 +12,7 @@
 4. **命名与大小**：`archive-<年>-<月>-<a|b|c…>.md` 按时间顺序；单文件约 800~1500 行（20~30 个 §），满了就开下一个字母，不要无限追加。
 5. **同步索引**：搬走后更新 `## 归档索引` 一行（文件 → 覆盖的 § 范围与主题）；主文件不留占位符，也不复用 § 编号。
 6. **别把规则搬走**：§0.5（强制规则）与 §0.6（已知缺陷）永远留在主文件；发现新坑先加规则，再记录本轮。
+7. **行文正常换行**（用户约定 2026-11-17）：一段文字写成一整行（靠编辑器软换行显示），**不要逐 40 字手工断行**；代码块/表格/引用行/列表项除外。查证过全库无行宽规定，断行是历史习惯。
 
 ## 0. 一句话状态
 
@@ -112,9 +113,7 @@ docker compose --profile java up jootm2-java --build   # Java 对照，宿主 80
 
 版本机制：`python scripts/gen_version.py` 生成 `pyserver/version.json`（gitignored），`GET /api/version` 返回 `{version: <git 短 hash>, subject, builtAt, changes[...]}`；**镜像构建前必须先生成**，部署后只核对该端点。
 
-CLI：`--config --host --port --db --gamedata --web --resources --tick-ms --no-resource-index --version`。
-环境变量：`JOOTM2_PORT / JOOTM2_HOST / JOOTM2_DB / JOOTM2_WEB_ROOT / JOOTM2_RESOURCES / JOOTM2_GAMEDATA / JOOTM2_ROOT / JOOTM2_CONFIG`。
-启用端点：`/` 静态、`/ws`、`/resources/*`、`/api/status`、`/api/players`、`/api/migration`。
+CLI：`--config --host --port --db --gamedata --web --resources --tick-ms --no-resource-index --version`。环境变量：`JOOTM2_PORT / JOOTM2_HOST / JOOTM2_DB / JOOTM2_WEB_ROOT / JOOTM2_RESOURCES / JOOTM2_GAMEDATA / JOOTM2_ROOT / JOOTM2_CONFIG`。启用端点：`/` 静态、`/ws`、`/resources/*`、`/api/status`、`/api/players`、`/api/migration`。
 
 ### 3.2 回归脚本（全部零依赖）
 
@@ -211,7 +210,7 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
   docker tag  crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python:latest jootm2:python
   cd ~/jootm2 && docker compose up -d     # resources/data 已就位则无需重传
   ```
-  compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名即可复用现有 compose 文件，无需改动。
+compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名即可复用现有 compose 文件，无需改动。
 - **一键脚本（2026-11-16，§88）**：`bash scripts/deploy_image.sh` 把上述流程（gen_version → build 双标签 → push → 阿里云 pull/tag/up → `/api/version`+`/api/status` 验证）串成一条命令，**只推镜像、无 rsync**；改了 gamedata 时仍需按 §21.8 追加 gamedata rsync。
 - **部署后验证（用户约定 2026-11-13，轻量化）**：只做 `curl http://139.224.24.88:8080/api/version`（gp-bench-3 用 `https://mir2.notmmao.com/api/version`），核对 `version` 字段 == 最新提交短 hash + `/api/status` 200，**不再全量深度回归**；深度回归只在改协议/改 tick 等核心时做。
 
@@ -264,177 +263,87 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 
 ## §87 /site 数据库站缓存分档：图片 60 秒 → 7 天（2026-11-16）
 
-**问题**：用户反馈阿里云站每次打开地图页图片都重新加载。排查确认缓存头
-**不缺**：`pyserver/net.py` 的 `/site` 路由一直有 ETag / Last-Modified /
-304 条件请求，但统一用 `cache_override="public, max-age=60, must-revalidate"`
-覆盖所有文件——包括 893 张地图/图标 PNG。超过 60 秒后每张图都要发一次
-条件请求（公网逐张一个 RTT），带宽有限时观感就是「重新加载」。旧注释说明
-60 秒是为规避「文件名不变 + immutable 一年看不到新图」，方向对但取值过保守。
+**问题**：用户反馈阿里云站每次打开地图页图片都重新加载。排查确认缓存头**不缺**：`pyserver/net.py` 的 `/site` 路由一直有 ETag / Last-Modified /304 条件请求，但统一用 `cache_override="public, max-age=60, must-revalidate"`覆盖所有文件——包括 893 张地图/图标 PNG。超过 60 秒后每张图都要发一次条件请求（公网逐张一个 RTT），带宽有限时观感就是「重新加载」。旧注释说明60 秒是为规避「文件名不变 + immutable 一年看不到新图」，方向对但取值过保守。
 
 **改动**（`pyserver/net.py`）：
-- 新增 `WEBSITE_STATIC_MAX_AGE = 7*24*3600`、`WEBSITE_IMAGE_EXTS` 与
-  `website_cache_control(name)`：HTML `no-cache`；图片 `public, max-age=604800,
-  must-revalidate`；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。
+- 新增 `WEBSITE_STATIC_MAX_AGE = 7*24*3600`、`WEBSITE_IMAGE_EXTS` 与`website_cache_control(name)`：HTML `no-cache`；图片 `public, max-age=604800, must-revalidate`；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。
 - 不用 `immutable`：站点重生成时文件名不变，7 天到期后靠 ETag 自动换新图。
-- `_serve_file` 新增可选 `cache_fn: Callable[[str], str]` 参数，优先级
-  `cache_fn > cache_override > cache_control`；其余调用点零改动。
-- `/site` 路由改传 `cache_fn=website_cache_control`；仍 `allow_gzip=False`
-  （站点同步 zlib 压到游戏 tick 的约束不变，见 §60）。
+- `_serve_file` 新增可选 `cache_fn: Callable[[str], str]` 参数，优先级`cache_fn > cache_override > cache_control`；其余调用点零改动。
+- `/site` 路由改传 `cache_fn=website_cache_control`；仍 `allow_gzip=False`（站点同步 zlib 压到游戏 tick 的约束不变，见 §60）。
 - `docs/WIKI-PLAN.md` 同步路由/缓存分档与验证命令。
 
-**验证**：`test_pyserver.py` 扩到 **114 PASS / 0 FAIL**，新增 9 项覆盖
-分档表、图片不用 immutable、`/site/*.png` 长缓存 + ETag、条件请求 304、
-HTML `no-cache`。本地起 `python -m pyserver --port 18080` 实测响应头：
-PNG `public, max-age=604800, must-revalidate`、HTML `no-cache`、CSS
-`max-age=300`，带 `If-None-Match` 返回 304 且无 body。
+**验证**：`test_pyserver.py` 扩到 **114 PASS / 0 FAIL**，新增 9 项覆盖分档表、图片不用 immutable、`/site/*.png` 长缓存 + ETag、条件请求 304、HTML `no-cache`。本地起 `python -m pyserver --port 18080` 实测响应头：PNG `public, max-age=604800, must-revalidate`、HTML `no-cache`、CSS `max-age=300`，带 `If-None-Match` 返回 304 且无 body。
 
-**部署提醒**：改的是 Python 代码，阿里云需**更新镜像并重启**才生效（只
-rsync `data/website/` 不够）。验证：`curl -sI https://aliyun.notmmao.com/site/
-assets/icons/items/1.png | grep -i cache-control`。浏览器第一次刷新仍会
-重取一次图片（旧 60 秒缓存里的条目过期/覆盖），此后 7 天内零图片请求；
-若改完想立刻看新图，Ctrl+F5 强刷即可。
+**部署提醒**：改的是 Python 代码，阿里云需**更新镜像并重启**才生效（只rsync `data/website/` 不够）。验证：`curl -sI https://aliyun.notmmao.com/site/assets/icons/items/1.png | grep -i cache-control`。浏览器第一次刷新仍会重取一次图片（旧 60 秒缓存里的条目过期/覆盖），此后 7 天内零图片请求；若改完想立刻看新图，Ctrl+F5 强刷即可。
 
 ---
 
 ## §88 一键镜像部署脚本 + bed804c 只推镜像部署（2026-11-16）
 
-**背景**：用户要求「推送到阿里云，只推送镜像，其他资源文件不变」。Agent 侧
-Bash 权限分类器（auto 模式依赖的远端模型）间歇性超时，构建命令连续被挡；
-用户提出改为一键脚本由本人在终端运行，绕开分类器。
+**背景**：用户要求「推送到阿里云，只推送镜像，其他资源文件不变」。Agent 侧Bash 权限分类器（auto 模式依赖的远端模型）间歇性超时，构建命令连续被挡；用户提出改为一键脚本由本人在终端运行，绕开分类器。
 
 **新增 `scripts/deploy_image.sh`**（bash，`bash -n` 通过）：
-- 流程 = §21.6 标准路径的脚本化：`gen_version.py`（优先 `D:/Python310/python.exe`）
-  → `docker build` 短 hash + `latest` 双标签 → push ACR（失败提示
-  `docker login --username=notmmao@gmail.com`）→ ssh 阿里云
-  `pull → docker tag jootm2:python → cd /root/jootm2 && docker compose up -d`
-  → 轮询验证 `/api/version` version == `git rev-parse --short HEAD`（3 秒 × 10 次）
-  + `/api/status` 200。
-- **只推镜像，无任何 rsync**：不碰服务器 `data/`、`resources/`、`gamedata/`、
-  `data/website/`。⚠ 因此 gamedata 改动不会随本脚本生效（§21.8 挂载覆盖坑），
-  改了 gamedata 需另行 rsync；工作区不干净时脚本开头打印警告。
+- 流程 = §21.6 标准路径的脚本化：`gen_version.py`（优先 `D:/Python310/python.exe`）→ `docker build` 短 hash + `latest` 双标签 → push ACR（失败提示`docker login --username=notmmao@gmail.com`）→ ssh 阿里云`pull → docker tag jootm2:python → cd /root/jootm2 && docker compose up -d` → 轮询验证 `/api/version` version == `git rev-parse --short HEAD`（3 秒 × 10 次）+ `/api/status` 200。
+- **只推镜像，无任何 rsync**：不碰服务器 `data/`、`resources/`、`gamedata/`、`data/website/`。⚠ 因此 gamedata 改动不会随本脚本生效（§21.8 挂载覆盖坑），改了 gamedata 需另行 rsync；工作区不干净时脚本开头打印警告。
 
 **本轮部署结果（bed804c，用户亲自运行脚本）**：
-- ACR 双标签 `bed804c` + `latest`，digest `sha256:8f5ba39a77c9…`；
-  阿里云容器 Recreated → Started。
-- 验证：`http://139.224.24.88:8080/api/version` 返回 `"version":"bed804c"`
-  （builtAt 2026-11-16T14:56:31），`/api/status` **200**。按约定不做深度回归。
-- 本次镜像包含 §85~§87 的代码改动（修复油分流 / 消耗品审计 / /site 图片长缓存）；
-  gamedata 未同步，若宿主 gamedata 落后于仓库，模板 CSV 直载（§84）读到的仍是
-  宿主旧数据。
+- ACR 双标签 `bed804c` + `latest`，digest `sha256:8f5ba39a77c9…`；阿里云容器 Recreated → Started。
+- 验证：`http://139.224.24.88:8080/api/version` 返回 `"version":"bed804c"`（builtAt 2026-11-16T14:56:31），`/api/status` **200**。按约定不做深度回归。
+- 本次镜像包含 §85~§87 的代码改动（修复油分流 / 消耗品审计 / /site 图片长缓存）；gamedata 未同步，若宿主 gamedata 落后于仓库，模板 CSV 直载（§84）读到的仍是宿主旧数据。
 
-**文档瘦身**：主文件超 500 行硬上限（927 行），§69~§82 逐字归档到
-`docs/handoff/archive-2026-11-f.md`，主文件保留 §83~§88。§89 追加前再把
-§83~§84 归档到同文件，主文件保留 §85~§89。
+**文档瘦身**：主文件超 500 行硬上限（927 行），§69~§82 逐字归档到`docs/handoff/archive-2026-11-f.md`，主文件保留 §83~§88。§89 追加前再把§83~§84 归档到同文件，主文件保留 §85~§89。
 
 ---
 
 ## §89 托管优化：法师远程 / 背包限流清肉 / 武器与符自动补戴（2026-11-16）
 
-**用户诉求**：① 背包容易满（尤其挖肉后），打一会就满包回城；② 战士靠被动没问题，
-道士已优化过远程，法师还贴身砍怪；③ 武器坏了、护身符没了要自动换背包里的下一个。
+**用户诉求**：① 背包容易满（尤其挖肉后），打一会就满包回城；② 战士靠被动没问题，道士已优化过远程，法师还贴身砍怪；③ 武器坏了、护身符没了要自动换背包里的下一个。
 
-**方案（用户拍板：挖肉限流+智能清理 / 法师按等级选最优技能 / 武器+护身符补戴）**，
-全部改在 `pyserver/autopilot.py`：
+**方案（用户拍板：挖肉限流+智能清理 / 法师按等级选最优技能 / 武器+护身符补戴）**，全部改在 `pyserver/autopilot.py`：
 
-1. **背包**：新增 `BUTCH_BAG_RESERVE=8`——背包剩 ≤8 格就停挖肉，改打怪捡金币
-   （钱不占格）；`_clean_meat()` 在吃紧时按肉的耐久（=m_nMeatQuality，卖价正比）
-   从差到好逐份丢，留 `MEAT_KEEP=6` 份最值钱的，2s 一份走 `_drop` handler 不刷屏；
-   进入 `cleaning_meat` 模式后持续丢到达标。**不再满包即回城停机**——只有真塞满
-   （全是非肉物品）才退回原行为用回城卷回城。顺带修 `_want_pickup`：StdMode 40
-   （肉）和 1（干肉）不再主动捡回，否则清包丢的肉立刻被捡回来白清。
-2. **法师远程**：新增 `MAGE_ATTACK_SKILLS=(11,5,1)`（雷电术>大火球>火球术，
-   都吃 MC、单目标 RM_DELAYMAGIC、不吃符）与 `_mage_fire()`：施法半径 8 格内
-   （Magic.pas:266）按「已学+有蓝+冷却好」选最高优先级招；**没蓝/没学绝不贴身砍**
-   （法师物理输出极低），只等回蓝；超射程照常走近。自查 MP/冷却避免
-   「魔法值不足」刷屏，`_cast_magic` 仍做最终校验。
-3. **装备自动补戴**：`_ensure_equipment()`（1s 节流）在武器槽空时从背包挑
-   StdMode 5/6 中耐久最高的一把走 `takeOnItem` 补上；`_ensure_amulet()` 补
-   护身符（Shape=5）/毒粉（Shape≤2）到 U_BUJUK/U_ARMRINGL 空槽（**只补空槽，
-   否则毒粉会把护身符顶回背包**）。`_taoist_fire` 施法前也即时补符，避免刚耗完
-   一张符就回落近战。`_best_wearable` 只做候选筛选，等级/重量/槽位校验仍由
-   `_take_on_slot._can_take_on` 统一把关，不绕过规则。
+1. **背包**：新增 `BUTCH_BAG_RESERVE=8`——背包剩 ≤8 格就停挖肉，改打怪捡金币（钱不占格）；`_clean_meat()` 在吃紧时按肉的耐久（=m_nMeatQuality，卖价正比）从差到好逐份丢，留 `MEAT_KEEP=6` 份最值钱的，2s 一份走 `_drop` handler 不刷屏；进入 `cleaning_meat` 模式后持续丢到达标。**不再满包即回城停机**——只有真塞满（全是非肉物品）才退回原行为用回城卷回城。顺带修 `_want_pickup`：StdMode 40（肉）和 1（干肉）不再主动捡回，否则清包丢的肉立刻被捡回来白清。
+2. **法师远程**：新增 `MAGE_ATTACK_SKILLS=(11,5,1)`（雷电术>大火球>火球术，都吃 MC、单目标 RM_DELAYMAGIC、不吃符）与 `_mage_fire()`：施法半径 8 格内（Magic.pas:266）按「已学+有蓝+冷却好」选最高优先级招；**没蓝/没学绝不贴身砍**（法师物理输出极低），只等回蓝；超射程照常走近。自查 MP/冷却避免「魔法值不足」刷屏，`_cast_magic` 仍做最终校验。
+3. **装备自动补戴**：`_ensure_equipment()`（1s 节流）在武器槽空时从背包挑StdMode 5/6 中耐久最高的一把走 `takeOnItem` 补上；`_ensure_amulet()` 补护身符（Shape=5）/毒粉（Shape≤2）到 U_BUJUK/U_ARMRINGL 空槽（**只补空槽，否则毒粉会把护身符顶回背包**）。`_taoist_fire` 施法前也即时补符，避免刚耗完一张符就回落近战。`_best_wearable` 只做候选筛选，等级/重量/槽位校验仍由`_take_on_slot._can_take_on` 统一把关，不绕过规则。
 
-**新增字段**（AutoPilot dataclass）：`last_clean_at/cleaning_meat/last_equip_at`。
-**回归**（全用 D:/Python310/python.exe）：新增 `scripts/test_autopilot_hosted_opt.py`
-14/0（法师技能优先级+没蓝不近战、武器换装、护身符毒粉双补、挖肉限流与清肉
-品质排序）；既有 test_autopilot 39/0、test_autopilot_taoist 18/0、test_autopilot_ws
-16/0、test_hosted_fixes 14/0、test_all_messages 91/0 全绿。
+**新增字段**（AutoPilot dataclass）：`last_clean_at/cleaning_meat/last_equip_at`。**回归**（全用 D:/Python310/python.exe）：新增 `scripts/test_autopilot_hosted_opt.py` 14/0（法师技能优先级+没蓝不近战、武器换装、护身符毒粉双补、挖肉限流与清肉品质排序）；既有 test_autopilot 39/0、test_autopilot_taoist 18/0、test_autopilot_ws 16/0、test_hosted_fixes 14/0、test_all_messages 91/0 全绿。
 
 ---
 
 ## §90 边界村小店：行会回城卷 → 回城卷（2026-11-16，用户指正）
 
-**根因**：§72 给边界村小店老板（`4Tdu-0.txt`，map 0 (291,610)）配货单时照抄
-「176 通用杂货铺模板」（`QuestDiary/商人/杂货铺.txt`），该模板只有**行会回城卷**
-没有回城卷；但此 NPC 对话 `@steleport`（:41-46）明说经营**回城卷**（"立刻返回
-村庄"），全文未提行会卷。新手村卖回行会城堡的卷对无行会新人无用。176 基线里
-回城卷在沙巴克杂货铺有售（`沙巴克_杂货-3.txt`：回城卷 100/10 + 行会卷 100/5）。
+**根因**：§72 给边界村小店老板（`4Tdu-0.txt`，map 0 (291,610)）配货单时照抄「176 通用杂货铺模板」（`QuestDiary/商人/杂货铺.txt`），该模板只有**行会回城卷**没有回城卷；但此 NPC 对话 `@steleport`（:41-46）明说经营**回城卷**（"立刻返回村庄"），全文未提行会卷。新手村卖回行会城堡的卷对无行会新人无用。176 基线里回城卷在沙巴克杂货铺有售（`沙巴克_杂货-3.txt`：回城卷 100/10 + 行会卷 100/5）。
 
-**改动**：`4Tdu-0.txt` [goods] 行会回城卷 → 回城卷（库存/刷新列不变），附注释。
-比奇杂货铺（7Bst-0）货单与 176 通用模板逐字一致，**不动**。
+**改动**：`4Tdu-0.txt` [goods] 行会回城卷 → 回城卷（库存/刷新列不变），附注释。比奇杂货铺（7Bst-0）货单与 176 通用模板逐字一致，**不动**。
 
-**验证**：引擎 `NpcScriptEngine.goods` 实解析：回城卷 110 金（100×1.1，%100）
-在列、行会回城卷已除；test_pyserver 115/0（原「对齐176」断言更新为回城卷 +
-新增「卖回城卷而非行会回城卷」断言）、test_tick_systems 180/0。
+**验证**：引擎 `NpcScriptEngine.goods` 实解析：回城卷 110 金（100×1.1，%100）在列、行会回城卷已除；test_pyserver 115/0（原「对齐176」断言更新为回城卷 +新增「卖回城卷而非行会回城卷」断言）、test_tick_systems 180/0。
 
 ---
 
 ## §91 头顶名字/血条分类增强 + 系统菜单开关（2026-11-16）
 
-**原版结论（本地 Delphi 源码核对）**：官方**不按 NPC/怪物/自己/别人分类配色**。
-名字只有一个服务端下发的调色板索引 `m_nNameColor`（`DrawScrn.pas:326-344` 用
-`BoldTextOut(..., fcolor, clBlack)` 画悬停目标和指到的自己），语义是关系/状态
-（`ObjBase.pas:19197 GetNamecolor`：PK1 黄 251 / PK2 红 249；`GetCharColor`
-再加 PK 标记棕 47、同盟蓝 180、敌对行会橙 69、攻城区绿 221；宝宝按
-`SlaveColor` 变色）。血条全实体同一张黑底红条（`DrawScrn.pas:306-319`），
-且缺省不全显示（`MShare.pas:429` 的 `boShowRedHPLable=False`）。
+**原版结论（本地 Delphi 源码核对）**：官方**不按 NPC/怪物/自己/别人分类配色**。名字只有一个服务端下发的调色板索引 `m_nNameColor`（`DrawScrn.pas:326-344` 用`BoldTextOut(..., fcolor, clBlack)` 画悬停目标和指到的自己），语义是关系/状态（`ObjBase.pas:19197 GetNamecolor`：PK1 黄 251 / PK2 红 249；`GetCharColor`再加 PK 标记棕 47、同盟蓝 180、敌对行会橙 69、攻城区绿 221；宝宝按`SlaveColor` 变色）。血条全实体同一张黑底红条（`DrawScrn.pas:306-319`），且缺省不全显示（`MShare.pas:429` 的 `boShowRedHPLable=False`）。
 
 **改动**：
-- `pyserver/util.py` 新增 `NAME_COLOR_*` 调色板常量；`world.py` 的
-  `Player.name_color()` 按 PKLevel/PKFlag 下发关系色，`Player.brief_json` /
-  `to_player_json`、`Monster.brief_json`、`world_extra.Npc.brief_json`
-  统一带 `nameColor`（普通怪 255、NPC 淡紫 239、宝宝仍用原版等级色）。
-- `frontend/map/MapActor.mjs`：HUD 偏好从模块常量改为可热更新的
-  `this.hudMode`（`enhanced / showHpLabel / hoverNamesOnly`）。增强模式下
-  名字按服务端索引取原版调色板色（自己白 255→金黄 251，PK 色优先不被盖）；
-  血条填充**始终原版红**（避免「像魔法条、和左下血球不一致」的老问题），
-  只给自己加白描边、宝宝加绿描边，NPC 不画血条。关闭时完全维持旧观感。
-- `frontend/scene/PlayScene.mjs`：构造时读 `jootm2.hudEnhanced` /
-  `jootm2.showHpLabel` / `jootm2.nameOnFocusOnly`，注入 `mapActor.hudMode`；
-  系统菜单（Esc）新增三个即时生效开关：名字/血条增强（默认关）、头顶血条
-  全显示/原版时机、名字全部显示/悬停才显示；`_setHudPref` 统一落盘 + 刷菜单。
+- `pyserver/util.py` 新增 `NAME_COLOR_*` 调色板常量；`world.py` 的`Player.name_color()` 按 PKLevel/PKFlag 下发关系色，`Player.brief_json` /`to_player_json`、`Monster.brief_json`、`world_extra.Npc.brief_json`统一带 `nameColor`（普通怪 255、NPC 淡紫 239、宝宝仍用原版等级色）。
+- `frontend/map/MapActor.mjs`：HUD 偏好从模块常量改为可热更新的`this.hudMode`（`enhanced / showHpLabel / hoverNamesOnly`）。增强模式下名字按服务端索引取原版调色板色（自己白 255→金黄 251，PK 色优先不被盖）；血条填充**始终原版红**（避免「像魔法条、和左下血球不一致」的老问题），只给自己加白描边、宝宝加绿描边，NPC 不画血条。关闭时完全维持旧观感。
+- `frontend/scene/PlayScene.mjs`：构造时读 `jootm2.hudEnhanced` /`jootm2.showHpLabel` / `jootm2.nameOnFocusOnly`，注入 `mapActor.hudMode`；系统菜单（Esc）新增三个即时生效开关：名字/血条增强（默认关）、头顶血条全显示/原版时机、名字全部显示/悬停才显示；`_setHudPref` 统一落盘 + 刷菜单。
 - 名字快照新增 `masterId` 供宝宝描边判定。
 
-**验证**：`test_map_view` 新增 6 条颜色断言后 40/0（首轮 2 FAIL 是随机刷怪
-占住测试门格导致，复跑通过）；`test_pyserver` 115/0、`test_tick_systems`
-180/0、`test_all_messages --live 8080` 91/0 + WS ping PASS；Playwright（3.9）
-实机确认默认 `enhanced=false`、菜单三项文字正确、点击后 localStorage 与
-`mapActor.hudMode` 同步、无 pageerror；前后抓帧确认自己名字由白变金黄、
-血条多白描边，怪名/红条不变。
+**验证**：`test_map_view` 新增 6 条颜色断言后 40/0（首轮 2 FAIL 是随机刷怪占住测试门格导致，复跑通过）；`test_pyserver` 115/0、`test_tick_systems` 180/0、`test_all_messages --live 8080` 91/0 + WS ping PASS；Playwright（3.9）实机确认默认 `enhanced=false`、菜单三项文字正确、点击后 localStorage 与`mapActor.hudMode` 同步、无 pageerror；前后抓帧确认自己名字由白变金黄、血条多白描边，怪名/红条不变。
 
 ---
 
 ## §92 女法师光头回归：hair 3..5 前端未钳制越界（2026-11-16）
 
-**现象**：用户新建女法师（DB `t3`：sex=1 job=1 hair=3）进游戏仍是光头；§37.1
-已修过一次（当时是建角默认 hair=0）。
+**现象**：用户新建女法师（DB `t3`：sex=1 job=1 hair=3）进游戏仍是光头；§37.1已修过一次（当时是建角默认 hair=0）。
 
-**根因**：§37.1 只把建角默认 0 改成 1..5，漏了原版绘制前的钳制。
-`MirClient/Actor.pas:3183-3188` 先算 `haircount := Hair.ImageCount div 600
-div 2 = 3600/600/2 = 3`，把 hair 钳到 0..2 再乘 2，只有大于 1 才画头发
-（hair=0 → offset=-1 光头）。建角协议虽发 `1+Random(5)`
-（`IntroScn.pas:1427`），3..5 在客户端一律按发型 2 画。项目
-`ActorSprite.mjs` 直接用 `hair*2+sex`：hair=3/sex=1 → 600*(6+1)=4200
+**根因**：§37.1 只把建角默认 0 改成 1..5，漏了原版绘制前的钳制。`MirClient/Actor.pas:3183-3188` 先算 `haircount := Hair.ImageCount div 600 div 2 = 3600/600/2 = 3`，把 hair 钳到 0..2 再乘 2，只有大于 1 才画头发（hair=0 → offset=-1 光头）。建角协议虽发 `1+Random(5)`（`IntroScn.pas:1427`），3..5 在客户端一律按发型 2 画。项目`ActorSprite.mjs` 直接用 `hair*2+sex`：hair=3/sex=1 → 600*(6+1)=4200
 > Hair 库 3600 帧 → 取不到贴图 = 光头。DB hair=3 本身正确，服务端无需改；
-选角立绘 `Prguse 440/480 + hair div 2`（`FState.pas:6112`）与
-`PlayScene.mjs:2951` 一致，也不受影响。
+选角立绘 `Prguse 440/480 + hair div 2`（`FState.pas:6112`）与`PlayScene.mjs:2951` 一致，也不受影响。
 
-**改动**：`actorData.mjs` 新增 `HAIR_STYLES=3`（附原版依据）；
-`ActorSprite.mjs` 按原版先钳 0..2 再乘 2，只在大于 1 时 push hair 层。
+**改动**：`actorData.mjs` 新增 `HAIR_STYLES=3`（附原版依据）；`ActorSprite.mjs` 按原版先钳 0..2 再乘 2，只在大于 1 时 push hair 层。
 
-**验证**：Node 直接调 `_frameSpec` 定量验证 sex 0/1 × hair 0..5：
-hair=0 无头发层；hair=1 → 1234/1834；hair=2/3/4/5 → 2434/3034
-（均 < 3600，3..5 与发型 2 同帧，符合原版）。`node --check` 通过。
+**验证**：Node 直接调 `_frameSpec` 定量验证 sex 0/1 × hair 0..5：hair=0 无头发层；hair=1 → 1234/1834；hair=2/3/4/5 → 2434/3034（均 < 3600，3..5 与发型 2 同帧，符合原版）。`node --check` 通过。
 
 ---
 
@@ -443,22 +352,11 @@ hair=0 无头发层；hair=1 → 1234/1834；hair=2/3/4/5 → 2434/3034
 **用户反馈**：视觉感觉大老远就能挖肉，问官方距离是多少。
 
 **原版依据（本地 Delphi 逐行）**：
-- 服务端 `ClientGetButchItem`（`M2Server/ObjBase.pas:17458-17504`）：
-  `if (abs(nX - m_nCurrX) <= 2) and (abs(nY - m_nCurrY) <= 2)`，
-  即**切比雪夫距离 ≤2 格**（不是欧氏、不是 1 格）。关键：`nX/nY` 来自
-  `CM_BUTCH` 的 `nParam2/nParam3`，是**客户端鼠标格坐标**，不是尸体真实坐标。
-- 客户端 `PlayScene.ButchAnimal`（`MirClient/PlayScn.pas:2354-2369`）只找
-  鼠标格 ±1 格内的死亡动物；`ClMain.pas:2832-2845` 按住 Alt+左键先本地
-  `CM_SITDOWN` 预测播蹲下动作，**不等服务端回包**。
-- 因此原版真正能挖到的尸体最远可离玩家 **3 格**（鼠标点离玩家 2 格 +
-  尸体在鼠标 ±1 格内）；服务端距离不合格时静默拒绝，但 `RM_BUTCH`
-  （`ObjBase.pas:17503`）在 if 块外**仍广播**，所以远处点照样播动作。
+- 服务端 `ClientGetButchItem`（`M2Server/ObjBase.pas:17458-17504`）：`if (abs(nX - m_nCurrX) <= 2) and (abs(nY - m_nCurrY) <= 2)`，即**切比雪夫距离 ≤2 格**（不是欧氏、不是 1 格）。关键：`nX/nY` 来自`CM_BUTCH` 的 `nParam2/nParam3`，是**客户端鼠标格坐标**，不是尸体真实坐标。
+- 客户端 `PlayScene.ButchAnimal`（`MirClient/PlayScn.pas:2354-2369`）只找鼠标格 ±1 格内的死亡动物；`ClMain.pas:2832-2845` 按住 Alt+左键先本地`CM_SITDOWN` 预测播蹲下动作，**不等服务端回包**。
+- 因此原版真正能挖到的尸体最远可离玩家 **3 格**（鼠标点离玩家 2 格 +尸体在鼠标 ±1 格内）；服务端距离不合格时静默拒绝，但 `RM_BUTCH`（`ObjBase.pas:17503`）在 if 块外**仍广播**，所以远处点照样播动作。
 
-**项目现状**：`service.py::_butch` 用**尸体真实坐标**判定 ≤2 格，比原版更严
-（不会挖到 >2 格的尸体）；前端 `PlayScene.mjs:1108-1120` 与原版同款
-「鼠标 ±1 选目标 + 本地预测蹲下」。所以「视觉上大老远能挖」是**原版就有的
-客户端预测表现**，不是服务端放水；项目还多了一条原版没有的
-「离尸体太远了。」提示。未改玩法代码（官方距离本就是 2 格，项目已等价或更严）。
+**项目现状**：`service.py::_butch` 用**尸体真实坐标**判定 ≤2 格，比原版更严（不会挖到 >2 格的尸体）；前端 `PlayScene.mjs:1108-1120` 与原版同款「鼠标 ±1 选目标 + 本地预测蹲下」。所以「视觉上大老远能挖」是**原版就有的客户端预测表现**，不是服务端放水；项目还多了一条原版没有的「离尸体太远了。」提示。未改玩法代码（官方距离本就是 2 格，项目已等价或更严）。
 
 **文档规则**：行硬上限 500 → 700，主文件轮次 5 → 8 个（用户反馈稍改即超）。
 
@@ -466,12 +364,9 @@ hair=0 无头发层；hair=1 → 1234/1834；hair=2/3/4/5 → 2434/3034
 
 ## §94 全服杂货铺审计：只卖行会回城卷的 7 家补回城卷（2026-11-16，用户口径）
 
-**用户口径**：继 §90 边界村后，「检查其他的 NPC，例如银杏村 NPC 等，如果只卖
-行会回城券就不对」。即杂货铺**不能只有行会回城卷而无回城卷**。
+**用户口径**：继 §90 边界村后，「检查其他的 NPC，例如银杏村 NPC 等，如果只卖行会回城券就不对」。即杂货铺**不能只有行会回城卷而无回城卷**。
 
-**审计**（`data/audit_scrolls.py`，gitignored；解析全部 `Market_Def` [goods]，
-含 #CALL 子脚本，按 `MerChant.txt` 映射 NPC 名，正则 `(?<!行会)回城卷` 查对话）：
-全服 10 家卖卷轴的杂货铺里，**7 家只卖行会回城卷**，3 家两种都卖（正常）。
+**审计**（`data/audit_scrolls.py`，gitignored；解析全部 `Market_Def` [goods]，含 #CALL 子脚本，按 `MerChant.txt` 映射 NPC 名，正则 `(?<!行会)回城卷` 查对话）：全服 10 家卖卷轴的杂货铺里，**7 家只卖行会回城卷**，3 家两种都卖（正常）。
 
 | 脚本 | NPC（地图坐标） | 对话提回城卷 |
 |---|---|---|
@@ -483,96 +378,46 @@ hair=0 无头发层；hair=1 → 1234/1834；hair=2/3/4/5 → 2434/3034
 | 7Sst-2 | 罗家铺子老板@2(505,479) 毒蛇山谷 | 否 |
 | 7Wst-1007 | 杂货店老板@1007(11,14) 白日门 | 否 |
 
-注：7Est-3 的货单属**老人@3**；洞穴不法小贩用的是 `7Est-DM001.txt`（无卷轴，
-不在问题之列）。已正常的 3 家：7Ast-3 沙巴克小贩、7Yst-5 月崕岛杂货小贩、
-gmzh-28 新手村小贩（均回城卷+行会回城卷）。
+注：7Est-3 的货单属**老人@3**；洞穴不法小贩用的是 `7Est-DM001.txt`（无卷轴，不在问题之列）。已正常的 3 家：7Ast-3 沙巴克小贩、7Yst-5 月崕岛杂货小贩、gmzh-28 新手村小贩（均回城卷+行会回城卷）。
 
-**根因**：与 §90 同源——照抄「176 通用杂货铺模板」`QuestDiary/商人/杂货铺.txt`，
-该模板只有行会回城卷。176 Gee 基线树本身除沙巴克外**全部杂货铺也只卖行会卷**
-（私服模板失真，非原版权威）；ruchu8 站点 `site_npc.csv` 的杂货铺行 Sell/Buy 列
-**为空**（站点只记录了仓库类 NPC 的买卖），无直接货单证据，但银杏/比奇两家 NPC
-对话 `@steleport` 明说经营回城卷，与边界村同款。
+**根因**：与 §90 同源——照抄「176 通用杂货铺模板」`QuestDiary/商人/杂货铺.txt`，该模板只有行会回城卷。176 Gee 基线树本身除沙巴克外**全部杂货铺也只卖行会卷**（私服模板失真，非原版权威）；ruchu8 站点 `site_npc.csv` 的杂货铺行 Sell/Buy 列**为空**（站点只记录了仓库类 NPC 的买卖），无直接货单证据，但银杏/比奇两家 NPC对话 `@steleport` 明说经营回城卷，与边界村同款。
 
-**改动**：7 家 [goods] 在行会回城卷行前**补一行回城卷**（保留行会回城卷），
-库存沿用各文件本地约定（7Est-3 老人=10，其余=100，刷新 10），附注释。
-`data/fix_guild_scrolls.py`（gitignored）CRLF 二进制插入 + `goods_rows()` 复核。
-**此举取代 §90「比奇杂货铺不动」的结论**——用户新口径优先于「与 Gee 模板逐字一致」。
+**改动**：7 家 [goods] 在行会回城卷行前**补一行回城卷**（保留行会回城卷），库存沿用各文件本地约定（7Est-3 老人=10，其余=100，刷新 10），附注释。`data/fix_guild_scrolls.py`（gitignored）CRLF 二进制插入 + `goods_rows()` 复核。**此举取代 §90「比奇杂货铺不动」的结论**——用户新口径优先于「与 Gee 模板逐字一致」。
 
-**为何「补」而非「替换」**：用户口径是「只卖行会卷就不对」（缺回城卷是问题，
-并非要求删除行会卷）；项目既有的 3 家正确店（gmzh-28/沙巴克/月崕岛）都是**两种都卖**；
-补一行是最小改动，且不让盟重/比奇/白日门等城的行会玩家失去行会卷补给。
-边界村 §90 是**替换**，因用户当时明确「卖的不是行会回城卷，应该是回城卷」（逐店指令）。
-若用户希望银杏等新手村也改成只卖回城卷，可再单独替换。
+**为何「补」而非「替换」**：用户口径是「只卖行会卷就不对」（缺回城卷是问题，并非要求删除行会卷）；项目既有的 3 家正确店（gmzh-28/沙巴克/月崕岛）都是**两种都卖**；补一行是最小改动，且不让盟重/比奇/白日门等城的行会玩家失去行会卷补给。边界村 §90 是**替换**，因用户当时明确「卖的不是行会回城卷，应该是回城卷」（逐店指令）。若用户希望银杏等新手村也改成只卖回城卷，可再单独替换。
 
-**验证**：复审审计 `只卖行会回城卷=0 家 / 两种都卖=10 家`；7 文件纯 CRLF 无混合换行；
-test_pyserver **122/0**（新增 7 条「杂货铺 X 售回城卷」断言，银杏/边界村旧断言不破）、
-test_tick_systems **180/0**、test_all_messages **91/0**。
+**验证**：复审审计 `只卖行会回城卷=0 家 / 两种都卖=10 家`；7 文件纯 CRLF 无混合换行；test_pyserver **122/0**（新增 7 条「杂货铺 X 售回城卷」断言，银杏/边界村旧断言不破）、test_tick_systems **180/0**、test_all_messages **91/0**。
 
-**提交**：商店货单已提交（`60bd938 [数据]`，7 个 Market_Def txt + test_pyserver.py 断言）；
-§90 边界村改动见更早的 `be6c3f1 [数据]`。
+**提交**：商店货单已提交（`60bd938 [数据]`，7 个 Market_Def txt + test_pyserver.py 断言）；§90 边界村改动见更早的 `be6c3f1 [数据]`。
 
 ## §95 托管法师：自动补蓝 + 补回原版施法输入节拍（2026-11-16）
 
 **用户反馈**：法师托管应该自动喝蓝药；火球像机关枪，怪都死了还在放。
 
-**根因**：服务端技能 CD 本身没错——项目 `MagicTemplate.resolve()` 把 DB 的
-`Delay` ×10 存成毫秒（`templates.py:162`，火球 60→600ms），`_cast_magic:996`
-按 600ms 拦截。但原版客户端另有一层输入节流：对目标施法要求
-`CanNextAction and ServerAcceptNextAction`（`MirClient/ClMain.pas:2421`），
-随后 `g_dwMagicDelayTime := 200 + pcm.Def.dwDelayTime`（:2428）；F1-F8 再按
-`g_dwSpellTime(500) + g_dwMagicDelayTime`（:2040，`MShare.pas:415` 默认 500）
-限制下一次施法，即火球真人节拍约 **760ms**。托管直接调 `_cast_magic`
-绕过客户端这层，加上火球飞行特效重叠，观感就成了机关枪。
+**根因**：服务端技能 CD 本身没错——项目 `MagicTemplate.resolve()` 把 DB 的`Delay` ×10 存成毫秒（`templates.py:162`，火球 60→600ms），`_cast_magic:996`按 600ms 拦截。但原版客户端另有一层输入节流：对目标施法要求`CanNextAction and ServerAcceptNextAction`（`MirClient/ClMain.pas:2421`），随后 `g_dwMagicDelayTime := 200 + pcm.Def.dwDelayTime`（:2428）；F1-F8 再按`g_dwSpellTime(500) + g_dwMagicDelayTime`（:2040，`MShare.pas:415` 默认 500）限制下一次施法，即火球真人节拍约 **760ms**。托管直接调 `_cast_magic`绕过客户端这层，加上火球飞行特效重叠，观感就成了机关枪。
 
 **改动**（`pyserver/autopilot.py`）：
-- `SPELL_INPUT_BASE_MS = 700`，新增 `_spell_ready()`：相邻施法间隔
-  `max(t.delay, 700 + t.delay / 10)`（除以 10 是把项目毫秒值还原成原版
-  DB 口径）。火球 max(600,760)=760ms；雷电 max(1000,800)=1000ms。
-  法师 `_mage_fire`、道士 `_taoist_fire` 都接；`_taoist_heal` 施法后也更新
-  `last_cast_at`，避免治愈术紧接火符。技能自身 CD 仍由 `_cast_magic` 管。
+- `SPELL_INPUT_BASE_MS = 700`，新增 `_spell_ready()`：相邻施法间隔`max(t.delay, 700 + t.delay / 10)`（除以 10 是把项目毫秒值还原成原版DB 口径）。火球 max(600,760)=760ms；雷电 max(1000,800)=1000ms。法师 `_mage_fire`、道士 `_taoist_fire` 都接；`_taoist_heal` 施法后也更新`last_cast_at`，避免治愈术紧接火符。技能自身 CD 仍由 `_cast_magic` 管。
 - `_mage_fire` 目标已死直接早退，不再对尸体补一发。
-- 三档 preset 加 `potion_mp`（安全 0.50 / 均衡 0.35 / 效率 0.30）；
-  `_find_mana_potion()` 挑 StdMode 0 且 MAC>0 的药（Shape1 太阳水优先，
-  其余按回复量从小到大）；`_survive` 蓝线把 `inc_spell` 回蓝池算进当前蓝量，
-  免得池子没滴完就连灌；1s 节流，喝药仍走 `useItem` handler。
+- 三档 preset 加 `potion_mp`（安全 0.50 / 均衡 0.35 / 效率 0.30）；`_find_mana_potion()` 挑 StdMode 0 且 MAC>0 的药（Shape1 太阳水优先，其余按回复量从小到大）；`_survive` 蓝线把 `inc_spell` 回蓝池算进当前蓝量，免得池子没滴完就连灌；1s 节流，喝药仍走 `useItem` handler。
 
-**验证**：`test_autopilot_hosted_opt` 19/0（新增 5 条：连点只 1 发 / 过一拍
-才第 2 发 / 低蓝自动 useItem / MP 提升 / 蓝药消耗）；autopilot 39/0、
-taoist 18/0、ws 16/0、hosted_fixes 14/0、all_messages 95/0、pyserver 122/0。
+**验证**：`test_autopilot_hosted_opt` 19/0（新增 5 条：连点只 1 发 / 过一拍才第 2 发 / 低蓝自动 useItem / MP 提升 / 蓝药消耗）；autopilot 39/0、taoist 18/0、ws 16/0、hosted_fixes 14/0、all_messages 95/0、pyserver 122/0。
 
 ---
 
 ## §96 NPC 脚本 give 奖励不下发客户端：玛法领路人「领了没送」（2026-11-16，用户反馈）
 
-**用户反馈**：玛法领路人（`Npc_Def/玛法领路人-0.txt`，map 0 (280,610)）3 级去领补助，
-「我已经三级了，但是没有送！」。
+**用户反馈**：玛法领路人（`Npc_Def/玛法领路人-0.txt`，map 0 (280,610)）3 级去领补助，「我已经三级了，但是没有送！」。
 
-**根因（不是没实现，是实现了没下发）**：脚本 `@next1` 的 `#ACT give 金币 5000`
-确实执行——`NpcScriptEngine._run_action`（npc_script.py:466）→ `world.give_item`
-（world_extra.py:481）把 `p.gold += 5000`。但 `give_item` 是**纯服务端状态修改、不发任何
-网络消息**；而 `handlers_npc.py::_handle_npc_result` 执行完脚本只发 `npcSay`
-（text/options/shop），**从不补发背包/金币同步**。于是服务端金币涨了、客户端毫不知情。
-对照 `_buy_item:160`/`_sell_item:278` 都在改 gold/bag 后调 `send_bag_update`，唯独脚本
-give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:650-687 handleNpcResult`
-只发 npcSay），所以不是 Python 移植回归，是两栈共有的隐藏缺口（CLAUDE.md 铁律 5「写了但没人消费」）。
+**根因（不是没实现，是实现了没下发）**：脚本 `@next1` 的 `#ACT give 金币 5000`确实执行——`NpcScriptEngine._run_action`（npc_script.py:466）→ `world.give_item`（world_extra.py:481）把 `p.gold += 5000`。但 `give_item` 是**纯服务端状态修改、不发任何网络消息**；而 `handlers_npc.py::_handle_npc_result` 执行完脚本只发 `npcSay`（text/options/shop），**从不补发背包/金币同步**。于是服务端金币涨了、客户端毫不知情。对照 `_buy_item:160`/`_sell_item:278` 都在改 gold/bag 后调 `send_bag_update`，唯独脚本give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:650-687 handleNpcResult`只发 npcSay），所以不是 Python 移植回归，是两栈共有的隐藏缺口（CLAUDE.md 铁律 5「写了但没人消费」）。
 
-**原版依据（本地 Delphi 逐行）**：`M2Server/ObjNpc.pas:8981 ActionOfGiveItem`——
-给金 `IncGold(nItemCount)` 后 **`PlayObject.GoldChanged()`（:9001）**；给物
-`m_ItemList.Add(UserItem)` 后 **`PlayObject.SendAddItem(UserItem)`（:9028）**。
-即原版每给一笔就同步客户端，本项目脚本路径缺这一步。
+**原版依据（本地 Delphi 逐行）**：`M2Server/ObjNpc.pas:8981 ActionOfGiveItem`——给金 `IncGold(nItemCount)` 后 **`PlayObject.GoldChanged()`（:9001）**；给物`m_ItemList.Add(UserItem)` 后 **`PlayObject.SendAddItem(UserItem)`（:9028）**。即原版每给一笔就同步客户端，本项目脚本路径缺这一步。
 
-**改动**：`handlers_npc.py::_handle_npc_result` 在 `session.send_json(o)`（npcSay）之后
-补一行 `self.send_bag_update(p)`（全量背包+金币+快捷栏+负重，world.py:1437）。
-一次同步覆盖脚本里任意 give/take/金币变动，对所有 NPC 脚本奖励生效（不止玛法领路人）。
+**改动**：`handlers_npc.py::_handle_npc_result` 在 `session.send_json(o)`（npcSay）之后补一行 `self.send_bag_update(p)`（全量背包+金币+快捷栏+负重，world.py:1437）。一次同步覆盖脚本里任意 give/take/金币变动，对所有 NPC 脚本奖励生效（不止玛法领路人）。
 
-**验证（TDD 复现）**：`test_all_messages.py` 新增玛法领路人 4 断言（3 级主对话含 @next1 /
-@next1 服务端到账 5000 / **领取后下发 bagUpdate 且 gold==5000** / 一次性标记 [001] 置位）。
-临时去掉修复行复跑：「服务端到账 PASS、客户端 bagUpdate **FAIL**」——精确复现用户症状；
-恢复后全绿。test_all_messages **95/0**、test_pyserver **122/0**、test_tick_systems **180/0**。
+**验证（TDD 复现）**：`test_all_messages.py` 新增玛法领路人 4 断言（3 级主对话含 @next1 /@next1 服务端到账 5000 / **领取后下发 bagUpdate 且 gold==5000** / 一次性标记 [001] 置位）。临时去掉修复行复跑：「服务端到账 PASS、客户端 bagUpdate **FAIL**」——精确复现用户症状；恢复后全绿。test_all_messages **95/0**、test_pyserver **122/0**、test_tick_systems **180/0**。
 
-**注意**：① 需**重启服务端**才生效（代码改动）；浏览器 Ctrl+F5。② 本轮**只修同步 bug，
-未改脚本内容**——玛法领路人仍是「3 级领 5000 金」。用户要的「新号送 1000 金+回城卷+
-随机传送卷+小蓝小红」涉及领取门槛（1 级 vs 保留 3 级）与药水数量，仍待用户澄清后再改。
+**注意**：① 需**重启服务端**才生效（代码改动）；浏览器 Ctrl+F5。② 本轮**只修同步 bug，未改脚本内容**——玛法领路人仍是「3 级领 5000 金」。用户要的「新号送 1000 金+回城卷+随机传送卷+小蓝小红」涉及领取门槛（1 级 vs 保留 3 级）与药水数量，仍待用户澄清后再改。
 
 **提交**：已提交（`6f95fa8 [修复]`），含 handlers_npc.py + test_all_messages.py 断言。
 
@@ -580,108 +425,50 @@ give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:6
 
 **需求**：用户要求整理 gamedata 下各文件作用与关系的参考文档，方便 AI Agent 和人类阅读。
 
-**产出**：`docs/GAMEDATA_GUIDE.md`（纯文档，零代码改动）。结构：30 秒速览 → 目录总览 →
-数据流图 → 文件速查表（每个文件给出加载/消费代码 `文件:行号`）→ **名字连接链**（怪物链/
-物品链/NPC 链/任务链/地图链/技能链，全部是字符串匹配无外键）→ 分组格式详解（CSV 列义/
-脚本引擎/价格链路/掉落语义）→ 未消费文件清单（附 Delphi 原版用途行号）→ 已知缺口 →
-编码/多树/周边工具 → 维护规则清单。与 `docs/GAME_DATA_REFERENCE/`（外部视频实测资料）
-分工不同，已在文档头部互相说明。
+**产出**：`docs/GAMEDATA_GUIDE.md`（纯文档，零代码改动）。结构：30 秒速览 → 目录总览 →数据流图 → 文件速查表（每个文件给出加载/消费代码 `文件:行号`）→ **名字连接链**（怪物链/物品链/NPC 链/任务链/地图链/技能链，全部是字符串匹配无外键）→ 分组格式详解（CSV 列义/脚本引擎/价格链路/掉落语义）→ 未消费文件清单（附 Delphi 原版用途行号）→ 已知缺口 →编码/多树/周边工具 → 维护规则清单。与 `docs/GAME_DATA_REFERENCE/`（外部视频实测资料）分工不同，已在文档头部互相说明。
 
 **编写时全量 grep 核验出的现状**（已写入文档 §6/§7，**只记录不修复**，修复需另立轮次）：
-- 两栈均未消费：AdminList/GuardList/MakeItem/LineNotice/SabukW/AttackSabukWAll/
-  StartupQuest/沙巴克备份（原版用途考证到 LocalDB.pas:96/216/414/1586、Castle.pas:333/540、
-  svMain.pas:717）；GuildBase 仅 Java 消费（GameWorld.java:363）。
-- 解析了但没消费/没持久化：① quest_params 不在 persist() 存档字段（service.py:742-764）
-  → 任务旗标重登清零；② MapQuest 拾取触发（item_name 列）只有杀怪触发调用点；
-  ③ _save_guild 写 data/pyserver_guilds/*.json 但启动无加载代码 → 行会实为内存态；
-  ④ 沙巴克状态不回写 Sabuk.txt；⑤ StartPoint 只取第一行（原版 g_StartPointList 整表）；
-  ⑥ SAFE/FIGHT 标志无消费；⑦ Monster.csv WalkStep/WalkWait 列未映射；⑧ 主树无
-  QuestDiary（#CALL 子脚本落空，176 树才有）。
-- 关键口径复述：CSV 每次启动重灌（db.py:118）；商店售价=round(Price×1.1)×%N/100
-  （npc_script.py:544）；MiniMap 1-based；MonItems 文件名尾随空格 strip；Magic.csv
-  GM 变体 INSERT OR IGNORE 保留先出现行。
+- 两栈均未消费：AdminList/GuardList/MakeItem/LineNotice/SabukW/AttackSabukWAll/StartupQuest/沙巴克备份（原版用途考证到 LocalDB.pas:96/216/414/1586、Castle.pas:333/540、svMain.pas:717）；GuildBase 仅 Java 消费（GameWorld.java:363）。
+- 解析了但没消费/没持久化：① quest_params 不在 persist() 存档字段（service.py:742-764）→ 任务旗标重登清零；② MapQuest 拾取触发（item_name 列）只有杀怪触发调用点；③ _save_guild 写 data/pyserver_guilds/*.json 但启动无加载代码 → 行会实为内存态；④ 沙巴克状态不回写 Sabuk.txt；⑤ StartPoint 只取第一行（原版 g_StartPointList 整表）；⑥ SAFE/FIGHT 标志无消费；⑦ Monster.csv WalkStep/WalkWait 列未映射；⑧ 主树无QuestDiary（#CALL 子脚本落空，176 树才有）。
+- 关键口径复述：CSV 每次启动重灌（db.py:118）；商店售价=round(Price×1.1)×%N/100（npc_script.py:544）；MiniMap 1-based；MonItems 文件名尾随空格 strip；Magic.csv GM 变体 INSERT OR IGNORE 保留先出现行。
 
-**验证**：纯文档改动，跑离线回归确认基线未受影响：test_pyserver **122 PASS / 0 FAIL**
-（D:/Python310/python.exe，与 §96 数字一致）。
+**验证**：纯文档改动，跑离线回归确认基线未受影响：test_pyserver **122 PASS / 0 FAIL**（D:/Python310/python.exe，与 §96 数字一致）。
 
 **挂接**：本文「给下一位 agent 的阅读顺序」新增第 8 条指向该文档。
 
 ## §98 商人 NPC 清理魔改 + MerChant/Market_Def 重命名（2026-11-17，用户指令，待确认提交）
 
-**用户指令**：① 清理魔改 NPC；② MerChant.txt 及对应脚本按「类型(原编码)-名字-地图编号」
-重命名，同名同图多类型合并为有商品的模板；③ 修正单元测试固化名。**改完自查，不提交，
-用户确认后提交**。
+**用户指令**：① 清理魔改 NPC；② MerChant.txt 及对应脚本按「类型(原编码)-名字-地图编号」重命名，同名同图多类型合并为有商品的模板；③ 修正单元测试固化名。**改完自查，不提交，用户确认后提交**。
 
-**清理（85 行 + 78 脚本）**：赌场 54 行（9Ega 系：B010-B013/B101-B140 赌场小妖女、
-T105 古惑仔×5、T118/T125/T1363/T138、0101 赌场老人）；封魔谷(图4)测验 17 行
-（kljl 骷髅精灵/klzj1-4/klzs1-4/kl1-8）；白日门(图11)道馆 14 行（9Wae1-6×武术/道术学员、
-9Wtt×武术/道术教头）。魔改判定依据（上一轮核验）：MapInfo `[B011 赌场]` 图名、
-古惑仔港片命名、筹码经济、破关珍剑不在 StdItems.csv 且脚本零动作（死内容）、
-282/283 脚本带我本沉默私服头、176 Gee 包无此三类内容、Delphi 引擎无筹码逻辑。
+**清理（85 行 + 78 脚本）**：赌场 54 行（9Ega 系：B010-B013/B101-B140 赌场小妖女、T105 古惑仔×5、T118/T125/T1363/T138、0101 赌场老人）；封魔谷(图4)测验 17 行（kljl 骷髅精灵/klzj1-4/klzs1-4/kl1-8）；白日门(图11)道馆 14 行（9Wae1-6×武术/道术学员、9Wtt×武术/道术教头）。魔改判定依据（上一轮核验）：MapInfo `[B011 赌场]` 图名、古惑仔港片命名、筹码经济、破关珍剑不在 StdItems.csv 且脚本零动作（死内容）、282/283 脚本带我本沉默私服头、176 Gee 包无此三类内容、Delphi 引擎无筹码逻辑。
 
-**合并（3 组，删 4 个空货单脚本）**：屠夫@0 三份→`1Gme`（1Gme/1Tme 功能全同仅排版差，
-1Bme 只收肉无货单）；屠夫@3 两份→`1Ame`（有干肉+买卖）；铁匠铺老板@0 两份→`2Twe`
-（有武器六件+买卖修理）。**段级差异（自查基线对照，用户已知悉待确认）**：
-1Bme-0 丢 Kcom_1/Kcom_2/kxwpz 段、得货物 2；1Tme-0 零差异；1Mme-3 丢
-Q300/Q301/Q302/Q304/Q313/main-1、得干肉+Q303/Q350/buy；2Bbl-0 丢 talk/kundo/next* 等
-15 段、得武器 6+buy/sell。**特殊修理**：两脚本均无 s_repair 段（原 2Bbl 的
-<特殊修理/@s_repair> 按钮走 merchant 兜底开 UI，handlers_npc.py:69 _repair_allowed），
-合并后按钮入口消失但兜底能力仍在；比奇室内武器店 `2Are-铁匠铺老板-0151` 有真
-s_repair 段，特殊修理服务不缺失。老人@1（9Wqu/9w）均无商品，不适用合并规则，各自保留。
+**合并（3 组，删 4 个空货单脚本）**：屠夫@0 三份→`1Gme`（1Gme/1Tme 功能全同仅排版差，1Bme 只收肉无货单）；屠夫@3 两份→`1Ame`（有干肉+买卖）；铁匠铺老板@0 两份→`2Twe`（有武器六件+买卖修理）。**段级差异（自查基线对照，用户已知悉待确认）**：1Bme-0 丢 Kcom_1/Kcom_2/kxwpz 段、得货物 2；1Tme-0 零差异；1Mme-3 丢Q300/Q301/Q302/Q304/Q313/main-1、得干肉+Q303/Q350/buy；2Bbl-0 丢 talk/kundo/next* 等15 段、得武器 6+buy/sell。**特殊修理**：两脚本均无 s_repair 段（原 2Bbl 的<特殊修理/@s_repair> 按钮走 merchant 兜底开 UI，handlers_npc.py:69 _repair_allowed），合并后按钮入口消失但兜底能力仍在；比奇室内武器店 `2Are-铁匠铺老板-0151` 有真s_repair 段，特殊修理服务不缺失。老人@1（9Wqu/9w）均无商品，不适用合并规则，各自保留。
 
-**重命名（159 文件，零代码改动）**：`<编码>-<地图>.txt` → `<编码>-<名字>-<地图>.txt`，
-MerChant 第一列 `<编码>` → `<编码>-<名字>`（如 `1Gme-屠夫 0 313 271 屠夫 …`），
-命中 load_script 主候选（npc_script.py:241 / Java NpcData.java:86 同约定）。
-迁移后保留行 (编码,图号)→名字 唯一，无命名歧义。Market_Def 283→201 文件，
-MerChant 有效行 248→163。
+**重命名（159 文件，零代码改动）**：`<编码>-<地图>.txt` → `<编码>-<名字>-<地图>.txt`，MerChant 第一列 `<编码>` → `<编码>-<名字>`（如 `1Gme-屠夫 0 313 271 屠夫 …`），命中 load_script 主候选（npc_script.py:241 / Java NpcData.java:86 同约定）。迁移后保留行 (编码,图号)→名字 唯一，无命名歧义。Market_Def 283→201 文件，MerChant 有效行 248→163。
 
-**测试修正**：test_pyserver.py 18 处固化基名/路径（2Bwe-0103→2Bwe-卫家店-0103 等
-16 个 stem，含 :499 杂货铺 stem 列表）。
+**测试修正**：test_pyserver.py 18 处固化基名/路径（2Bwe-0103→2Bwe-卫家店-0103 等16 个 stem，含 :499 杂货铺 stem 列表）。
 
-**自查**：迁移前快照全部 248 行货物/段/能力签名（data/_merchant_baseline.json），
-迁移后逐行重解析对照——保留行签名==原签名、合并行签名==幸存者签名、无 MISSING，
-**全部通过**（data/migrate_merchant_names.py + _migration_report.txt，均 gitignored）。
-回归：test_pyserver **122/0**、test_tick_systems **180/0**、test_all_messages **95/0**
-（D:/Python310/python.exe，与 §96 基线一致）。
+**自查**：迁移前快照全部 248 行货物/段/能力签名（data/_merchant_baseline.json），迁移后逐行重解析对照——保留行签名==原签名、合并行签名==幸存者签名、无 MISSING，**全部通过**（data/migrate_merchant_names.py + _migration_report.txt，均 gitignored）。回归：test_pyserver **122/0**、test_tick_systems **180/0**、test_all_messages **95/0**（D:/Python310/python.exe，与 §96 基线一致）。
 
-**未动 / 待用户决策**：① 5 个 Npc_Def 传送员脚本（传送员-0/-2/-3/-11、静寂传送员-28）
-的 `<比奇赌场/@dcmove>` 按钮仍在，指向已无 NPC 的赌场图（超「清理 NPC」范围，未改）；
-② 43 个孤儿脚本未动（含 24 个赌场残留 9Ega*-T2xx/T3xx）；③ 筹码/筹码包物品、
-B011/B105/T105 等赌场图及 MapInfo 条目保留；④ MerChant 注释行仍用旧编码。
+**未动 / 待用户决策**：① 5 个 Npc_Def 传送员脚本（传送员-0/-2/-3/-11、静寂传送员-28）的 `<比奇赌场/@dcmove>` 按钮仍在，指向已无 NPC 的赌场图（超「清理 NPC」范围，未改）；② 43 个孤儿脚本未动（含 24 个赌场残留 9Ega*-T2xx/T3xx）；③ 筹码/筹码包物品、B011/B105/T105 等赌场图及 MapInfo 条目保留；④ MerChant 注释行仍用旧编码。
 
 **文档**：GAMEDATA_GUIDE.md §1/§3/§4/§5.4 同步新命名约定与计数。
 
-**提交**：**未提交**（用户明确要求确认后提交）。改动面：gamedata/Mir200/Envir/MerChant.txt、
-Market_Def/（159 改名+82 删）、scripts/test_pyserver.py、docs/GAMEDATA_GUIDE.md、本文。
+**提交**：**未提交**（用户明确要求确认后提交）。改动面：gamedata/Mir200/Envir/MerChant.txt、Market_Def/（159 改名+82 删）、scripts/test_pyserver.py、docs/GAMEDATA_GUIDE.md、本文。
 
 ## §99 新增 mir2-resource-converter skill：WIL/WIX 格式规范 + 转换工具 wil_pack.py（2026-11-17）
 
-**需求**：整理当前游戏资源格式（WIX/WIL 等，重点是精灵组织形式），形成 skill 让
-AI Agent 能把外部资源快速转换成可直接使用的格式，并生成可验证的预览。
+**需求**：整理当前游戏资源格式（WIX/WIL 等，重点是精灵组织形式），形成 skill 让AI Agent 能把外部资源快速转换成可直接使用的格式，并生成可验证的预览。
 
 **产物**：
-- `.claude/skills/mir2-resource-converter/SKILL.md`——WIL/WIX 二进制规范（实测核验）+
-  帧号契约（hum 600/外观三层、mon appr→图库/偏移、npc 60/外观、tiles/objects/items/magic
-  指针）+ 转换工作流 + 验证清单 + 坑。
-- `scripts/wil_pack.py`（纯标准库）——`info/dump/pack/preview` 四个子命令：
-  PNG 帧目录 → 8 位索引色 WIL/WIX（HA/MA 动作表**运行时从 actorData.mjs 解析**，
-  保持单一数据源）；`--merge` 把新帧字节级保真地拼进现有库；打包后用
-  `wil_extract.WIL` 真实解码路径读回逐帧比对自校验；`preview` 产出自包含 HTML
-  动画预览（按帧号契约播动作 × 8 方向、48×32 格锚点虚线可视化，与游戏渲染一致）。
+- `.claude/skills/mir2-resource-converter/`——**自包含可分发**的 skill：`SKILL.md`（工作流/工具用法/验证清单）+ `references/format-spec.md`（WIL/WIX 二进制规范与精灵帧号契约全文，实测核验）+ `references/palette.json`（调色板快照，源自 palette.mjs）+ `references/tables.json`（HA/MA 动作表快照，源自 actorData.mjs）+ `scripts/wil_pack.py`（纯标准库，`info/dump/pack/preview`，内嵌 WIL 解码器与 PNG 编解码，无外部 import）。`--tables frontend/actor/actorData.mjs` 可实时解析动作表保持新鲜；`--merge` 把新帧字节级保真地拼进现有库；打包后走同语义解码路径读回逐帧比对自校验；`preview` 产出自包含 HTML 动画预览（动作 × 8 方向、48×32 格锚点虚线可视化）。
+- 同轮用户指令：① skill 改为独立可分发，不再引用仓库文件（上述快照即为打包产物）；② HANDOFF 与 SKILL 文档改**正常换行**（一段一行）——全库查证（用户全局规则/项目 CLAUDE.md/本文档维护规则/各 skill）**不存在行宽规定**，逐 40 字断行是早期 Agent 书写习惯（本文档最初版本即正常换行，§0/§0.5 也一直是正常换行），已全文还原为段落单行（rewrap 脚本去空白后逐字符校验一致，仅代码块/表格/引用行/列表项保留结构），并在「文档维护规则」新增第 7 条固化。
 
 **格式核验结论**（对照 `frontend/gfx/wil.mjs`、原版 `MirClient/Actor.pas:2089`）：
-- WIL 头 1080B = 44 标题 + u16 帧数@44 + u16 colorcount@46(=0) + u32 256@48 +
-  u32 1024@52 + 256×4 内嵌调色板@56（字节序 B,G,R,0）；**前端不读内嵌调色板**，
-  统一用 `palette.mjs` 硬编码表（index 0 = 透明，其余 alpha=255）。
-- 位深无标志位，按 `下一帧偏移−本帧偏移 ≥ 8+w×h×2` 判 16 位 RGB565（黑=透明），
-  故帧间不得有填充；行序自底向上，4 字节行对齐由字节数反推（写时不补最稳）。
-- `px/py` = 绘制左上角相对实体格**左上角**的偏移（原版与前端都是相加），
-  原版美术数据不统一（Hum 帧0：60×71 px=8 py=-48），新美术缺省「水平居中、脚踩格底」。
+- WIL 头 1080B = 44 标题 + u16 帧数@44 + u16 colorcount@46(=0) + u32 256@48 + u32 1024@52 + 256×4 内嵌调色板@56（字节序 B,G,R,0）；**前端不读内嵌调色板**，统一用 `palette.mjs` 硬编码表（index 0 = 透明，其余 alpha=255）。
+- 位深无标志位，按 `下一帧偏移−本帧偏移 ≥ 8+w×h×2` 判 16 位 RGB565（黑=透明），故帧间不得有填充；行序自底向上，4 字节行对齐由字节数反推（写时不补最稳）。
+- `px/py` = 绘制左上角相对实体格**左上角**的偏移（原版与前端都是相加），原版美术数据不统一（Hum 帧0：60×71 px=8 py=-48），新美术缺省「水平居中、脚踩格底」。
 - 空图 = WIX 偏移 <1080 或 h==1 占位帧。
 - 全部 58 个原版库首图偏移恒 1080、v1.0 头，实测一致。
 
-**验证**：工具链实测——Hum dump→pack 回环像素全等；合成 MA11 怪物（232 帧，
-appr205→mon21 偏移 1800）打包/校验/预览通过，agent-browser 截图确认动画与锚点
-渲染正确；merge 进现有库后旧帧字节保真（1800 帧原样）。回归 test_pyserver
-**122/0**（D:/Python310/python.exe）。预览页样例：`data/wil_pack_test/*.preview.html`
-（gitignored，可随时用 preview 命令重新生成）。
+**验证**：工具链实测——Hum dump→pack 回环像素全等；合成 MA11 怪物（232 帧，appr205→mon21 偏移 1800）打包/校验/预览通过，agent-browser 截图确认动画与锚点渲染正确；merge 进现有库后旧帧字节保真（1800 帧原样）。回归 test_pyserver **122/0**（D:/Python310/python.exe）。预览页样例：`data/wil_pack_test/*.preview.html`（gitignored，可随时用 preview 命令重新生成）。
