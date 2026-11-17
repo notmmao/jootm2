@@ -550,3 +550,27 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **注意**：① 需重启服务端 + Ctrl+F5 生效。② 交易栏 14 格（原版 DDGrid 上限）。③ `tradeSetGold` 是设置交易栏金币**总额**（原版 CM_DEALCHGGOLD 语义），可下调取回；旧 `tradeAddGold` 累加语义保留兼容。④ 原版交易/组队窗口视觉用 DOM 近似（项目一贯做法），坐标非原版 DFM 像素级复刻。⑤ 行会/攻城仍未做前端 UI（本轮不在范围）。
 
 **提交**：见本轮 git log（按 CLAUDE.md 标签：服务端逻辑 `[逻辑]`、协议保真 `[保真]`、前端 `[前端]`、测试 `[测试]`、文档 `[文档]`，分提交）。
+
+## §104 多人功能：聊天气泡 + 密语 + 在线列表 + 查看他人装备（2026-11-17，用户四问）
+
+**用户要求**：「原版聊天又气泡框么？如何密语？是否考虑加入一个在线列表（显示在线人物、等级和所在地图）？如何查看别人装备？这些多人功能你都来排查和实现。」
+
+**排查结论（火炬 Delphi 权威）**：
+- **聊天气泡：原版有，但不是贴图气泡框**——是纯文字白字黑描边（`BoldTextOut(..., clWhite, clBlack, ...)`），最多 5 行、行距 14px、单行宽 150px、显示 `4*1000=4` 秒（`Client/Actor.pas:20,2365-2420` + `Client/DrawScrn.pas:331-352`）。由 `SM_HEAR=40` 同时写聊天板 + `actor.Say()`（`ClMain.pas:4588-4594`）。本项目此前只写聊天板，气泡未做。
+- **密语：原版有**——统一走 `CM_SAY=3030`，输入格式 `/玩家名 内容`，服务端 `Say()`→`Whisper()`→`SM_WHISPER=103`，接收方看到 `名字=> 内容`（`ObjBase.pas:11680-11691,10670-10692`；`Grobal2.pas:668,890`）。`@` 是 GM 命令通道，不列姓名。本项目此前无。
+- **在线列表：原版无此功能**——客户端窗口（FState.pas:51-265）无在线/Rank 窗口，全源检索在线名单 0 命中；GM 命令 `who/total/Human`（ObjBase.pas:11151/11680/11685）只报在线人数不列姓名。**属本项目新增**，呈现复用行会/队伍列表风格。
+- **查看装备：原版有**——Ctrl+右键点玩家（`ClMain.pas:2476-2489`）→ `CM_QUERYUSERSTATE=82`（Grobal2.pas:896）→ 服务端 `CretInNearXY` 近距校验 → `SM_SENDUSERSTATE=751`（Grobal2.pas:795）回 `TUserStateInfo`（名字/颜色/外观 + `UseItems[0..12]` 13 槽）→ 独立 `DUserState1` 窗（FState.pas:1722）。本项目此前全链路缺失。
+
+**改动**：
+- 服务端 `service.py::_say`：`/` 开头解析为密语 → 新增 `_whisper`（按名字定向发双方 `whisper` 消息，接收方 `incoming=true`，发送方回显 `incoming=false`；目标离线给系统提示；`@` 仍走 GM 通道）。不进世界频道。
+- 服务端 `handlers_social.py`：新增 `SOCIAL_EXTRA_TYPES={onlineList,queryUserState}`（并入 SOCIAL_TYPES）+ 两个 handler：`_online_list`（回全体在线玩家 名字/等级/职业/地图，按等级降序，不暴露坐标/血量）；`_query_user_state`（近距校验同图+`distance_to<=SIGHT_RANGE`、活着、目标存在，回 `userState` 含身份 + `items_json` 里带 `slot` 的装备项）。`world.py` 无需改（Player.brief_json / items_json 字段齐全）。
+- 前端气泡：`case 'chat'` 把 text 写进说话者实体 `_sayText/_sayUntil=now+4000`；snap 构建注入 `say` 字段；`MapActor._drawHeadHud` 在名字上方画白字黑边（死亡灰字，最多 5 行/行距 14/宽 150，4 秒自动消失）。自己说话也画（原版 SendRefMsg 含自己）。
+- 前端密语：`case 'whisper'` 聊天板写 `[密语] 名字: 内容`，紫色 `#a020d0`（调色板前景 252 近似），不弹气泡。
+- 前端在线/查看装备：`TradePartyUI` 加 `toggleOnlineList()`（HUD「在线玩家」按钮 x=339/icon142）、`_renderOnlineList`、`_showUserState`（13 槽坐标表 + stateitem 图标 + tooltip）、handleMessage 加 `onlineList/userState` case、destroy 清理。`PlayScene` 加 Ctrl+右键玩家 → `queryUserState`（原版 ssRight+ssCtrl，在右键「跑」分支前拦截）。
+- HUD 底部原「属性加点」隐藏按钮 x 从 339 挪到 369，避免与新增「在线玩家」重叠。
+
+**验证**：新增 `scripts/test_multiplayer_features.py` 30/0（气泡 id 字段、密语双方定向/离线/空内容/@、在线列表字段与排序、查看装备近距/13槽/远距/死亡/不存在）+ `scripts/test_multiplayer_ui.py` 15/15（Playwright 3.9：气泡数据注入、密语着色、在线窗渲染、装备窗 tooltip、Ctrl+右键发消息且普通右键不触发、零 JS 异常）。回归 `test_all_messages` 95/0、`test_pyserver` 128/0、`test_tick_systems` 180/0、`test_trade_party` 33/0、`test_npc_mafa_guide` 18/0。
+
+**注意**：① 需重启服务端 + Ctrl+F5 生效。② 在线列表是本项目新增（非原版），只给名字/等级/职业/地图，无坐标/血量（隐私与带宽）。③ 气泡是纯文字白字黑边（原版无贴图气泡框），4 秒；服务端 `chat` 仍是全体广播（`broadcast_all`），但气泡只在本地有该实体（视野内）时才画。④ 密语用 `/名字 内容`（原版格式），前端按 `/` 唤出输入框天然对齐；无跨服、无屏蔽名单（原版 `@拒绝私聊` 未做）。⑤ 职业编码 0=战士/1=法师/2=道士（曾误写成 1 基数组，测试抓到已修）。⑥ 查看装备近距用 `SIGHT_RANGE`，与原版 `CretInNearXY` 近似。
+
+**提交**：见本轮 git log（按 CLAUDE.md 标签：服务端协议 `[保真]`、前端 `[前端]`、修复职业映射 `[修复]` 并入前端提交、测试 `[测试]`、文档 `[文档]`）。
