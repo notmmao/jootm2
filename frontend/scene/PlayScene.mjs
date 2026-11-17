@@ -950,7 +950,13 @@ export class PlayScene extends Scene {
     }
 
     _onKeyDown(e) {
-        if (e.target === this.chatInput) return;
+        // 任意文本输入控件聚焦时，一律不触发游戏快捷键。
+        // 否则玩家名含数字（如 t1）时，数字键 1..6 会被下面的快捷用药水分支
+        // preventDefault 吃掉，字符打不进去；P/Tab/V/F1..F11/@/!// 同理会误触发。
+        const t = e.target;
+        if (t === this.chatInput || (t && (t.tagName === 'INPUT'
+                || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
+                || t.isContentEditable))) return;
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { this._shiftDown = true; return; }
         // P：在线托管开关。其余动作键按下时立刻接管（不 return，原按键功能照常生效）。
         if (e.code === 'KeyP') { e.preventDefault(); this._toggleAutopilot(); return; }

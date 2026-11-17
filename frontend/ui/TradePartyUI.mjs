@@ -39,6 +39,20 @@ export class TradePartyUI {
         return el;
     }
 
+    /**
+     * 绑定弹窗输入框：拦住键盘事件别冒泡到 PlayScene 的全局快捷键
+     * （尤其数字键 1..6 会被当快捷用药水 preventDefault，导致 "t1" 里的 1 打不进去），
+     * 并支持回车提交 / Esc 失焦。
+     */
+    _bindInput(input, onSubmit) {
+        input.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); onSubmit(); }
+            else if (e.key === 'Escape') { e.preventDefault(); input.blur(); }
+        });
+        return input;
+    }
+
     /** 统一窗口外壳：可拖动，背景贴图 + 标题 + 关闭按钮。 */
     _window(title, left, top, width, height, bgIdx, onClose) {
         const win = this._track(this._mk(
@@ -117,16 +131,18 @@ export class TradePartyUI {
         input.type = 'text';
         input.style.cssText = 'position:absolute;left:12px;top:52px;width:150px;height:22px;'
             + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+        const submit = () => {
+            this.requestTrade(input.value.trim());
+            win.remove(); this._promptWin = null;
+        };
+        this._bindInput(input, submit);
         win.appendChild(input);
         const ok = document.createElement('div');
         ok.style.cssText = 'position:absolute;left:170px;top:52px;width:58px;height:22px;'
             + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
             + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
         ok.textContent = '邀请';
-        ok.onclick = () => {
-            this.requestTrade(input.value.trim());
-            win.remove(); this._promptWin = null;
-        };
+        ok.onclick = submit;
         win.appendChild(ok);
     }
 
@@ -249,17 +265,19 @@ export class TradePartyUI {
         input.placeholder = '金币总额';
         input.style.cssText = 'position:absolute;left:16px;top:36px;width:120px;height:20px;'
             + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+        const submit = () => {
+            const n = parseInt(input.value.replace(/[^0-9]/g, ''), 10);
+            if (Number.isFinite(n) && n >= 0) this._send('tradeSetGold', { amount: n });
+            dlg.remove(); this._goldDlg = null;
+        };
+        this._bindInput(input, submit);
         dlg.appendChild(input);
         const ok = document.createElement('div');
         ok.style.cssText = 'position:absolute;left:146px;top:36px;width:60px;height:20px;'
             + 'cursor:pointer;text-align:center;line-height:20px;font-size:12px;'
             + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
         ok.textContent = '确定';
-        ok.onclick = () => {
-            const n = parseInt(input.value.replace(/[^0-9]/g, ''), 10);
-            if (Number.isFinite(n) && n >= 0) this._send('tradeSetGold', { amount: n });
-            dlg.remove(); this._goldDlg = null;
-        };
+        ok.onclick = submit;
         dlg.appendChild(ok);
         const tip = document.createElement('div');
         tip.style.cssText = 'position:absolute;left:16px;top:66px;width:190px;font-size:11px;color:#c9b98f;';
@@ -325,13 +343,15 @@ export class TradePartyUI {
         input.placeholder = '输入玩家名邀请入队';
         input.style.cssText = 'position:absolute;left:10px;top:190px;width:180px;height:22px;'
             + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+        const submit = () => { this.inviteParty(input.value.trim()); input.value = ''; };
+        this._bindInput(input, submit);
         win.appendChild(input);
         const inv = document.createElement('div');
         inv.style.cssText = 'position:absolute;left:198px;top:190px;width:92px;height:22px;'
             + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
             + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
         inv.textContent = '邀请';
-        inv.onclick = () => { this.inviteParty(input.value.trim()); input.value = ''; };
+        inv.onclick = submit;
         win.appendChild(inv);
 
         const leave = document.createElement('div');
@@ -347,13 +367,10 @@ export class TradePartyUI {
         chat.placeholder = '队伍聊天 (回车发送)';
         chat.style.cssText = 'position:absolute;left:110px;top:262px;width:180px;height:22px;'
             + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
-        chat.onkeydown = (e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') {
-                if (chat.value.trim()) this._send('partyChat', { text: chat.value.trim() });
-                chat.value = ''; chat.blur();
-            }
-        };
+        this._bindInput(chat, () => {
+            if (chat.value.trim()) this._send('partyChat', { text: chat.value.trim() });
+            chat.value = ''; chat.blur();
+        });
         win.appendChild(chat);
         return win;
     }
