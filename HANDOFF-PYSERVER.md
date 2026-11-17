@@ -656,3 +656,23 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **验证**：`test_autopilot_hosted_opt` 26/0；autopilot 39/0、taoist 18/0、ws 16/0、hosted_fixes 14/0、all_messages 95/0、pyserver 128/0；浏览器 UI `test_autopilot_ui` 13/13（含勾选持久化 + REST 回读 noButch），无 JS 异常。全部用 `D:/Python310/python.exe`（UI 用 Python39 的 Playwright）。
 
 **注意**：① 前端改动需 Ctrl+F5 强刷；服务端改动（动作锁/喝蓝/消息字段）需重启服务端才生效。② 施法 1.2s 是用户主动要求的放慢，已偏离原版 760ms，后续若反馈太慢回调 `SPELL_INPUT_BASE_MS` 即可。③ 动作锁按「攻速节拍/施法节拍」近似原版 IsIdle 硬直（原版是动画状态，服务端无精确对应），偏保守——出刀后要等一个攻速周期才走位，观感是「站定打完再走」。④ 截图 `docs/autopilot-hud.png` 已随 UI 测试重生成。
+
+## §109 大地图点击自动导航（普通玩家）/ GM Ctrl+点击传送保持独立（2026-11-18，用户要求增强可玩性）
+
+**用户要求**：大地图点击后自动导航过去；**不要**和已有 GM Ctrl+点击一下传送搞混，GM 传送仍仅限 GM。
+
+**设计（严格区分两条链路）**：
+- **GM Ctrl+点击**：原样保留。canvas mousedown 里 `if (e.ctrlKey)` → `conn.send('say',{text:'@移动 地图名 x y'})`，服务端 `_gm_command` 校验 is_gm（service.py:617-639，未改动）。
+- **普通点击（新）**：`!e.ctrlKey` → `_startAutoNav(gx,gy)`：用现成 8 方向 A*（`map/pathfind.mjs`，`findPath` 的 DIRS 与 DIRMAP/服务端 Direction 同为 0..7）算出方向序列 → 存 `_navPath/_navGoal` → 关大地图 → 主循环 `_tickAutoNav(now)` 按 `RUN_INTERVAL`(360ms) 逐步 `send('move',{dir,run:true})`。坐标逆变换复用原 GM 那套（点位变换逆运算），gx,gy 与 `mapActor.map.tiles` 同口径（self 格坐标）。
+
+**边界与取消**：目标墙格 → `_navLanding` 在 ±2 环找最近可站格（沿用历史「点墙就近寻路」）；无路/同格/死亡不启动；取消导航 = 手动点游戏画面 / 按方向接管 / 换图（目标属旧图）/ 死亡 / onExit / GM Ctrl 传送；`_tickAutoNav` 内连续 3 步 self 坐标未变（怪/NPC 挡路）自动停。导航与「按住鼠标朝鼠标方向走」互斥（共用发送节流，导航期间屏蔽手动方向）。**不跨图**（A* 只在本图 tiles 上跑；想跨图仍靠 GM 传送或地图入口走过去）。
+
+**改动文件**：
+- `frontend/scene/PlayScene.mjs`：import `findPath`；新增 `NAV_DIRS` 常量、`_navPath/_navGoal/_navLastAt/_navStuck/_navPrev` 状态；新增 `_startAutoNav/_cancelNav/_navLanding/_tickAutoNav`；canvas mousedown 拆 Ctrl/普通两路；主循环加 `_tickAutoNav(now)` 且手动移动块加 `&& !this._navPath` 互斥；大地图底部提示文案改为「点击地图自动寻路 ... GM:Ctrl+点击传送」；游戏画面点击/换图/死亡/onExit 各加取消导航。
+- `scripts/test_bigmap_nav.py`（新）：19/19。覆盖 A* 路径生成、关地图、不发 @移动、逐步发 4 步 run、到达清除、Ctrl+点击仍发 @移动且不导航、普通点击走导航、墙格就近落点、同格不启动、手动/换图/死亡取消、无 JS 异常。踩坑记录：主循环 rAF 会在跨 evaluate 间真实发步干扰计数，start+tick 必须放同一同步 JS 块。
+
+**验证**：`test_bigmap_nav` 19/19；端到端（真实服务端 headless）点击大地图角色 (289,618)→(293,620) 自动走 4 格、目标 (294,622)、地图自动关闭；回归：`test_multiplayer_ui` 16/16、`test_trade_party_ui` 17/17、`test_window_close` 12/12、`test_map_view` 40/0、`test_all_messages` 95/0、`test_tick_systems` 180/0。
+
+**注意**：① 纯前端改动，Ctrl+F5 即可，无需重启服务端。② A* 在本图 `.map` 的 `tiles[x][y].canStand` 上跑；小地图无底图资料时 `_bigMapGeom` 不存在，点击不会启动导航（原版本就没法点）。③ 寻路是「理想格路径」，服务端仍按自身阻挡判定，故可能被其他玩家/怪临时卡住（已有 3 步卡住保护）。④ 这是「enhancement」而非原版行为——原版 Ctrl+右键查装备、Ctrl+点大地图传送（GM），普通点击大地图传送在原版也是 GM 命令；本项目给普通玩家补的是**走过去**而非瞬移，不触碰 GM 权限链路。
+
+**提交**：按 CLAUDE.md 标签拆分 `[前端]` 导航实现 + `[测试]` 专项测试 + `[文档]` 本节。
