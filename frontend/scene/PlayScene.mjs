@@ -13,6 +13,7 @@ import { cancelPreload } from '../core/mapPreload.mjs';
 import { scheduler } from '../gfx/scheduler.mjs';
 import { toLocal } from '../core/viewport.mjs';
 import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.mjs';
+import { toggleFogTunePanel } from '../ui/FogTunePanel.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
@@ -2418,6 +2419,8 @@ export class PlayScene extends Scene {
             fogBtn.style.color = this._noFog ? '#9fe08a' : '#ffe9a8';
         };
         this._syncFogBtn();
+        // 光照调参：游戏内实时调黑纱浓度/光圈，玩家自己定最佳默认值。
+        mk('光照调节（画面亮度 · Ctrl+F7）', () => { this._closeSystemMenu(); toggleFogTunePanel(); });
         // 头顶 HUD 偏好：三个开关都即时生效，不需要重登。
         const hudBtn = mk('', () => this._toggleHudEnhanced());
         this._syncHudBtn = () => {

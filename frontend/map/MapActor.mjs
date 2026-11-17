@@ -11,6 +11,7 @@ import { LightMap, loadLightMasks } from './LightMap.mjs';
 import { getLib } from '../image/Images.mjs';
 import { PALETTE_RGBA } from '../gfx/palette.mjs';
 import { perf } from '../core/perf.mjs';
+import { getFogLevel } from '../core/fogConfig.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
@@ -51,12 +52,8 @@ const CELL_EMPTY = 3;
 //   1 = HeavyDarkColorLevel（深夜/地下）、2 = LightDarkColorLevel（傍晚）、
 //   3 = DengunColorLevel（正午微暗）；PlayScn.pas:745 ApplyLightMap 会先按
 //   m_LightMap 把人物及光源周围的 fogmask 点亮，所以画面中心是一个圆形亮区。
-// 这里用「整屏暗色 + destination-out 径向挖洞」等价实现，光圈半径按分级递增。
-const FOG_LEVELS = {
-    1: { alpha: 0.86, radius: 132 },
-    2: { alpha: 0.56, radius: 190 },
-    3: { alpha: 0.26, radius: 250 },
-};
+// 这里用「整屏暗色 + destination-out 挖洞」等价实现，alpha/radius 已改为
+// 运行时可调（core/fogConfig.mjs，游戏内系统菜单可实时改），默认值见该文件。
 
 /** 与 render 完全一致的可见格范围（导出供启动阶段预加载复用，保证集合一模一样）。 */
 export function visibleRange(m, cx, cy, viewW, viewH) {
@@ -1186,7 +1183,7 @@ export class MapActor {
      */
     _drawFog(ctx, px, py, cx, cy, entities) {
         const lv = this.darkLevel | 0;
-        const cfg = FOG_LEVELS[lv];
+        const cfg = getFogLevel(lv);   // 运行时配置：系统菜单可调，每帧读缓存
         // PlayScn.pas:1469/1471：免蜡（g_boForceNotViewFog）与死亡都不画雾；
         // 死亡分支在 1476 改画 ceGrayScale（由 PlayScene 处理）。
         if (!cfg || this.forceNotViewFog || this.selfDead) return;
@@ -1201,7 +1198,10 @@ export class MapActor {
         mc.fillStyle = `rgba(0,0,0,${cfg.alpha})`;
         mc.fillRect(0, 0, w, h);
 
-        if (this._lightMasks) {
+        // 原 bug：只判数组引用，6 张 lig0 全加载失败时数组仍为真 → 挖洞全空、全屏黑纱、
+        // 径向兜底永不执行。改为判「至少有一张有效贴图」才走 mask 分支。
+        const hasMasks = !!(this._lightMasks && this._lightMasks.some(m => m && m.canvas));
+        if (hasMasks) {
             const bright = this._fogBright || (this._fogBright = document.createElement('canvas'));
             if (bright.width !== w || bright.height !== h) {
                 bright.width = w; bright.height = h;

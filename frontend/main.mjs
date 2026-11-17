@@ -12,22 +12,19 @@ import { scheduler } from './gfx/scheduler.mjs';
 import { assetCache } from './gfx/assetCache.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
-import { fitStage } from './core/viewport.mjs';
+import { fitStage, setUiScale } from './core/viewport.mjs';
 import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState,
          warmMapBytes, getBootInfo } from './core/boot.mjs';
 import { perf } from './core/perf.mjs';
 import { installDiag } from './core/diag.mjs';
+import { installFogTuneHotkey } from './ui/FogTunePanel.mjs';
 
 // 整个 800×600 界面等比放大到当前窗口（4:3 居中，不改变内部逻辑坐标）。
 // 想固定倍率：localStorage.setItem('jootm2.uiScale','1.5') 后刷新；
 // 调试：window.__setUiScale(1.25) / __setUiScale('auto')。
 fitStage();
 window.addEventListener('resize', fitStage);
-window.__setUiScale = (k) => {
-    if (k === 'auto') localStorage.removeItem('jootm2.uiScale');
-    else localStorage.setItem('jootm2.uiScale', String(k));
-    return fitStage();
-};
+window.__setUiScale = (k) => setUiScale(k);
 
 const canvas = document.getElementById('screen');
 canvas.width = SCREEN_WIDTH;
@@ -160,6 +157,8 @@ async function init() {
 
     // 诊断（Ctrl+F9 导出 / Ctrl+F10 局部刷新 / Ctrl+F11 深度刷新 / Ctrl+F8 性能 HUD）
     installDiag({ getScene: () => sceneManager.current });
+    // 光照调参（Ctrl+F7 开关面板，实时改黑纱浓度/光圈）
+    installFogTuneHotkey();
 
     const loop = new Loop(() => {
         perf.beginFrame();

@@ -18,6 +18,7 @@ import { assetCache } from '../gfx/assetCache.mjs';
 import { scheduler } from '../gfx/scheduler.mjs';
 import { getBootInfo } from './boot.mjs';
 import { libStats } from '../image/Images.mjs';
+import { fogSnapshot } from './fogConfig.mjs';
 
 const HUD_ID = 'jootm2-perf-hud';
 const TOAST_ID = 'jootm2-toast';
@@ -222,6 +223,7 @@ function buildReport(getScene, getCanvas) {
             dpr: window.devicePixelRatio,
             innerW: window.innerWidth, innerH: window.innerHeight,
             uiScale: readUiScale(),
+            fog: fogSnapshot(),
             stageRect: stage ? rectOf(stage) : null,
             canvasSize: canvas ? [canvas.width, canvas.height] : null,
         },

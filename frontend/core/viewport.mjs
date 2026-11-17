@@ -39,3 +39,20 @@ export function fitStage() {
     stage.style.transform = `scale(${k})`;
     return k;
 }
+
+/**
+ * 设置界面缩放预设。k='auto' 清除固定倍率（回到随窗口等比）；
+ * k 为数字则固定该倍率（1 = 完全不缩放，800×600 原尺寸）。
+ * 写 localStorage 后立即重排并返回实际倍率。
+ */
+export function setUiScale(k) {
+    if (k === 'auto' || k == null) localStorage.removeItem('jootm2.uiScale');
+    else localStorage.setItem('jootm2.uiScale', String(k));
+    return fitStage();
+}
+
+/** 当前缩放预设：'auto' 或数字倍率。 */
+export function getUiScalePreset() {
+    const saved = Number(localStorage.getItem('jootm2.uiScale'));
+    return saved > 0 ? saved : 'auto';
+}
