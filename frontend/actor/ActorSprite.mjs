@@ -8,7 +8,12 @@ import * as A from './actorData.mjs';
 // 动作名 → 动作表段名（玩家用 HA，怪物/NPC 用 MA）
 // 施法（spell）映射到 HA.spell 段（start 392, 6 帧×60ms），与普通攻击 hit 段不同（原版 ActSpell）
 // 冲撞（rush）映射到 run 段（原版 ActRushLeft/Right 即 run 段 128 起的 3 帧子段，见 Actor.pas）
-const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', rush: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die', sitdown: 'sitdown' };
+// 玩家死亡定格：原版 SM_DEATH（Actor.pas:1036-1043）把 startframe 设成
+// endframe，即别人看到玩家死时**直接定格 ActDie 末帧**，不播倒地动画；
+// 只有 SM_NOWDEATH（自己死，:1044-1050 / :2759-2765）才播完整动画。
+// 没有 death→die 映射时，_action='death' 会走 `|| 'stand'` 回退成站立帧，
+// 就是「人被打死后仍站着」的根因。
+const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', rush: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die', death: 'die', sitdown: 'sitdown' };
 const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die', death: 'death', digup: 'death', alive: 'death' };
 
 export class ActorSprite {
@@ -28,7 +33,23 @@ export class ActorSprite {
      * getLayers 会回退到 _lastByLib 的**站立帧** → 看起来像「怪还站着、没有尸体」。
      */
     prefetchDeathFrame(e) {
-        if (!e || e.type === 'player') return;
+        if (!e) return;
+        if (e.type === 'player') {
+            // 玩家尸体定格帧 = THumActor.GetDefaultFrame（Actor.pas:2781-2782）：
+            // HA.ActDie.start + dir*(frame+skip) + (frame-1)。玩家是分层绘制，
+            // hum/weapon/hair 各库都要预取同一 cf，否则后进视野直接看到尸体时
+            // 末帧未加载 → getLayers 回退 _lastByLib 的站立帧（又「站着」）。
+            const die = A.HA.die;
+            const cf = die.start + (e.dir || 0) * (die.frame + die.skip) + (die.frame - 1);
+            const dress = e.dress != null ? e.dress : e.sex;
+            const weapon = e.weapon != null ? e.weapon : 0;
+            const sex = e.sex || 0;
+            this._texture('hum', A.HUMANFRAME * dress + cf);
+            if (weapon >= 2) this._texture('weapon', A.HUMANFRAME * weapon + cf);
+            const hair = Math.min(Math.max(e.hair | 0, 0), A.HAIR_STYLES - 1) * 2;
+            if (hair > 1) this._texture('hair', A.HUMANFRAME * (hair + sex) + cf);
+            return;
+        }
         const segs = e.type === 'npc' ? A.npcAction(e.appr) : A.raceByPM(e.raceImg);
         const dieSeg = segs && (segs.die || segs.death);
         const deathSeg = segs && (segs.death || segs.die);
@@ -114,7 +135,11 @@ export class ActorSprite {
 
         // 相对帧（0..count-1）
         let rel;
-        if (action === 'die') {
+        // 原版 SM_DEATH（别人看到玩家死，Actor.pas:1040 `startframe := endframe`）
+        // 直接定格 ActDie 末帧，完全不播动画；die（自己死 SM_NOWDEATH）才推进。
+        if (e.type === 'player' && action === 'death') {
+            rel = af.count - 1;
+        } else if (action === 'die') {
             rel = af.ftime > 0 ? Math.min(Math.floor((now - at) / af.ftime), af.count - 1) : 0;
         } else if (segKey === 'stand') {
             rel = af.ftime > 0 ? Math.floor((now + this._phase) / af.ftime) % af.count : 0;

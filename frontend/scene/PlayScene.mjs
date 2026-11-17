@@ -1659,10 +1659,15 @@ export class PlayScene extends Scene {
                     // entityAdd(corpse) 会替换实体对象，动画约 150ms 就被
                     // 腰斩、sprite 重建导致纹理缓存全丢（尸体消失一瞬再出现），
                     // 正是「怪物死后视效不对」的根因。这里前后统一为静止帧。
-                    if (e.type === 'player') {
+                    // 原版 Actor.pas：SM_DEATH（别人看到玩家死，:1036-1043）
+                    // 把 startframe 设成 endframe，**直接定格 ActDie 末帧不播动画**；
+                    // 只有 SM_NOWDEATH（自己死，:1044-1050 / :2759-2765）才播完整。
+                    // 旧实现给所有玩家都播 die 动画，且玩家段表无 death 映射，
+                    // 动画一结束就回退 stand → 击杀者看到死者「又站起来」。
+                    if (e.type === 'player' && this.self && e.id === this.self.id) {
                         e._action = 'die';
                         e._actionAt = Date.now();
-                        e._dieUntil = Date.now() + 1400;   // ActDie 10 帧 ×140ms
+                        e._dieUntil = Date.now() + 4 * 120;   // HA.die: 4 帧 ×120ms
                     } else {
                         e._action = 'death';
                         e._actionAt = Date.now();
