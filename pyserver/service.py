@@ -397,6 +397,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                    skills=_load_skills(rec["skills"]),
                    quick_slots=(list(rec["quick_slots"]) + [0] * 6)[:6],
                    is_gm=getattr(session, "account_name", "") in GM_ACCOUNTS)
+        # NPC 脚本任务变量（SET/CHECK [n]）跨登录持久：不读库则领过一次性
+        # 奖励的角色重登后标记归零，可无限重领（玛法领路人 5000 金币）。
+        p.quest_params = self.db.load_quest_params(rec["id"])
         p.distribute_items(world)
         p.recompute(world)
         if 12 in p.skills:
@@ -762,6 +765,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "skills": dumps(skills), "quick_slots": list(p.quick_slots),
         }
         self.db.update_character(rec)
+        # 任务变量独立于 characters 表存（Java 侧共用表结构，不能加列）。
+        # 空 dict 也写一行，避免重登时读到缺省空值；无角色 id 时跳过。
+        if p.character_id:
+            self.db.save_quest_params(p.character_id, p.quest_params)
 
     def save_all_players(self) -> None:
         for p in self.world.players():

@@ -62,6 +62,11 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS std_items (idx INTEGER PRIMARY KEY, data TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS monsters (name TEXT PRIMARY KEY, data TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS magics (mag_id INTEGER PRIMARY KEY, data TEXT NOT NULL)",
+    # 任务变量（NPC 脚本 SET/CHECK [n]）。独立于 characters 表：Java 侧共用
+    # characters 表结构，绝不往里加列；这张表只由 Python 端读写。
+    "CREATE TABLE IF NOT EXISTS character_quests ("
+    "character_id INTEGER PRIMARY KEY, params TEXT NOT NULL DEFAULT '{}', "
+    "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
 )
 
 
@@ -301,6 +306,33 @@ class Database:
         with self.conn:
             self.conn.execute("DELETE FROM characters WHERE account_id = ? AND name = ?",
                               (account_id, name))
+
+    # ------------------------------------------------------------ 任务变量
+    # NPC 脚本的 SET/CHECK [n]（原版 QuestParams）必须跨登录持久：否则领过
+    # 一次性奖励的角色重登后 [n] 归零，奖励可无限领（玛法领路人 5000 金币）。
+
+    def load_quest_params(self, character_id: int) -> dict[int, int]:
+        row = self.conn.execute(
+            "SELECT params FROM character_quests WHERE character_id = ?",
+            (character_id,),
+        ).fetchone()
+        if not row:
+            return {}
+        try:
+            raw = json.loads(row["params"])
+            return {int(k): int(v) for k, v in raw.items()}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+
+    def save_quest_params(self, character_id: int, params: dict[int, int]) -> None:
+        payload = json.dumps({str(k): int(v) for k, v in params.items()},
+                             sort_keys=True, separators=(",", ":"))
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO character_quests(character_id, params) VALUES(?, ?) "
+                "ON CONFLICT(character_id) DO UPDATE SET params=excluded.params",
+                (character_id, payload),
+            )
 
     def max_item_make_index(self) -> int:
         top = 0
