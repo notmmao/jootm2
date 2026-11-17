@@ -439,7 +439,7 @@ export class TradePartyUI {
             return;
         }
         const win = this._window('在线玩家', 250, 100, 300, 340, 385,
-            () => { this._onlineWin = null; });
+            () => { win.remove(); this._onlineWin = null; this._onlineListEl = null; });
         this._onlineWin = win;
         const tip = document.createElement('div');
         tip.style.cssText = 'position:absolute;left:10px;top:28px;width:280px;'
@@ -496,7 +496,7 @@ export class TradePartyUI {
     _showUserState(msg) {
         if (this._inspectWin) this._inspectWin.remove();
         const win = this._window(`${msg.name || '玩家'} 的装备`, 470, 110, 232, 300, 207,
-            () => { this._inspectWin = null; });
+            () => { win.remove(); this._inspectWin = null; });
         this._inspectWin = win;
         const head = document.createElement('div');
         head.style.cssText = 'position:absolute;left:12px;top:26px;width:208px;'
