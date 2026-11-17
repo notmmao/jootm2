@@ -9,10 +9,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 服务端代码 + 前端静态 + 配置 + 服务端游戏数据（CSV / Envir / .map）
+COPY gamedata/ /app/gamedata/
 COPY pyserver/ /app/pyserver/
 COPY frontend/ /app/frontend/
 COPY config/ /app/config/
-COPY gamedata/ /app/gamedata/
 
 # data/ 放 SQLite，resources/ 由卷挂载（客户端素材不随镜像分发）
 RUN mkdir -p /app/data /app/resources
