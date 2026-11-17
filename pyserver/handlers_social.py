@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from .util import _int, _str
 from .world_extra import TradeSession
-from .world import Player
+from .world import SIGHT_RANGE, Player
 
 GUILD_TYPES = frozenset({
     "createGuild", "joinGuild", "leaveGuild", "guildInfo", "guildChat",
@@ -22,7 +22,10 @@ TRADE_TYPES = frozenset({
     "tradeAddItem", "tradeRemoveItem", "tradeAddGold", "tradeConfirm",
     "tradeSetGold",
 })
-SOCIAL_TYPES = GUILD_TYPES | PARTY_TYPES | STORAGE_TYPES | TRADE_TYPES
+# 多人社交扩展：在线列表（本项目新增，原版无窗口）、查看他人装备
+# （原版 Ctrl+右键 → CM_QUERYUSERSTATE=82 → SM_SENDUSERSTATE=751）。
+SOCIAL_EXTRA_TYPES = frozenset({"onlineList", "queryUserState"})
+SOCIAL_TYPES = GUILD_TYPES | PARTY_TYPES | STORAGE_TYPES | TRADE_TYPES | SOCIAL_EXTRA_TYPES
 
 
 class SocialHandlers:
@@ -588,3 +591,60 @@ class SocialHandlers:
         self.send_bag_update(t.b)
         w.send_stats(t.a)
         w.send_stats(t.b)
+
+    # ---- 多人扩展：在线列表 / 查看他人装备 ------------------------------
+
+    def _online_list(self, session, msg: dict) -> None:
+        """在线玩家名单（原版无此功能，本项目新增）。
+
+        只回名字/等级/职业/所在地图，不暴露坐标/血量（隐私且省带宽）。
+        原版 GM 命令 who/total（ObjBase.pas:11680）只报在线人数，不列姓名。
+        """
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        w = self.world
+        players = []
+        for other in w.players():
+            players.append({
+                "name": other.name,
+                "level": other.level,
+                "job": other.job,
+                "map": other.map.name if other.map else "",
+            })
+        players.sort(key=lambda e: (-e["level"], e["name"]))
+        p.session.send_json({"type": "onlineList", "players": players})
+
+    def _query_user_state(self, session, msg: dict) -> None:
+        """查看他人装备：原版 Ctrl+右键 → CM_QUERYUSERSTATE(82) → SM_SENDUSERSTATE(751)。
+
+        火炬 M2Server/ObjBase.pas:14284-14317：近距校验 CretInNearXY 后回
+        TUserStateInfo（名字/颜色/外观 + UseItems[0..12]），13 槽装备。
+        本项目的 ``items_json`` 已把装备项带 ``slot``，过滤出来即 TUserStateInfo.UseItems。
+        """
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        w = self.world
+        actor_id = _int(msg, "id", _int(msg, "actorId", 0))
+        target = w.actor(actor_id)
+        if target is None or not isinstance(target, Player) or not target.alive:
+            return
+        # 原版 CretInNearXY：同图 + 近距（SIGHT_RANGE 与视野/说话一致）
+        if target.map is not p.map or p.distance_to(target) > SIGHT_RANGE:
+            w.send_system(p, "目标不在附近，无法查看装备。")
+            return
+        equipped = [it for it in target.items_json(w) if it.get("slot") is not None]
+        p.session.send_json({
+            "type": "userState",
+            "id": target.id,
+            "name": target.name,
+            "level": target.level,
+            "job": target.job,
+            "sex": target.sex,
+            "hair": target.hair,
+            "nameColor": target.name_color(),
+            "dress": target.dress_looks(w),
+            "weapon": target.weapon_shape(w),
+            "items": equipped,
+        })

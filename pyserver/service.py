@@ -156,6 +156,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "partyLeave": self._party_leave,
             "partyChat": self._party_chat,
             "partyInfo": self._party_info,
+            # 多人扩展：在线列表 / 查看他人装备（Ctrl+右键，原版 CM_QUERYUSERSTATE）
+            "onlineList": self._online_list,
+            "queryUserState": self._query_user_state,
             # 仓库
             "storageOpen": self._storage_open,
             "storageStore": self._storage_store,
@@ -528,8 +531,44 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 return
             self._gm_command(p, text[1:].strip())
             return
+        # 原版 ClMain.pas:3148-3153 / ObjBase.pas:11680-11691：
+        # "/" 开头 = 密语，格式 "/玩家名 内容"，服务端 Say()→Whisper()→SM_WHISPER(103)。
+        # 接收方看到「发送者=> 内容」，发送方本地回显「=>目标: 内容」。
+        if text.startswith("/"):
+            self._whisper(p, text[1:])
+            return
         self.world.broadcast_all({"type": "chat", "id": p.id, "name": p.name,
                                   "text": text[:500]})
+
+    def _whisper(self, p: Player, body: str) -> None:
+        """密语（原版 TUserHuman.Whisper，ObjBase.pas:10670-10692）。
+
+        只定向发给双方，不进世界频道；目标不在线/无连接时给发送方系统提示。
+        """
+        body = body.strip()
+        if not body:
+            self.world.send_system(p, "密语格式：/玩家名 内容")
+            return
+        parts = body.split(None, 1)
+        target_name = parts[0]
+        words = parts[1].strip() if len(parts) > 1 else ""
+        if not words:
+            self.world.send_system(p, "密语格式：/玩家名 内容")
+            return
+        target = self.world.player(target_name)
+        if target is None or target.session is None:
+            self.world.send_system(p, f"玩家 {target_name} 不在线。")
+            return
+        # 原版 Whisper 校验 BoHearWhisper/IsBlockWhisper：本项目无屏蔽名单，
+        # 仅对齐「在线才可达 + 双方定向可见」核心语义。
+        target.session.send_json({
+            "type": "whisper", "fromId": p.id, "fromName": p.name,
+            "toName": target.name, "text": words[:500], "incoming": True,
+        })
+        p.session.send_json({
+            "type": "whisper", "fromId": p.id, "fromName": p.name,
+            "toName": target.name, "text": words[:500], "incoming": False,
+        })
 
     # ---- GM @命令（原版 ObjBase.pas CmdXXX 系列，权限 >= 6）-------------
 
