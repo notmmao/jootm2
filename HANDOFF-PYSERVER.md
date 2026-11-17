@@ -461,7 +461,7 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **需求**：整理当前游戏资源格式（WIX/WIL 等，重点是精灵组织形式），形成 skill 让AI Agent 能把外部资源快速转换成可直接使用的格式，并生成可验证的预览。
 
 **产物**：
-- `.claude/skills/mir2-resource-converter/`——**自包含可分发**的 skill：`SKILL.md`（工作流/工具用法/验证清单）+ `references/format-spec.md`（WIL/WIX 二进制规范与精灵帧号契约全文，实测核验）+ `references/palette.json`（调色板快照，源自 palette.mjs）+ `references/tables.json`（HA/MA 动作表快照，源自 actorData.mjs）+ `scripts/wil_pack.py`（纯标准库，`info/dump/pack/preview`，内嵌 WIL 解码器与 PNG 编解码，无外部 import）。`--tables frontend/actor/actorData.mjs` 可实时解析动作表保持新鲜；`--merge` 把新帧字节级保真地拼进现有库；打包后走同语义解码路径读回逐帧比对自校验；`preview` 产出自包含 HTML 动画预览（动作 × 8 方向、48×32 格锚点虚线可视化）。
+- `.claude/skills/mir2-resource-converter/`——**自包含可分发**的 skill：`SKILL.md`（工作流/工具用法/验证清单）+ `references/format-spec.md`（WIL/WIX 二进制规范、精灵帧号契约、特殊精灵逻辑全文，实测核验）+ `references/palette.json`/`tables.json`（调色板/动作表快照）+ `references/upstream/`（wil.mjs/palette.mjs/actorData.mjs 逐字快照，离线可查权威实现）+ `scripts/wil_pack.py`（纯标准库，`info/dump/pack/preview`，内嵌 WIL 解码器与 PNG 编解码，无外部 import）。`--tables <actorData.mjs>` 可实时解析动作表保持新鲜；`--merge` 把新帧字节级保真地拼进现有库；打包后走同语义解码路径读回逐帧比对自校验；`preview` 产出自包含 HTML 动画预览（动作 × 8 方向、48×32 格锚点虚线可视化）。项目相关引用收敛到 SKILL.md 末节「在 jootm2 仓库内使用」。
 - 同轮用户指令：① skill 改为独立可分发，不再引用仓库文件（上述快照即为打包产物）；② HANDOFF 与 SKILL 文档改**正常换行**（一段一行）——全库查证（用户全局规则/项目 CLAUDE.md/本文档维护规则/各 skill）**不存在行宽规定**，逐 40 字断行是早期 Agent 书写习惯（本文档最初版本即正常换行，§0/§0.5 也一直是正常换行），已全文还原为段落单行（rewrap 脚本去空白后逐字符校验一致，仅代码块/表格/引用行/列表项保留结构），并在「文档维护规则」新增第 7 条固化。
 
 **格式核验结论**（对照 `frontend/gfx/wil.mjs`、原版 `MirClient/Actor.pas:2089`）：
