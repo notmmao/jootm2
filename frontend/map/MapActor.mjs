@@ -1382,14 +1382,18 @@ export class MapActor {
             // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
             // 这一条不受增强开关影响，保持原版行为。
             let nameFill = e.isSelf ? '#ffe9b0' : '#e0d0a0';
-            if (pet && e.nameColor != null) {
-                nameFill = paletteFill(e.nameColor) || nameFill;
-            } else if (enhanced && e.nameColor != null) {
+            // 名字颜色是原版核心信息（白/黄/红/灰名 + 关系色），对所有玩家可见，
+            // 不受「增强模式」开关影响。旧实现只在 enhanced=true 时着色，默认
+            // 关闭时黄名/红名全显示成同一米色——PK 状态完全看不见。
+            if ((pet || e.type === 'player') && e.nameColor != null) {
                 const idx = Number(e.nameColor);
-                nameFill = paletteFill(idx) || nameFill;
-                // 增强模式下自己用金黄（251），但红名/棕名等 PK 关系色优先，
-                // 不能把危险状态盖掉。
-                if (e.isSelf && idx === 255) nameFill = paletteFill(251) || nameFill;
+                // 增强模式下自己用金黄（251），但红名/黄名/灰名等 PK 色优先，
+                // 不能把危险状态盖掉（原版自己非 PK 时也是默认色，这里沿用美术习惯）。
+                if (e.isSelf && !enhanced && idx === 255) {
+                    nameFill = '#ffe9b0';
+                } else {
+                    nameFill = paletteFill(idx) || nameFill;
+                }
             }
             ctx.fillStyle = nameFill;
             ctx.fillText(e.name, nx, ny);
