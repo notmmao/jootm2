@@ -15,12 +15,18 @@ import { toLocal } from '../core/viewport.mjs';
 import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.mjs';
 import { toggleFogTunePanel } from '../ui/FogTunePanel.mjs';
 import { TradePartyUI } from '../ui/TradePartyUI.mjs';
+import { findPath } from '../map/pathfind.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
 const DIRMAP = {
     '0,-1': 0, '1,-1': 1, '1,0': 2, '1,1': 3,
     '0,1': 4, '-1,1': 5, '-1,0': 6, '-1,-1': 7,
 };
+// 方向索引 → 格偏移（与 DIRMAP / pathfind.mjs DIRS 同为 0..7：上/右上/右/右下/下/左下/左/左上）
+const NAV_DIRS = [
+    [0, -1], [1, -1], [1, 0], [1, 1],
+    [0, 1], [-1, 1], [-1, 0], [-1, -1],
+];
 
 // 移动动作间隔（ms/步）：走慢跑快，动作之间必须有间隔
 // 对齐动画周期：walk 动画 6 帧×90ms=540ms；run 动画 6 帧×120ms=720ms 覆盖 2 格 → 360ms/格
@@ -232,6 +238,12 @@ export class PlayScene extends Scene {
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
         this._lastMoveAt = 0;        // 上次发送移动的时间戳（发送节流，对所有来源共用）
         this._pendingStep = false;   // 单击待发的一步（受节流约束，快速连点不会堆积成瞬移）
+        // 大地图普通点击自动导航（GM Ctrl+点击传送是另一条独立链路，两者互斥）
+        this._navPath = null;        // 剩余方向序列（A* 算出，0..7）
+        this._navGoal = null;        // {x,y} 目标格
+        this._navLastAt = 0;         // 上次发步的时间（与 _lastMoveAt 共用节流）
+        this._navStuck = 0;          // 连续未移动步数（被怪/NPC 挡路时放弃）
+        this._navPrev = null;        // 上一步发出时期望的 self 坐标
         this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
         this._dirAttackHolding = false;  // shift+左键 方向攻击持续状态（按住持续挥刀，松开停止）
         this._dirAttackDir = -1;         // 方向攻击方向（鼠标相对人物，0-7）
@@ -1143,6 +1155,8 @@ export class PlayScene extends Scene {
             this._closeTopWindow();
             return;
         }
+        // 手动点击游戏画面 = 取消自动导航（玩家接管）
+        if (this._navPath) this._cancelNav();
         // 托管中点击游戏画面 = 手动接管（服务端收到 move/attack/pickup 也会兜底暂停）
         this._takeOverAuto();
         // 选中（拿起）物品时点击画面 → 扔到对应格子（原版 DropItem）
@@ -1731,6 +1745,7 @@ export class PlayScene extends Scene {
                     this._selfDead = true;
                     if (this.mapActor) this.mapActor.selfDead = true;
                     this._holding = false;
+                    this._cancelNav(true);
                     this._pendingStep = false;
                     this._dirAttackHolding = false;
                     this._mouseDir = -1;
@@ -1995,6 +2010,7 @@ export class PlayScene extends Scene {
                 this.groundItems.clear();
                 this._holding = false;
                 this._mouseDir = -1;
+                this._cancelNav(true);   // 换图/传送取消自动导航（目标格属于旧图）
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 this.chaseTargetId = null;   // 换图取消锁定
@@ -2329,12 +2345,13 @@ export class PlayScene extends Scene {
             + 'background:#0b0d0a;image-rendering:pixelated;';
         p.appendChild(cv);
         this._bigMapCanvas = cv;
-        // GM：Ctrl+点击大地图 = 传送到对应坐标（客户端只发 @移动 命令，
-        // 服务端校验 is_gm；坐标换算是点位变换的逆变换）。
+        // 点击大地图（坐标换算是点位变换的逆变换）：
+        // - Ctrl+点击 = GM 传送（客户端只发 @移动 命令，服务端校验 is_gm）；
+        // - 普通点击 = 自动导航寻路走过去（所有玩家可用，走本图 A*，不跨图）。
         cv.addEventListener('mousedown', (e) => {
             e.stopPropagation();
             e.preventDefault();
-            if (!e.ctrlKey) return;
+            if (e.button !== 0 && e.button !== 2) return;
             const g = this._bigMapGeom;
             if (!g || !this.self) return;
             const rect = cv.getBoundingClientRect();
@@ -2345,13 +2362,18 @@ export class PlayScene extends Scene {
                 Math.floor((px - g.bx) / ((g.kx || 1.5) * (g.k || 1)))));
             const gy = Math.max(0, Math.min(g.mapH - 1,
                 Math.floor((py - g.by) / ((g.ky || 1.0) * (g.k || 1)))));
-            this.conn.send('say', { text: `@移动 ${g.mapName} ${gx} ${gy}` });
+            if (e.ctrlKey) {
+                this._cancelNav();
+                this.conn.send('say', { text: `@移动 ${g.mapName} ${gx} ${gy}` });
+            } else {
+                this._startAutoNav(gx, gy);
+            }
         });
 
         const tip = document.createElement('div');
         tip.style.cssText = 'position:absolute;left:10px;top:392px;font-size:11px;color:#9fb08a;';
-        tip.textContent = '白=自己  红=怪物  黄=NPC  蓝=玩家   |   Tab 关闭 / Esc 关闭 / 点击面板关闭'
-            + (this.self && this.self.gm ? '   |   GM: Ctrl+点击传送' : '');
+        tip.textContent = '白=自己  红=怪物  黄=NPC  蓝=玩家  |  点击地图自动寻路  |  Tab/Esc/点击面板关闭'
+            + (this.self && this.self.gm ? '   |   GM:Ctrl+点击传送' : '');
         p.appendChild(tip);
         p.addEventListener('mousedown', (e) => {
             e.stopPropagation();
@@ -2443,6 +2465,109 @@ export class PlayScene extends Scene {
         if (this._bigMapTitle) {
             this._bigMapTitle.textContent = `${name}　(${this.self.x}, ${this.self.y})`;
         }
+    }
+
+    // ---- 大地图普通点击自动导航（GM Ctrl+点击传送走另一条链路）---------------
+
+    /** 取消自动导航（手动移动/攻击/换图/死亡/传送时调用）。 */
+    _cancelNav(silent = false) {
+        if (this._navPath) {
+            this._navPath = null;
+            this._navGoal = null;
+            this._navStuck = 0;
+            this._navPrev = null;
+            if (!silent) this._log('[导航] 已停止', '#9fb08a');
+        }
+    }
+
+    /** 目标格不可站时在 ±2 环内找最近可站格（历史「点墙就近寻路」口径）。 */
+    _navLanding(map, gx, gy) {
+        const canStand = (x, y) => x >= 0 && y >= 0 && x < map.width && y < map.height
+            && map.tiles[x] && map.tiles[x][y] && map.tiles[x][y].canStand;
+        if (canStand(gx, gy)) return { x: gx, y: gy };
+        let best = null, bestD = Infinity;
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const x = gx + dx, y = gy + dy;
+                if (!canStand(x, y)) continue;
+                const d = Math.max(Math.abs(dx), Math.abs(dy));
+                if (d < bestD) { bestD = d; best = { x, y }; }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 大地图普通点击：A* 寻路到目标格，逐帧发 move 走过去（不跨图）。
+     * 与「按住鼠标朝鼠标方向走」互斥：导航期间屏蔽手动方向，手动操作会取消导航。
+     */
+    _startAutoNav(gx, gy) {
+        if (!this.self || !this.mapActor || !this.mapActor.map) return;
+        if (this._selfDead) return;
+        const landing = this._navLanding(this.mapActor.map, gx, gy);
+        if (!landing) { this._log('[导航] 目标附近没有可走的位置', '#e0a060'); return; }
+        const sx = this.self.x, sy = this.self.y;
+        if (sx === landing.x && sy === landing.y) {
+            this._log('[导航] 已在目标位置', '#9fb08a');
+            return;
+        }
+        let path;
+        try {
+            path = findPath(this.mapActor.map, sx, sy, landing.x, landing.y);
+        } catch (_) {
+            path = null;
+        }
+        if (!path) { this._log('[导航] 找不到通往目标的路径', '#e0a060'); return; }
+        if (!path.length) { this._log('[导航] 已在目标位置', '#9fb08a'); return; }
+
+        this._takeOverAuto();          // 托管中 → 自动导航视为手动接管
+        this._holding = false;
+        this._pendingStep = false;
+        this._dirAttackHolding = false;
+        this.chaseTargetId = null;
+        this._navPath = path;
+        this._navGoal = landing;
+        this._navLastAt = 0;           // 下一帧立即发第一步
+        this._navStuck = 0;
+        this._navPrev = null;
+        this._closeBigMap();           // 开始走就关掉地图，露出游戏画面
+        this._log(`[导航] 前往 (${landing.x}, ${landing.y})，共 ${path.length} 步`, '#9fb08a');
+    }
+
+    /** 主循环调用：按跑速节流，沿 A* 路径一步一步发 move；到达/卡住/手动操作即停。 */
+    _tickAutoNav(now) {
+        if (!this._navPath || !this.self || this._selfDead) return;
+        if (!this._navPath.length) {
+            const g = this._navGoal;
+            this._navPath = null; this._navGoal = null;
+            this._log(`[导航] 已到达${g ? ` (${g.x}, ${g.y})` : ''}`, '#9fb08a');
+            return;
+        }
+        // 手动按键/点画面/追击目标接管时让位
+        if (this._holding || this.chaseTargetId != null) { this._cancelNav(true); return; }
+        // 上一步是否真的推动了 self（服务端 move 回包会更新 self.x/y）；连续未动则放弃
+        if (this._navPrev) {
+            const moved = this.self.x !== this._navPrev.x || this.self.y !== this._navPrev.y;
+            if (!moved) {
+                this._navStuck++;
+                if (this._navStuck >= 3) {
+                    this._log('[导航] 前方受阻，已停止', '#e0a060');
+                    this._cancelNav(true);
+                    return;
+                }
+            } else {
+                this._navStuck = 0;
+            }
+        }
+        if (now - this._navLastAt < RUN_INTERVAL) return;
+        const dir = this._navPath.shift();
+        const d = NAV_DIRS[dir];
+        if (!d) { this._cancelNav(true); return; }
+        this._navPrev = { x: this.self.x, y: this.self.y };
+        this._navLastAt = now;
+        this._mouseDir = dir;         // 让角色朝向与移动动画一致
+        this._mouseRun = true;
+        this.conn.send('move', { dir, run: true });
     }
 
     /** 关掉最上层的一个窗口；返回 false 表示没有任何窗口可关（此时 Esc 打开系统菜单）。 */
@@ -4088,7 +4213,10 @@ export class PlayScene extends Scene {
         // 按住持续朝当前方向移动；_pendingStep 让「快点一下」也能走一步。
         // 两种来源共用 _lastMoveAt 节流，所以快速连点只会合并成一步/间隔，
         // 不会向服务端灌入一串 move 造成坐标跳跃与动画脱节。
-        if ((this._holding || this._pendingStep) && this.self && this._mouseDir >= 0) {
+        // 自动导航（大地图普通点击）：优先于按住手动移动，共用发送节流节奏
+        this._tickAutoNav(now);
+        if ((this._holding || this._pendingStep) && !this._navPath
+                && this.self && this._mouseDir >= 0) {
             const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
             if (now - this._lastMoveAt >= stepDur) {
                 this.conn.send('move', { dir: this._mouseDir, run: this._mouseRun });
@@ -4876,6 +5004,7 @@ export class PlayScene extends Scene {
         for (const fn of this._dragCleaners) fn();
         this._dragCleaners = [];
         this._holding = false;
+        this._cancelNav(true);
         this._dirAttackHolding = false;
         this._shiftDown = false;
         this.bagPanel = null;
