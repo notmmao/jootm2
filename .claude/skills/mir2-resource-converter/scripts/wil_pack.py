@@ -190,6 +190,9 @@ HA_TABLES, MA_TABLES = _parse_tables()
 def mon_lib_and_offset(appr: int) -> tuple[str, int]:
     """外观 appr → (图库 key, 外观帧偏移)。"""
     nrace, npos = divmod(appr, 10)
+    if nrace > 20 and nrace != 90:
+        # jootm2 getMonImgLib/getMonOffset：n>20 且非 effect 时回退 mon1 / 0
+        return 'mon1', 0
     lib = 'mon1' if nrace == 0 else ('effect' if nrace == 90 else f'mon{nrace + 1}')
     if nrace in (0,):
         return lib, npos * 280
@@ -199,14 +202,23 @@ def mon_lib_and_offset(appr: int) -> tuple[str, int]:
         return lib, {1: 360, 2: 440, 3: 550}[npos]
     if nrace == 4 and npos == 1:
         return lib, 600
+    if nrace == 5:
+        return lib, npos * 430
+    if nrace == 6:
+        return lib, npos * 440
+    if nrace == 17:
+        return lib, npos * 350
     if nrace == 18:
         return lib, {0: 0, 1: 520, 2: 950}.get(npos, 0)
     if nrace == 19:
-        return lib, [0, 370, 810, 1250, 1630, 2010, 2390][npos]
+        t = [0, 370, 810, 1250, 1630, 2010, 2390]
+        return lib, t[npos] if npos < len(t) else 0
     if nrace == 20:
-        return lib, [0, 360, 720, 1080, 1440, 1800, 2350, 3060][npos]
+        t = [0, 360, 720, 1080, 1440, 1800, 2350, 3060]
+        return lib, t[npos] if npos < len(t) else 0
     if nrace == 90:
-        return lib, [80, 168, 184, 200][npos]
+        t = [80, 168, 184, 200]
+        return lib, t[npos] if npos < len(t) else 80
     return lib, npos * 360
 
 
