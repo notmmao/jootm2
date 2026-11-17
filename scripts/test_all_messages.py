@@ -174,6 +174,9 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "guildAlly": {"type": "guildAlly", "name": "不存在"},
         "leaveGuild": {"type": "leaveGuild"},
         "partyInvite": {"type": "partyInvite", "name": mate.name},
+        "partyAccept": {"type": "partyAccept"},
+        "partyReject": {"type": "partyReject"},
+        "partyInfo": {"type": "partyInfo"},
         "partyChat": {"type": "partyChat", "text": "队伍频道"},
         "partyLeave": {"type": "partyLeave"},
         "storageOpen": {"type": "storageOpen"},
@@ -183,6 +186,9 @@ def messages_for(p, mate, monster, npc, equip_mi, consumable_mi) -> dict[str, di
         "tradeAccept": {"type": "tradeAccept"},
         "tradeAddItem": {"type": "tradeAddItem", "makeIndex": consumable_mi},
         "tradeAddGold": {"type": "tradeAddGold", "amount": 10},
+        "tradeSetGold": {"type": "tradeSetGold", "amount": 0},
+        "tradeRemoveItem": {"type": "tradeRemoveItem", "makeIndex": consumable_mi},
+        "tradeReject": {"type": "tradeReject"},
         "tradeConfirm": {"type": "tradeConfirm"},
         "tradeCancel": {"type": "tradeCancel"},
         "butch": {"type": "butch", "actorId": -1, "x": p.x, "y": p.y, "dir": 0},
@@ -375,7 +381,9 @@ def run_success_paths() -> int:
         h["createGuild"](s1, {"type": "createGuild", "name": "验收行会"})
         check("创建行会成功", w.guild_of(p.name) is not None, results)
         h["partyInvite"](s1, {"type": "partyInvite", "name": mate.name})
-        check("组队成功", w.party_of(p.id) is not None, results)
+        h["partyAccept"](s2, {"type": "partyAccept"})   # 原版邀请须对方确认
+        check("组队成功", w.party_of(p.id) is not None and w.party_of(mate.id) is not None,
+              results)
         h["storageStore"](s1, {"type": "storageStore", "makeIndex": eq_mi})
         stored = len(p.storage) > 0
         h["storageTake"](s1, {"type": "storageTake", "makeIndex": eq_mi})
