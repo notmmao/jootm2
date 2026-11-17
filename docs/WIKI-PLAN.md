@@ -52,6 +52,7 @@
 - 产物源：`data/website`（72MB / 1967 文件），因 list2 发布脚本有 60MB 上限，用 Pillow 做**无损**调色板压缩（RGBA 颜色数 ≤256 的图转 P 模式并逐像素校验一致）：`data/website-list2/`（54MB），压缩逻辑见 HANDOFF-PYSERVER §88。
 - 发布：`python "C:/Users/Mao/.workbuddy/skills/list2-publish/scripts/publish.py" --source "D:/work/me/game/jootm2/data/website-list2" --name mir2-wiki`，push main 后 Vercel 自动部署。线上 `https://list.notmmao.com/mir2-wiki/`（commit `ed0c779`）。
 - **list2 仓库 `core.quotepath=false`**：wiki 有中文文件名，`git diff --cached --name-only` 默认输出八进制转义，发布脚本前缀校验会误判为越界而回滚。发布前在 list2 仓库执行 `git config core.quotepath false`（只改本地 git 配置，不改受控文件）。
+- **Vercel 缓存头边界（别重复排查）**：Vercel 对所有静态资源返回 `Cache-Control: public, max-age=0, must-revalidate`，但 `X-Vercel-Cache: HIT` + `Age` 说明**边缘 CDN 已命中、不回源**。效果是浏览器仍会发 304 条件请求（打向 Vercel 边缘、极快，观感上仍可能"看到载入"），但**不占阿里云带宽、不回源**——迁站核心目标已达成。想连浏览器 304 都消掉须改根级 `vercel.json` 加 `headers`，但 list2 技能禁止改根级配置、且子目录 `vercel.json` 对 Vercel 无效，故本轮不动。
 - `/site` 跳转：pyserver 读到 `website.redirect` 非空即 302 过去，无需再 rsync wiki 到阿里云；阿里云只需更新镜像（配置默认值已内置，也可用环境变量覆盖）。验证：`curl -sI http://139.224.24.88:8080/site/maps.html | grep -i 'HTTP\|location'` 应为 302 + list2 地址。回退：把 `website.redirect` 设空并重启，恢复本地静态服务。
 
 ## 顺序与验收（已完成）
