@@ -574,3 +574,17 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **注意**：① 需重启服务端 + Ctrl+F5 生效。② 在线列表是本项目新增（非原版），只给名字/等级/职业/地图，无坐标/血量（隐私与带宽）。③ 气泡是纯文字白字黑边（原版无贴图气泡框），4 秒；服务端 `chat` 仍是全体广播（`broadcast_all`），但气泡只在本地有该实体（视野内）时才画。④ 密语用 `/名字 内容`（原版格式），前端按 `/` 唤出输入框天然对齐；无跨服、无屏蔽名单（原版 `@拒绝私聊` 未做）。⑤ 职业编码 0=战士/1=法师/2=道士（曾误写成 1 基数组，测试抓到已修）。⑥ 查看装备近距用 `SIGHT_RANGE`，与原版 `CretInNearXY` 近似。
 
 **提交**：见本轮 git log（按 CLAUDE.md 标签：服务端协议 `[保真]`、前端 `[前端]`、修复职业映射 `[修复]` 并入前端提交、测试 `[测试]`、文档 `[文档]`）。
+
+## §105 弹窗输入框数字键与游戏快捷键冲突（2026-11-17，用户反馈）
+
+**用户反馈**：「邀请组队输入框有个问题：如果对方名字含有数字例如 't1'，我不能输入 1，因为 1 会直接触发快捷键。」
+
+**根因**：`PlayScene._onKeyDown` 只排除主聊天框一个元素（`e.target === this.chatInput`），TradePartyUI 的弹窗输入框 keydown 冒泡到 document 后，命中「数字键 1..6 使用快捷栏」分支（`PlayScene.mjs:978-983`），该分支 `preventDefault()` 把字符吃掉，于是 `t1` 里的 `1` 永远打不进去。同类受影响：交易发起名字框、放入金币框；队伍聊天框与掉金框原本已有 `stopPropagation` 所以正常。
+
+**修复（两层）**：
+1. 根本：`PlayScene._onKeyDown` 开头改为统一判断——`e.target` 是 `INPUT/TEXTAREA/SELECT/isContentEditable` 就直接 return，不再只认 `chatInput`。覆盖现有与未来任何输入控件。
+2. 局部：`TradePartyUI` 新增 `_bindInput(input, onSubmit)`，内部 `stopPropagation()` + 回车提交 + Esc 失焦；交易名字框、金币框、组队邀请框、队伍聊天框统一改用它，顺手补上回车提交（点按钮路径保留）。
+
+**验证**：新增 `scripts/test_input_shortcuts.py` 9/9——用 Playwright 真实 `keyboard.type('t1')` 验证组队邀请框数字完整、不触发快捷用药水、回车发 `partyInvite{name:'t1'}`；交易发起框同样可输入 `t1`；失焦后按 `1` 仍能触发快捷用药水（防止过度屏蔽）；零 JS 异常。回归 `test_trade_party_ui` 17/17、`test_multiplayer_ui` 15/15。
+
+**注意**：① 需 Ctrl+F5 强刷（纯前端改动，无需重启服务端）。② 测试必须用真实键盘输入，不能用 JS 直接 `input.value = 't1'`——后者绕开 keydown，测不出 `preventDefault` 吞字符。③ Esc 在输入框内只失焦、不关窗；关窗仍走窗口关闭按钮或全局 Esc（失焦后）。
