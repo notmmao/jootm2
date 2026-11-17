@@ -258,6 +258,7 @@ docker logs jootm2 | head                    # 应见 445 map defs / 2173 gates
 5. `pyserver/world.py::tick` + `world_extra.py` —— 世界循环
 6. `scripts/` 下 `test_*.py` / `compare_stacks.py` + `scripts/golden/` —— 回归基线
 7. `git log --oneline -20` —— 最新提交即版本（`/api/version` 同源）
+8. `docs/GAMEDATA_GUIDE.md` —— 动 gamedata 前必读：目录结构 / 文件消费点 / 名字连接链 / 未消费文件与已知缺口（§97 新增）
 
 ---
 
@@ -574,3 +575,33 @@ give/take 这条路径漏了。**Java 对照版同样漏**（`GameService.java:6
 随机传送卷+小蓝小红」涉及领取门槛（1 级 vs 保留 3 级）与药水数量，仍待用户澄清后再改。
 
 **提交**：已提交（`6f95fa8 [修复]`），含 handlers_npc.py + test_all_messages.py 断言。
+
+## §97 gamedata 目录结构参考文档 docs/GAMEDATA_GUIDE.md（2026-11-17）
+
+**需求**：用户要求整理 gamedata 下各文件作用与关系的参考文档，方便 AI Agent 和人类阅读。
+
+**产出**：`docs/GAMEDATA_GUIDE.md`（纯文档，零代码改动）。结构：30 秒速览 → 目录总览 →
+数据流图 → 文件速查表（每个文件给出加载/消费代码 `文件:行号`）→ **名字连接链**（怪物链/
+物品链/NPC 链/任务链/地图链/技能链，全部是字符串匹配无外键）→ 分组格式详解（CSV 列义/
+脚本引擎/价格链路/掉落语义）→ 未消费文件清单（附 Delphi 原版用途行号）→ 已知缺口 →
+编码/多树/周边工具 → 维护规则清单。与 `docs/GAME_DATA_REFERENCE/`（外部视频实测资料）
+分工不同，已在文档头部互相说明。
+
+**编写时全量 grep 核验出的现状**（已写入文档 §6/§7，**只记录不修复**，修复需另立轮次）：
+- 两栈均未消费：AdminList/GuardList/MakeItem/LineNotice/SabukW/AttackSabukWAll/
+  StartupQuest/沙巴克备份（原版用途考证到 LocalDB.pas:96/216/414/1586、Castle.pas:333/540、
+  svMain.pas:717）；GuildBase 仅 Java 消费（GameWorld.java:363）。
+- 解析了但没消费/没持久化：① quest_params 不在 persist() 存档字段（service.py:742-764）
+  → 任务旗标重登清零；② MapQuest 拾取触发（item_name 列）只有杀怪触发调用点；
+  ③ _save_guild 写 data/pyserver_guilds/*.json 但启动无加载代码 → 行会实为内存态；
+  ④ 沙巴克状态不回写 Sabuk.txt；⑤ StartPoint 只取第一行（原版 g_StartPointList 整表）；
+  ⑥ SAFE/FIGHT 标志无消费；⑦ Monster.csv WalkStep/WalkWait 列未映射；⑧ 主树无
+  QuestDiary（#CALL 子脚本落空，176 树才有）。
+- 关键口径复述：CSV 每次启动重灌（db.py:118）；商店售价=round(Price×1.1)×%N/100
+  （npc_script.py:544）；MiniMap 1-based；MonItems 文件名尾随空格 strip；Magic.csv
+  GM 变体 INSERT OR IGNORE 保留先出现行。
+
+**验证**：纯文档改动，跑离线回归确认基线未受影响：test_pyserver **122 PASS / 0 FAIL**
+（D:/Python310/python.exe，与 §96 数字一致）。
+
+**挂接**：本文「给下一位 agent 的阅读顺序」新增第 8 条指向该文档。
