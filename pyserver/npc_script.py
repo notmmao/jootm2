@@ -428,7 +428,15 @@ class NpcScriptEngine:
         if n == "gender":
             return p.sex == (0 if c.param.lower() == "man" else 1)
         if n == "check":
-            return self._quest_get(p, self._quest_index(c.param)) >= c.int_at("tag")
+            # 原版 QI_CHECK（ObjNpc.pas:670-679）不是数值 >=，而是「零/非零
+            # 匹配」：n := GetQuestMark(param)（只返回 0/1），n=0 时 tag<>0
+            # 判假、n<>0 时 tag=0 判假。即 ``(quest==0) == (tag==0)``。
+            # 旧实现写成 ``quest >= tag``，导致 ``check [N] 0`` 恒真——玛法
+            # 领路人的 @away 因此永远跳回 @next1，5000 金币可无限领。
+            # 全局 214 处 check 的 tag 全是 0/1：tag=1 行为不变（quest>=1
+            # 等价 quest!=0），只修 tag=0 的恒真 bug。
+            q = self._quest_get(p, self._quest_index(c.param))
+            return (q == 0) == (c.int_at("tag") == 0)
         if n == "equal":
             return self._quest_get(p, self._quest_index(c.param)) == c.int_at("tag")
         if n == "large":
