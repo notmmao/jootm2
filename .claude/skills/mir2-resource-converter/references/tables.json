@@ -1,0 +1,1122 @@
+{
+ "_source": "frontend/actor/actorData.mjs（jootm2 仓库），2026-11-17 固化；仓库内可用 --tables 传最新文件重新解析",
+ "HUMANFRAME": 600,
+ "MERCHANTFRAME": 60,
+ "MON_APPEARANCE": 360,
+ "HA": {
+  "stand": {
+   "start": 0,
+   "frame": 4,
+   "skip": 4,
+   "ftime": 200
+  },
+  "walk": {
+   "start": 64,
+   "frame": 6,
+   "skip": 2,
+   "ftime": 90
+  },
+  "run": {
+   "start": 128,
+   "frame": 6,
+   "skip": 2,
+   "ftime": 120
+  },
+  "hit": {
+   "start": 200,
+   "frame": 6,
+   "skip": 2,
+   "ftime": 85
+  },
+  "spell": {
+   "start": 392,
+   "frame": 6,
+   "skip": 2,
+   "ftime": 60
+  },
+  "struck": {
+   "start": 472,
+   "frame": 3,
+   "skip": 5,
+   "ftime": 70
+  },
+  "die": {
+   "start": 536,
+   "frame": 4,
+   "skip": 4,
+   "ftime": 120
+  },
+  "sitdown": {
+   "start": 456,
+   "frame": 2,
+   "skip": 0,
+   "ftime": 300
+  }
+ },
+ "MA": {
+  "MA9": {
+   "stand": {
+    "start": 0,
+    "frame": 1,
+    "skip": 7,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 64,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 120
+   },
+   "attack": {
+    "start": 64,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 64,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 100
+   },
+   "die": {
+    "start": 0,
+    "frame": 1,
+    "skip": 7,
+    "ftime": 140
+   },
+   "death": {
+    "start": 0,
+    "frame": 1,
+    "skip": 7,
+    "ftime": 0
+   }
+  },
+  "MA10": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 64,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 120
+   },
+   "attack": {
+    "start": 128,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 192,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 208,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 140
+   },
+   "death": {
+    "start": 272,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA11": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 140
+   },
+   "death": {
+    "start": 340,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA12": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 64,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 120
+   },
+   "attack": {
+    "start": 128,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 192,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 150
+   },
+   "die": {
+    "start": 208,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 160
+   },
+   "death": {
+    "start": 272,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA13": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 10,
+    "frame": 8,
+    "skip": 2,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 30,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 110,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 130,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 20,
+    "frame": 9,
+    "skip": 0,
+    "ftime": 150
+   }
+  },
+  "MA14": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 340,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 100
+   }
+  },
+  "MA15": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 1,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 100
+   }
+  },
+  "MA16": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 160
+   },
+   "death": {
+    "start": 0,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 160
+   }
+  },
+  "MA17": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 60
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 100
+   },
+   "death": {
+    "start": 340,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 140
+   }
+  },
+  "MA19": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 140
+   },
+   "death": {
+    "start": 340,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 140
+   }
+  },
+  "MA20": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 100
+   },
+   "death": {
+    "start": 340,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 170
+   }
+  },
+  "MA21": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "attack": {
+    "start": 10,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 20,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 30,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 160
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA22": {
+   "stand": {
+    "start": 80,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 240,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 320,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 340,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 160
+   },
+   "death": {
+    "start": 0,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 170
+   }
+  },
+  "MA23": {
+   "stand": {
+    "start": 20,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 100,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 180,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 260,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 280,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 160
+   },
+   "death": {
+    "start": 0,
+    "frame": 20,
+    "skip": 0,
+    "ftime": 100
+   }
+  },
+  "MA24": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 320,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 340,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 140
+   },
+   "death": {
+    "start": 420,
+    "frame": 1,
+    "skip": 0,
+    "ftime": 140
+   }
+  },
+  "MA25": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 70,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 20,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 50,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 60,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "death": {
+    "start": 80,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA26": {
+   "stand": {
+    "start": 0,
+    "frame": 1,
+    "skip": 7,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 56,
+    "frame": 6,
+    "skip": 2,
+    "ftime": 500
+   },
+   "struck": {
+    "start": 0,
+    "frame": 4,
+    "skip": 4,
+    "ftime": 100
+   },
+   "die": {
+    "start": 24,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 150
+   }
+  },
+  "MA27": {
+   "stand": {
+    "start": 0,
+    "frame": 1,
+    "skip": 7,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 250
+   },
+   "struck": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 150
+   }
+  },
+  "MA28": {
+   "stand": {
+    "start": 80,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 0,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 100
+   }
+  },
+  "MA29": {
+   "stand": {
+    "start": 80,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 160
+   },
+   "attack": {
+    "start": 240,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 100
+   },
+   "struck": {
+    "start": 320,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 340,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 120
+   },
+   "death": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 100
+   }
+  },
+  "MA30": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 10,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 20,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 30,
+    "frame": 20,
+    "skip": 0,
+    "ftime": 150
+   },
+   "death": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA31": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 10,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 0,
+    "frame": 2,
+    "skip": 8,
+    "ftime": 100
+   },
+   "die": {
+    "start": 20,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "death": {
+    "start": 0,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA32": {
+   "stand": {
+    "start": 0,
+    "frame": 1,
+    "skip": 9,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 0,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 0,
+    "frame": 2,
+    "skip": 8,
+    "ftime": 100
+   },
+   "die": {
+    "start": 80,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 80
+   },
+   "death": {
+    "start": 80,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA33": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 240,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   },
+   "death": {
+    "start": 260,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA34": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 80,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 200
+   },
+   "attack": {
+    "start": 160,
+    "frame": 6,
+    "skip": 4,
+    "ftime": 120
+   },
+   "struck": {
+    "start": 400,
+    "frame": 2,
+    "skip": 0,
+    "ftime": 100
+   },
+   "die": {
+    "start": 420,
+    "frame": 20,
+    "skip": 0,
+    "ftime": 200
+   },
+   "death": {
+    "start": 420,
+    "frame": 20,
+    "skip": 0,
+    "ftime": 200
+   }
+  },
+  "MA50": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "attack": {
+    "start": 30,
+    "frame": 10,
+    "skip": 0,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 0,
+    "frame": 1,
+    "skip": 9,
+    "ftime": 0
+   },
+   "die": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA51": {
+   "stand": {
+    "start": 0,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "attack": {
+    "start": 30,
+    "frame": 20,
+    "skip": 0,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 0,
+    "frame": 1,
+    "skip": 9,
+    "ftime": 0
+   },
+   "die": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   }
+  },
+  "MA52": {
+   "stand": {
+    "start": 30,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 200
+   },
+   "walk": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "attack": {
+    "start": 30,
+    "frame": 4,
+    "skip": 6,
+    "ftime": 150
+   },
+   "struck": {
+    "start": 0,
+    "frame": 1,
+    "skip": 9,
+    "ftime": 0
+   },
+   "die": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   },
+   "death": {
+    "start": 0,
+    "frame": 0,
+    "skip": 0,
+    "ftime": 0
+   }
+  }
+ }
+}
