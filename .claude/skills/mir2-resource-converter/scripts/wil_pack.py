@@ -5,14 +5,14 @@
 并可生成自包含 HTML 预览（按帧号契约播放动画、可视化 px/py 锚点）用于打包验证。
 
 格式依据（全部实测核验过，勿凭记忆改动，详见 ../references/format-spec.md）：
-- 解码语义        对应 jootm2 仓库 frontend/gfx/wil.mjs（WIX u32@44=帧数、
-                  偏移 u32@48 起、<1080 视为空图；图头 u16 w/u16 h/i16 px/i16 py；
-                  8 位索引色 / 16 位 RGB565；行序自底向上；行 4 字节对齐与否由
-                  「字节数」自动判定）
-- 调色板          references/palette.json（源自 frontend/gfx/palette.mjs 的
-                  256 色 RGBA 表，index 0 = 透明，其余 alpha=255）
-- 帧号契约        references/tables.json（源自 frontend/actor/actorData.mjs 的
-                  HA/MA 动作表与常量；仓库内有更新时可用 --tables 重新解析）
+- 解码语义        对应 ../references/upstream/wil.mjs（Mir2 前端解码器快照：
+                  WIX u32@44=帧数、偏移 u32@48 起、<1080 视为空图；
+                  图头 u16 w/u16 h/i16 px/i16 py；8 位索引色 / 16 位 RGB565；
+                  行序自底向上；行 4 字节对齐与否由「字节数」自动判定）
+- 调色板          references/palette.json（256 色 RGBA 表，index 0 = 透明，
+                  其余 alpha=255；快照源码 upstream/palette.mjs）
+- 帧号契约        references/tables.json（HA/MA 动作表与常量；快照源码
+                  upstream/actorData.mjs，更新时可用 --tables 重新解析）
 
 子命令：
   info    <lib>                          图库概览
@@ -58,7 +58,7 @@ def load_palette() -> bytes:
 
 
 class WilReader:
-    """WIL/WIX 只读解码（与 jootm2 frontend/gfx/wil.mjs 语义一致，供 dump/preview/verify）。"""
+    """WIL/WIX 只读解码（与上游快照 upstream/wil.mjs 语义一致，供 dump/preview/verify）。"""
 
     def __init__(self, wil_path: Path):
         wix = next((c for c in (wil_path.with_suffix('.WIX'), wil_path.with_suffix('.wix'))
@@ -152,7 +152,7 @@ class Seg:
 
 def _parse_tables(path: Path | None = None) -> tuple[dict[str, Seg], dict[str, dict[str, Seg]]]:
     """HA/MA 动作表：缺省读 references/tables.json（固化快照）；
-    传入 path（actorData.mjs）时实时解析——jootm2 仓库里动作表更新后用它保持新鲜。"""
+    传入 path（actorData.mjs）时实时解析——上游动作表更新后用它保持新鲜。"""
     if path is None:
         doc = json.loads((SKILL_DIR / 'references' / 'tables.json').read_text(encoding='utf-8'))
     else:
@@ -185,7 +185,7 @@ def _parse_tables(path: Path | None = None) -> tuple[dict[str, Seg], dict[str, d
 
 HA_TABLES, MA_TABLES = _parse_tables()
 
-# getMonOffset 的 Python 复刻（jootm2 frontend/actor/actorData.mjs getMonOffset，
+# getMonOffset 的 Python 复刻（上游快照 upstream/actorData.mjs 的 getMonOffset，
 # 原版 GetMonImg/GetOffset 逻辑，勿改）；改动必须先改源头再同步这里。
 def mon_lib_and_offset(appr: int) -> tuple[str, int]:
     """外观 appr → (图库 key, 外观帧偏移)。"""

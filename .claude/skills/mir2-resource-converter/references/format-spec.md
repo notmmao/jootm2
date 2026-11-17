@@ -1,10 +1,10 @@
 # WIL/WIX 图库格式与精灵帧号契约（规范全文）
 
-> 本文件是 mir2-resource-converter skill 的自包含规范，实证来源：jootm2 仓库
-> `frontend/gfx/wil.mjs`（前端解码器，2026-11-17 @ 28c1477 前后）、原版 Delphi 客户端
+> 本文件是 mir2-resource-converter skill 的自包含规范，实证来源：Mir2 前端解码器
+> （逐字快照见 `upstream/wil.mjs`，快照时间 2026-11-17）、原版 Delphi 客户端
 > `MirClient/Actor.pas`、对 58 个原版 WIL 库的逐字节探测。 skill 内的
 > `scripts/wil_pack.py`、`references/palette.json`、`references/tables.json`
-> 均以本文为准；在 jootm2 仓库内工作时，仓库源文件是更上位的对照基准。
+> 均以本文为准。
 
 ## 1. 文件配对
 
@@ -37,7 +37,7 @@
 | 56 | 256×4B | 内嵌调色板，每项字节序 **B, G, R, 0**（= COLORREF 0x00RRGGBB 的小端存储） |
 
 **关键**：前端解码器**不读** WIL 内嵌调色板，统一使用代码内硬编码的 256 色 RGBA 表
-（skill 打包为 `references/palette.json`，源自 jootm2 `frontend/gfx/palette.mjs`）。
+（skill 打包为 `references/palette.json`，快照源码见 `upstream/palette.mjs`）。
 转换时必须把颜色量化到这张表；`wil_pack.py` 写头时会按 COLORREF 格式回写一份
 内嵌调色板（仅为兼容其他第三方工具，游戏不消费）。
 
@@ -74,8 +74,8 @@
 ```
 
 - 实体锚点 = 实体所在格的**左上角**屏幕坐标。原版 Delphi `Actor.pas` 的
-  `DrawChr`（`dx + m_nPx + m_nShiftX`，Actor.pas:2089 附近）与 jootm2 前端
-  `PlayScene.mjs:1293`（`anchorX + layer.px`）语义一致，都是**相加**。
+  `DrawChr`（`dx + m_nPx + m_nShiftX`，Actor.pas:2089 附近）与 Mir2 前端
+  （快照 `upstream/wil.mjs` 的消费方）语义一致，都是**相加**。
 - px/py 是逐帧有符号数，原版美术数据**并不统一**（例：Hum 帧 0，60×71，px=8 py=-48）。
 - 新素材缺省约定（`wil_pack.py` 默认）：角色/怪物/NPC「水平居中、脚踩格底」=
   `px = (48−w)//2, py = 32−h`；plain（物品/UI/地面）= (0,0)。
@@ -102,8 +102,8 @@ cf = 段.start + dir × (段.frame + 段.skip) + k        （k = 0..段.frame−
 
 即每个动作先按 8 个方向分块（块大小 = frame + skip），块内连续 frame 帧；
 skip 是方向块间的空隙（常被 4×1 占位帧填充）。动作段数据（HA/MA 全表）见
-skill 内 `references/tables.json`；在 jootm2 仓库内则以后端源码
-`frontend/actor/actorData.mjs` 为权威（`wil_pack.py --tables` 可实时解析）。
+skill 内 `references/tables.json`（快照源码 `upstream/actorData.mjs`，
+`wil_pack.py --tables` 可传 actorData.mjs 实时解析）。
 
 ### 5.1 人物（hum / hair / weapon 三层，每外观 600 帧）
 
@@ -124,7 +124,7 @@ HA 动作表：
 - 头发层：`hair 库索引 = 600 × (hair×2 + sex) + cf`；hair 先钳到 0..2，仅 >0 才画。
   hair 库共 3600 帧 = 3 发型 × 2 性别 × 600。
 - 武器层：`weapon 库索引 = 600 × weapon + cf`；weapon≥2 才画；武器与身体的前后
-  遮挡关系由 WORDER 表按 cf 逐帧决定（jootm2 `ActorSprite.mjs` 的 `WORDER[sex, cf]`）。
+  遮挡关系由 WORDER 表按 cf 逐帧决定（见 `upstream/actorData.mjs` 的 `WORDER[sex, cf]`）。
 - 一个新衣服外观 = 一整段 600 帧槽位（八个动作全做，缺动作段则该动画为空）。
 
 ### 5.2 怪物（mon1~mon23，多数外观槽位 360 帧）
@@ -146,12 +146,28 @@ HA 动作表：
 - 偏移：`60 × appr`（appr ≤ 22）；appr 23 → 1380；appr ≥ 24 → `1470 + 60×(appr−24)`。
 - 动作段 = MA50（stand 4 帧 / attack 10 帧 / struck 1 帧）。
 
-### 5.4 其他库（索引直取，无方向块结构）
+### 5.4 地图库（tiles / smtiles / objects：索引来自 .map 文件）
 
-- `tiles`（96×64 大地砖）/ `smtiles` / `objects`：索引来自 `.map` 地图文件解析
-  （列优先、0x8000 阻挡位、大地砖仅存于偶数格角点且索引+1、物件索引+1）。
-  地图格式以 jootm2 `frontend/map/Maps.mjs` / `MapActor.mjs` 与
-  `pyserver/gamedata.py` 的实现为准，不要凭猜。
+`.map` 格式：52 字节头 + 瓦片格，**列优先**（`i = x*height + y`），tile 步长有
+12/14 字节两种变体（14 字节的多两字节是 tiles/smtiles 分文件号），部分图带尾块。
+每格字段（小端 i16，前三个必有）：
+
+```
+bng   大地砖值：& 0x7FFF 为索引（0 = 无图，>0 时实际帧号 = 值−1）；
+      0x8000 位 = 阻挡
+mid   小地砖值：同上（0x8000 也参与阻挡）
+obj   物件值：同上；0x8000 位 = 高墙（阻挡飞行/视线）
+objFile   i8：0 → Objects.wil，n>0 → Objects(n+1).wil
+bngFile   i8（仅 14 字节变体）：0 → Tiles.wil，n>0 → Tiles(n+1).wil
+midFile   i8（仅 14 字节变体）：0 → SmTiles.wil，n>0 → SmTiles(n+1).wil
+```
+
+消费规则：**大地砖只在偶数格角点（x%2==0 且 y%2==0）取图**，一张 tiles 图
+96×64 覆盖 2×2 格；小地砖 48×32 每格一张；物件按行遮挡叠放（多帧物件连续占
+obj、obj+1…）。手工写 .map 时注意步长变体与列优先顺序，弄错会整图错位。
+
+### 5.5 其余索引直取的库
+
 - `items`：物品 `looks` 字段即 Items.wil 索引；`stateitem` 是装备栏 UI 图。
 - `magic / magic2~5`：特效帧基址按技能 EffectNumber 计算（原版 GetEffectBase），
   新增特效前必须对照原版客户端调用点，**不要按顺序堆帧**。
@@ -161,3 +177,29 @@ HA 动作表：
 原版 WIL 里帧与帧之间偶有未引用的死字节（合并工具留下的空隙）。解码端按
 WIX 偏移跳读，不依赖连续性；merge 搬运会丢弃这些 gap（无损，因为 gap 不被任何
 帧引用）。
+
+## 7. 精灵绘制层与特殊逻辑（替换这些精灵的美术前必读）
+
+以下逻辑是**消费端约定**（对应上游快照 `upstream/actorData.mjs` / `upstream/wil.mjs`，
+原版 Delphi 客户端 Actor.pas/AxeMon.pas 同源），排帧时必须遵守：
+
+- **尸体静止帧**（死亡动画播完后的定格）：普通尸体 = die 段末帧
+  `die.start + dir×(frame+skip) + (frame−1)`（带方向）；骷髅 = death 段 start
+  （**不带方向**，骨架只有一张）。给 die/death 段排帧时别把「末帧」位置挪作他用。
+- **出土（digup）与复活（alive）**：正向播放 death 段（按方向取块），播完回 stand。
+  death 段因此要做成「可正向播的起身/钻地帧」，不是纯静态。
+- **稻草人族（raceImg 18）**：die 动画期间在身体之上**叠一层死亡火焰**
+  （mon3 库固定帧号 2860 + 相对帧，加色 blend）；且它的 death 段与该火焰帧号区
+  重合——即 death 段内容实际是火焰特效帧，不是尸体姿势。
+- **NPC 占位外观**：npc 库里 appr ∈ {24,25,26,28,33,36..47,51..60} 是 4×1 占位图
+  （缺资源），消费端回退到 appr=0 外观。往 npc 库补帧前先确认这些槽位是否已由
+  后续版本占用。
+- **人物层顺序与遮挡**：身体（hum）、头发（hair）、武器（weapon）三层；
+  每帧的武器前后关系由 WORDER[sex][cf] 决定（cf 为 hum 库内 0..599 相对帧）——
+  同一把武器在站立帧画在身后、挥砍帧画在身前，靠这张 600 字符的 0/1 表逐帧控制。
+  weapon≥2 才画武器层，hair>0 才画头发层（建角协议发 1..5，消费端钳到 0..2）。
+- **挖肉（sitdown）**：skip=0，每方向只有 2 帧（不是 8 帧网格）。
+- **占位帧**：4×1（h==1）帧在消费端等于「空」，可用来填方向块之间的跳帧位；
+  新素材不想做某动作时，对应区间放占位帧比留纯空洞更接近原版习惯。
+- **魔法/武器特效不在 body 库里**：挥砍光效、施法特效走独立库（Magic/Effect 等），
+  帧基址按技能/动作查表，body 层只画本体——排 hum/mon 帧时不要把特效画进身体帧。
