@@ -484,8 +484,9 @@ export class PlayScene extends Scene {
             { x: 249, icon: 132, tip: '交易', action: () => this.tradePartyUI && this.tradePartyUI.promptTrade() },
             { x: 279, icon: 134, tip: '行会', action: () => this._log('行会功能未开放。') },
             { x: 309, icon: 128, tip: '编组', action: () => this.tradePartyUI && this.tradePartyUI.toggleParty() },
+            { x: 339, icon: 142, tip: '在线玩家', action: () => this.tradePartyUI && this.tradePartyUI.toggleOnlineList() },
             // 属性加点：原版只有「有可分配点数」时才显示（且会闪烁），当前没有属性点系统 → 默认隐藏
-            { x: 339, icon: 140, tip: '属性加点', hidden: true, action: () => this._log('暂无可分配点数。') },
+            { x: 369, icon: 140, tip: '属性加点', hidden: true, action: () => this._log('暂无可分配点数。') },
             { x: 530, icon: 136, tip: '退出角色', action: () => this._backToSelect() },
             { x: 560, icon: 138, tip: '退出游戏', action: () => this._logout() },
         ];
@@ -1163,6 +1164,17 @@ export class PlayScene extends Scene {
             }
         }
 
+        // Ctrl + 右键点玩家 = 查看他人装备（原版 ClMain.pas:2476-2489 →
+        // CM_QUERYUSERSTATE → SM_SENDUSERSTATE → DUserState1 窗）。必须在右键「跑」
+        // 分支之前拦截；只有活着的玩家（Race=0 且非死亡）才发。
+        if (e.button === 2 && e.ctrlKey) {
+            const target = this._actorAtScreen(mx, my, 'player');
+            if (target && target.id !== this.self.id && !target.dead) {
+                this.conn.send('queryUserState', { id: target.id });
+                return;
+            }
+        }
+
         // 贴图区域判定（原版 GetAttackFocusCharacter）：仅左键触发怪物攻击/NPC 对话/玩家攻击/拾取；
         // 右键只用于「跑」，点 NPC/怪不对话不攻击
         if (e.button === 0) {
@@ -1777,10 +1789,26 @@ export class PlayScene extends Scene {
                 this._spawnFx({ kind: 'hit', fx, x: msg.x, y: msg.y });
                 break;
             }
-            case 'chat':
+            case 'chat': {
                 // 聊天板是白色底（底板自带），普通聊天用黑色字
                 this._log(`${msg.name}: ${msg.text}`, '#000000');
+                // 头顶气泡（原版 SM_HEAR 同时写聊天板 + actor.Say 头顶，ClMain.pas:4588-4594）：
+                // 数据挂在实体上，随每帧 snap 传给 MapActor 绘制，4 秒后自动消失。
+                const speaker = (msg.id != null && msg.id === (this.self && this.self.id))
+                    ? this.self : this.entities.get(msg.id);
+                if (speaker) {
+                    speaker._sayText = msg.text || '';
+                    speaker._sayUntil = Date.now() + 4000;
+                }
                 break;
+            }
+            case 'whisper': {
+                // 原版 SM_WHISPER(103)：客户端只写聊天板、不弹头顶气泡（ClMain.pas:4576-4586）。
+                // 颜色用调色板前景 252（MakeWord(252,255)，ObjBase.pas:12793）——近似为粉紫色。
+                const from = msg.incoming ? msg.fromName : `你=>${msg.toName}`;
+                this._log(`[密语] ${from}: ${msg.text}`, '#a020d0');
+                break;
+            }
             case 'autopilotState':
                 // 服务端权威状态：开启/暂停/停止/击杀数/策略档都由这一条同步
                 this._onAutoState(msg);
@@ -4119,6 +4147,8 @@ export class PlayScene extends Scene {
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
                 nameColor: e.nameColor,               // 服务端下发的调色板索引（玩家关系色/分类色/宠物等级色）
                 masterId: e.masterId,                 // 区分宝宝（增强模式血条绿描边用）
+                // 头顶说话气泡（原版 TActor.Say，DrawScrn.pas:331-352）：4 秒内显示
+                say: (e._sayUntil && now < e._sayUntil) ? e._sayText : null,
                 // 原版 m_nLight / m_nChrLight（ObjBase.pas:3387、SM_LOGON 的
                 // Hibyte(cdir)）：服务端按 U_RIGHTHAND 蜡烛/火把下发 3，否则 1；
                 // NPC 是 TNormNpc.m_nLight=2。供 m_LightMap 收集多光源。

@@ -413,6 +413,107 @@ export class TradePartyUI {
         }
     }
 
+    // ------------------------------------------------------------ 在线列表
+
+    /** 在线玩家名单：原版无此功能，本项目新增（名字/等级/职业/地图）。 */
+    toggleOnlineList() {
+        if (this._onlineWin && this._onlineWin.isConnected) {
+            this._onlineWin.remove(); this._onlineWin = null;
+            return;
+        }
+        const win = this._window('在线玩家', 250, 100, 300, 340, 385,
+            () => { this._onlineWin = null; });
+        this._onlineWin = win;
+        const tip = document.createElement('div');
+        tip.style.cssText = 'position:absolute;left:10px;top:28px;width:280px;'
+            + 'font-size:11px;color:#9fb08a;';
+        tip.textContent = '名字 / 等级 / 职业 / 所在地图';
+        win.appendChild(tip);
+        const list = document.createElement('div');
+        list.style.cssText = 'position:absolute;left:10px;top:46px;width:280px;height:284px;'
+            + 'overflow:auto;background:rgba(0,0,0,.25);border:1px solid #4a3f28;';
+        win.appendChild(list);
+        this._onlineListEl = list;
+        this._send('onlineList');   // 请求最新名单（收到 onlineList 消息后渲染）
+    }
+
+    _renderOnlineList(msg) {
+        if (!this._onlineWin || !this._onlineWin.isConnected) this.toggleOnlineList();
+        const list = this._onlineListEl;
+        if (!list) return;
+        list.innerHTML = '';
+        const players = msg.players || [];
+        if (!players.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding:10px;font-size:12px;color:#9fb08a;';
+            empty.textContent = '当前没有在线玩家。';
+            list.appendChild(empty);
+            return;
+        }
+        const JOBS = ['战士', '法师', '道士'];
+        for (const pl of players) {
+            const row = document.createElement('div');
+            row.style.cssText = 'height:22px;line-height:22px;padding:0 6px;font-size:12px;'
+                + 'border-bottom:1px solid #3a3120;color:#e8d9b0;cursor:default;';
+            row.textContent = `${pl.name}  Lv.${pl.level}  ${JOBS[pl.job] || '?'}  @ ${pl.map || '?'}`;
+            row.title = `${pl.name} — ${pl.map || '未知地图'}`;
+            list.appendChild(row);
+        }
+    }
+
+    // ------------------------------------------------------------ 查看他人装备
+
+    // 13 槽装备坐标（原版 U_DRESS..U_CHARM，复用 FState.pas DSWxxx 布局；
+    // 与 PlayScene 的 EQUIP_SLOTS 同口径，这里独立定义避免跨模块耦合）。
+    _inspectSlots() {
+        return [
+            [0, 96, 58, '衣服'], [1, 47, 16, '武器'], [2, 168, 61, '右手'],
+            [3, 168, 23, '项链'], [4, 115, 29, '头盔'], [5, 168, 112, '手镯L'],
+            [6, 42, 112, '手镯R'], [7, 168, 151, '戒指L'], [8, 42, 151, '戒指R'],
+            [9, 42, 190, '护身符'], [10, 84, 190, '腰带'], [11, 126, 190, '靴子'],
+            [12, 168, 190, '宝石'],
+        ];
+    }
+
+    /** Ctrl+右键玩家后收到 userState 快照，弹独立装备窗（原版 DUserState1）。 */
+    _showUserState(msg) {
+        if (this._inspectWin) this._inspectWin.remove();
+        const win = this._window(`${msg.name || '玩家'} 的装备`, 470, 110, 232, 300, 207,
+            () => { this._inspectWin = null; });
+        this._inspectWin = win;
+        const head = document.createElement('div');
+        head.style.cssText = 'position:absolute;left:12px;top:26px;width:208px;'
+            + 'text-align:center;font-size:12px;color:#ffd76a;';
+        const JOBS = ['战士', '法师', '道士'];
+        head.textContent = `${msg.name || '?'}  Lv.${msg.level || '?'}  ${JOBS[msg.job] || ''}`;
+        win.appendChild(head);
+        const bySlot = {};
+        for (const it of (msg.items || [])) {
+            if (it.slot != null) bySlot[it.slot] = it;
+        }
+        for (const [slot, x, y, label] of this._inspectSlots()) {
+            const cell = document.createElement('div');
+            cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:34px;height:31px;`
+                + 'box-sizing:border-box;border:1px solid #6b5636;background:rgba(0,0,0,.35);'
+                + 'display:grid;place-items:center;overflow:hidden;';
+            const it = bySlot[slot];
+            if (it) {
+                cell.title = `${label}：${it.name}`;
+                this.libUrl('stateitem', it.looks).then((url) => {
+                    if (url && cell.isConnected) {
+                        const im = document.createElement('img');
+                        im.src = url; im.draggable = false;
+                        im.style.cssText = 'max-width:32px;max-height:29px;';
+                        cell.appendChild(im);
+                    }
+                });
+            } else {
+                cell.title = label;
+            }
+            win.appendChild(cell);
+        }
+    }
+
     // ------------------------------------------------------------ 消息入口
 
     handleMessage(type, msg) {
@@ -444,6 +545,12 @@ export class TradePartyUI {
             case 'partyChat':
                 this.onLog(`[队伍] ${msg.name}: ${msg.text}`, '#9fe08a');
                 break;
+            case 'onlineList':
+                this._renderOnlineList(msg);
+                break;
+            case 'userState':
+                this._showUserState(msg);
+                break;
             default:
                 break;
         }
@@ -457,6 +564,9 @@ export class TradePartyUI {
         this._inviteWin = null;
         this._partyInviteWin = null;
         this._goldDlg = null;
+        this._onlineWin = null;
+        this._onlineListEl = null;
+        this._inspectWin = null;
         this.trade = null;
         this.party = null;
     }

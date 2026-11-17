@@ -1394,5 +1394,52 @@ export class MapActor {
             ctx.fillStyle = nameFill;
             ctx.fillText(e.name, nx, ny);
         }
+
+        // 头顶说话气泡（原版 DrawScrn.pas:331-352 / Actor.pas:2365-2420 TActor.Say）：
+        // 白字 + 黑描边（BoldTextOut(..., clWhite, clBlack, ...)），死亡灰字；
+        // 最多 5 行（MAXSAY=5）、行距 14px、单行最大宽 150px（MAXWIDTH），
+        // 显示在名字上方；SayTime 4 秒内有效，超时清掉。无贴图框、无尾巴。
+        if (e.say) {
+            const lines = this._wrapSay(e.say, 150);
+            const baseY = anchorY - 71 - 16;   // 名字(ny=-71)再往上 16px 起
+            ctx.font = '12px SimSun,serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            for (let i = 0; i < lines.length; i++) {
+                const ly = baseY - (lines.length - 1 - i) * 14;
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#000';
+                ctx.strokeText(lines[i], anchorX + TILE_W / 2, ly);
+                ctx.fillStyle = dead ? '#9a9a9a' : '#ffffff';
+                ctx.fillText(lines[i], anchorX + TILE_W / 2, ly);
+            }
+            ctx.textBaseline = 'alphabetic';   // 复原，避免影响后续绘制
+        }
     }
+
+    /** 把一句话按最大宽度折成最多 5 行（超长末尾截略，对齐原版 MAXSAY）。 */
+    _wrapSay(text, maxWidth) {
+        const chars = [...String(text)];
+        const lines = [];
+        let cur = '';
+        for (const ch of chars) {
+            const next = cur + ch;
+            if (ctxWidth(next) > maxWidth && cur) {
+                lines.push(cur);
+                cur = ch;
+                if (lines.length === 5) break;
+            } else {
+                cur = next;
+            }
+        }
+        if (lines.length < 5 && cur) lines.push(cur);
+        return lines;
+    }
+}
+
+/** 中文字符宽度按 12px 全角估算（气泡折行只求近似，原版用 TextWidth）。 */
+function ctxWidth(s) {
+    let w = 0;
+    for (const ch of s) w += /[\u2e80-\uffff]/.test(ch) ? 12 : 6;
+    return w;
 }
