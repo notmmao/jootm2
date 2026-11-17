@@ -161,11 +161,21 @@ def main() -> int:
                 ]})
             page.wait_for_timeout(180)
             body = page.evaluate("document.body.innerText")
-            check("装备窗标题显示对方名", "富有的玩家" in body and "的装备" in body)
+            # 原版 DUserState1：名字居中在窗口顶部（不再有自造的「XX 的装备」标题栏）
+            check("装备窗顶部显示对方名", "富有的玩家" in body)
             check("等级/职业显示", "Lv.33" in body and "战士" in body)
             check("13 槽物品 tooltip", page.evaluate("""() => {
                 const ts = [...document.querySelectorAll('[title]')].map(e => e.title);
                 return ['布衣','裁决之杖','力量戒指'].every(n => ts.some(t => t && t.includes(n)));
+            }"""))
+            # 原版保真：人物半身像 + 装备穿身上 + DSW 槽位 + 关闭键，而不是自造方格列表
+            check("原版 DUserState1 布局", page.evaluate("""() => {
+                const sc = window.__sceneManager.current;
+                const w = sc.tradePartyUI._inspectWin;
+                if (!w || w.style.left !== '568px') return false;
+                // 人物半身像 @ (38,52)；13 槽用 DSW 坐标（戒指L 168,215 / 护身符 42,254）
+                const pos = [...w.children].map(e => e.style.left + ',' + e.style.top);
+                return ['38px,52px', '168px,215px', '42px,254px', '8px,39px'].every(p => pos.includes(p));
             }"""))
 
             print("\n[5] Ctrl+右键玩家发 queryUserState")

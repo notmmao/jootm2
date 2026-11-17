@@ -123,20 +123,25 @@ def main() -> int:
                 page.wait_for_timeout(80)
                 check(f"第{i+1}次点×后关闭", win_count("在线玩家") == 0)
 
-            print("\n[3] 查看装备窗：点×也能关闭")
+            print("\n[3] 查看装备窗：点原版关闭键也能关闭")
             page.evaluate("""() => window.__sceneManager.current.onMessage('userState', {
                 type:'userState', id:88, name:'路人', level:20, job:0, sex:0, hair:2,
                 dress:0, weapon:0, items:[]})""")
-            page.wait_for_timeout(120)
-            check("装备窗打开", win_count("路人 的装备") == 1, f"数量 {win_count('路人 的装备')}")
+            page.wait_for_timeout(150)
+            check("装备窗打开", page.evaluate("""() =>
+                !!window.__sceneManager.current.tradePartyUI._inspectWin &&
+                window.__sceneManager.current.tradePartyUI._inspectWin.textContent.includes('路人')"""))
+            # 原版 DUserState1 关闭键是 Prguse[371] 图片按钮 @ (8,39)，无文字 ×
             page.evaluate("""() => {
-                const dlg = [...document.querySelectorAll('div')].find(d =>
-                    d.style.zIndex === '30' && d.textContent.includes('的装备'));
-                const x = [...dlg.querySelectorAll('div')].find(d => d.textContent === '×');
-                x.click();
+                const w = window.__sceneManager.current.tradePartyUI._inspectWin;
+                const close = [...w.children].find(d => d.style.left === '8px' && d.style.top === '39px');
+                close.click();
             }""")
             page.wait_for_timeout(120)
-            check("点×后装备窗 DOM 消失", win_count("路人 的装备") == 0)
+            check("点关闭键后装备窗 DOM 消失", page.evaluate("""() =>
+                !window.__sceneManager.current.tradePartyUI._inspectWin &&
+                ![...document.querySelectorAll('div')].some(d =>
+                    d.style.zIndex === '30' && d.textContent.includes('路人'))"""))
             check("无页面 JS 异常", not errors, "; ".join(errors[:2]))
             browser.close()
     finally:
