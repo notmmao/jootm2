@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--web", dest="web", help="frontend 根目录")
     ap.add_argument("--resources", help="客户端资源根目录（Data/Map/Wav）")
     ap.add_argument("--website", help="数据库静态站点根目录（默认 data/website，挂载在 /site）")
+    ap.add_argument("--website-redirect", dest="website_redirect",
+                    help="/site 跳转目标（默认 list2；传空字符串则本地静态服务）")
     ap.add_argument("--tick-ms", dest="tick_ms", type=int, help="游戏 tick 间隔（毫秒）")
     ap.add_argument("--no-resource-index", action="store_true",
                     help="启动时不重新生成 resources.json")

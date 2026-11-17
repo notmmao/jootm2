@@ -311,6 +311,45 @@ def test_http_ws_helpers() -> None:
         check("/site 不存在的页面 -> 404", esc.status == 404)
         trav = Server.handle_http(stub, Request("GET", "/site/../a.json", {}, {}, b""))
         check("/site 前缀阻止 .. 穿越", trav.status == 404)
+        # /site 跳转：配置 website_redirect 时 302 到 list2，路径/query 透传
+        stub.config = type("C", (), {
+            "resources_root": root, "resources_prefix": "/resources",
+            "website_root": site, "website_prefix": "/site", "web_root": root,
+            "website_redirect": "https://list.notmmao.com/mir2-wiki/",
+            "website_redirect_enabled": True,
+        })()
+        jump_root = Server.handle_http(stub, Request("GET", "/site", {}, {}, b""))
+        check("/site 裸路径 302 跳转", jump_root.status == 302
+              and jump_root.headers.get("Location") == "https://list.notmmao.com/mir2-wiki/"
+              and "no-cache" in jump_root.headers.get("Cache-Control", ""))
+        jump_map = Server.handle_http(stub, Request("GET", "/site/maps.html", {}, {}, b""))
+        check("/site 子路径透传", jump_map.status == 302
+              and jump_map.headers.get("Location") ==
+              "https://list.notmmao.com/mir2-wiki/maps.html")
+        jump_cn = Server.handle_http(stub, Request("GET", "/site/mon/虹魔教主.html", {}, {}, b""))
+        check("/site 中文路径 URL 编码", jump_cn.status == 302
+              and jump_cn.headers.get("Location", "").endswith("/mon/%E8%99%B9%E9%AD%94%E6%95%99%E4%B8%BB.html"))
+        jump_q = Server.handle_http(stub, Request("GET", "/site/items.html",
+                                                  {"q": "木剑", "c": "2"}, {}, b""))
+        check("/site query 透传", jump_q.status == 302
+              and "q=%E6%9C%A8%E5%89%91" in jump_q.headers.get("Location", "")
+              and "c=2" in jump_q.headers.get("Location", ""))
+        jump_head = Server.handle_http(stub, Request("HEAD", "/site/maps.html", {}, {}, b""))
+        check("/site HEAD 跳转无 body", jump_head.status == 302 and not jump_head.body)
+
+        # 跳转关闭（空串）时回退到本地静态服务
+        stub.config = type("C", (), {
+            "resources_root": root, "resources_prefix": "/resources",
+            "website_root": site, "website_prefix": "/site", "web_root": root,
+            "website_redirect": "", "website_redirect_enabled": False,
+        })()
+        back = Server.handle_http(stub, Request("GET", "/site/", {}, {}, b""))
+        check("/site 关闭跳回退本地", back.status == 200
+              and "text/html" in back.headers.get("Content-Type", ""))
+
+        stub.config = type("C", (), {
+            "resources_root": root, "website_root": site, "website_prefix": "/site",
+        })()
         ver1 = Server.asset_version(stub)
         (root / "b.wil").write_bytes(b"x" * 32)
         stub._asset_ver = ("", 0.0)

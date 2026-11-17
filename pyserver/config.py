@@ -24,6 +24,8 @@ DEFAULTS: dict[str, str] = {
     "resources.root": "resources",
     "resources.prefix": "/resources",
     "website.root": "data/website",
+    # /site 访问跳转到 list2（Vercel CDN）。设为空字符串则回退到本地静态服务。
+    "website.redirect": "https://list.notmmao.com/mir2-wiki/",
     "gamedata.root": "gamedata",
     "world.width": "200",
     "world.height": "200",
@@ -38,6 +40,7 @@ _ENV_KEYS = {
     "web": "JOOTM2_WEB_ROOT",
     "resources": "JOOTM2_RESOURCES",
     "website": "JOOTM2_WEBSITE",
+    "website_redirect": "JOOTM2_WEBSITE_REDIRECT",
     "gamedata": "JOOTM2_GAMEDATA",
     "root": "JOOTM2_ROOT",
 }
@@ -55,6 +58,7 @@ class ServerConfig:
     resources_root: Path = PROJECT_ROOT / "resources"
     resources_prefix: str = "/resources"
     website_root: Path = PROJECT_ROOT / "data" / "website"
+    website_redirect: str = "https://list.notmmao.com/mir2-wiki/"
     gamedata_root: Path = PROJECT_ROOT / "gamedata"
     world_width: int = 200
     world_height: int = 200
@@ -80,6 +84,11 @@ class ServerConfig:
         return "/site"
 
     @property
+    def website_redirect_enabled(self) -> bool:
+        """配置了跳转地址时，``/site`` 请求 302 到该地址；空串则本地静态服务。"""
+        return bool(self.website_redirect.strip())
+
+    @property
     def notice_file(self) -> Path:
         return self.gamedata_root / "Mir200" / "Notice" / "Notice.txt"
 
@@ -89,7 +98,8 @@ class ServerConfig:
             f"  web       = {self.web_root}\n"
             f"  gamedata  = {self.gamedata_root}\n"
             f"  resources = {self.resources_root}\n"
-            f"  website   = {self.website_root}"
+            f"  website   = {self.website_root}\n"
+            f"  site jump = {self.website_redirect or '(本地静态服务)'}"
         )
 
 
@@ -149,6 +159,8 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         resources_root=_resolve(root, val("resources.root", _ENV_KEYS["resources"], "resources", "resources")),
         resources_prefix=val("resources.prefix", None, None, "/resources"),
         website_root=_resolve(root, val("website.root", _ENV_KEYS["website"], "website", "data/website")),
+        website_redirect=val("website.redirect", _ENV_KEYS["website_redirect"],
+                             "website_redirect", "https://list.notmmao.com/mir2-wiki/").strip(),
         gamedata_root=_resolve(root, val("gamedata.root", _ENV_KEYS["gamedata"], "gamedata", "gamedata")),
         world_width=as_int("world.width", None, None, 200),
         world_height=as_int("world.height", None, None, 200),

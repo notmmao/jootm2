@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 
 from .config import ServerConfig
 from .service import GameService
@@ -44,7 +44,8 @@ WS_FRAME_TIMEOUT = float(os.environ.get("JOOTM2_WS_FRAME_TIMEOUT", "10"))
 
 STATUS_TEXT = {
     200: "OK", 204: "No Content", 206: "Partial Content",
-    301: "Moved Permanently", 304: "Not Modified", 400: "Bad Request", 404: "Not Found",
+    301: "Moved Permanently", 302: "Found", 304: "Not Modified",
+    400: "Bad Request", 404: "Not Found",
     416: "Range Not Satisfiable", 500: "Internal Server Error",
 }
 
@@ -513,6 +514,21 @@ class Server:
             return self._serve_file(req, req.path, self.config.resources_root,
                                     self.config.resources_prefix, "resources.json")
         if _is_under(req.path, self.config.website_prefix):
+            # 数据库静态站：优先跳转到 list2（Vercel CDN 承担图片带宽/缓存）。
+            # 302 而非 301：用户在观察期，随时可把 website.redirect 设空回退到本地。
+            # 路径与 query 原样透传（/site/maps.html -> /mir2-wiki/maps.html）。
+            if getattr(self.config, "website_redirect_enabled", False):
+                base = self.config.website_redirect.rstrip("/")
+                rel = req.path[len(self.config.website_prefix):].lstrip("/")
+                target = base + "/" + quote(rel, safe="/")
+                if req.query:
+                    target += "?" + urlencode(req.query)
+                return Response(302, {
+                    "Location": target,
+                    "Content-Length": "0",
+                    # 跳转本身不缓存，日后改地址/回退能立即生效
+                    "Cache-Control": "no-cache",
+                }, head_only=req.method == "HEAD")
             # 数据库静态站点（scripts/gen_website.py 生成到 data/website）
             if req.path == self.config.website_prefix:
                 # 页面里的链接都是相对路径；补斜杠，否则 base 变成站点根

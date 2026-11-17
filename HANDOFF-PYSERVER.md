@@ -484,3 +484,21 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 **版本说明**：`/api/version` 仍为 `3ad46df`（2026-11-16 镜像）——本轮是数据热同步，未重建镜像（零代码改动，无需）。用户的 `1d71c72` 前端光照/缩放及后续提交不在镜像内，如需生效跑 `bash scripts/deploy_image.sh`（镜像更新后 version 指向最新 hash；gamedata 挂载仍压镜像数据，但宿主目录已是最新，不冲突）。
 
 **提交**：本节 [文档] 提交；数据改动本体在 `6c9eeb4`。
+
+## §101 wiki 站迁到 list2（Vercel CDN）+ /site 302 跳转（2026-11-17）
+
+**背景**：用户证实 /site 图片在公网仍被重新下载（本地验证缓存头正确、浏览器二次访问 100% 命中，但阿里云带宽有限）。指令：把 wiki 部署到 list2（Vercel）并把 /site 跳转过去；先发布拿地址再跳转。
+
+**第一步 · 发布到 list2**：
+- 产物 `data/website` 72MB/1967 文件，超 list2 发布脚本 60MB 上限。用 Pillow **无损**压缩生成 `data/website-list2/`（54MB）：RGBA 且颜色数 ≤256 的图（289 张地图）转 P 调色板——先按 `sorted(set(RGB))` 造精确调色板（**不能用 ADAPTIVE 量化，会改色**），逐像素校验 RGB 差异为 0 才写盘。文件数不变、无空文件。
+- 发布踩坑：wiki 含中文文件名，`git diff --cached --name-only` 默认输出八进制转义（`"mon/\344\270\255..."`），发布脚本前缀校验误判越界并回滚。在 list2 仓库执行 `git config core.quotepath false`（只改本地 git 配置，不动受控文件）后解决。
+- 线上 `https://list.notmmao.com/mir2-wiki/`，commit `ed0c779`，1967 文件全在 `mir2-wiki/`，其他同级目录零改动；`--verify-only` 复查 200。
+
+**第二步 · /site 跳转**：
+- `pyserver/config.py` 新增 `website.redirect`（默认 `https://list.notmmao.com/mir2-wiki/`；properties / `JOOTM2_WEBSITE_REDIRECT` / `--website-redirect`；设空关闭），`website_redirect_enabled` 属性 + describe 输出；`__main__.py` 加 CLI 参数。
+- `pyserver/net.py`：`/site` 前缀请求在跳转开启时返回 **302**（非 301，方便观察期回退），Location 保留子路径 + query（中文路径 quote 编码），`Cache-Control: no-cache`；STATUS_TEXT 补 302 Found。跳转关闭时回退原本地 `_serve_file`（缓存分档逻辑保留）。
+- 阿里云**无需再 rsync wiki**，只需更新镜像（默认值已内置代码）；回退 = 设空 `website.redirect` 重启。
+
+**验证**：`test_pyserver.py` 128/0（新增 8 项：裸路径/子路径/中文编码/query 透传/HEAD 无 body/关闭回退等）；本地 18081 实测 `/site`→302 list2、`/site/maps.html`→302 对应路径、中文路径正确 percent-encode；tick 180/0、all_messages 95/0。`docs/WIKI-PLAN.md` 已同步。
+
+**未提交的外来改动**：`.claude/skills/mir2-resource-converter/`（wil_pack.py / format-spec.md，时间戳 18:24，非本轮），提交时已排除。

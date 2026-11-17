@@ -29,9 +29,10 @@
 - 输出：纯静态 HTML + `assets/`（style.css、app.js、icons/、maps/），`file://` 也能直接看。
 
 ## 服务端挂载（`/site`）
-- 路由：`pyserver/net.py` 中 `_is_under(path, config.website_prefix)` → `_serve_file(..., allow_gzip=False, cache_fn=website_cache_control)`；裸 `/site` 301 到 `/site/`（页面内链接是相对路径）。
+- **当前访问方式（2026-11-17）：302 跳转到 list2**。`website.redirect`（默认 `https://list.notmmao.com/mir2-wiki/`）非空时，`/site` 前缀请求 302 到该地址，路径与 query 原样透传（含中文路径 URL 编码），跳转响应 `no-cache` 不缓存。站点本身已发布到 Vercel CDN（见「部署与同步」）。用 **302 而非 301** 是因用户在观察期，随时可把 `website.redirect` 设空回退到本地。
+- 本地兜底路由（`website.redirect` 为空）：`pyserver/net.py` 中 `_is_under(path, config.website_prefix)` → `_serve_file(..., allow_gzip=False, cache_fn=website_cache_control)`；裸 `/site` 301 到 `/site/`（页面内链接是相对路径）。
 - 缓存分档（2026-11-16）：HTML `no-cache`；图片 `public, max-age=604800, must-revalidate`（7 天，`WEBSITE_STATIC_MAX_AGE`）；JS/CSS/JSON 及未知类型 `max-age=300, must-revalidate`。所有响应带 ETag/Last-Modified，支持条件请求 304。站点重生成文件名不变，所以图片**不用** `immutable`——7 天后靠 ETag 自动取到新图。旧的统一 `max-age=60` 会让每次开地图页逐张重验图片，已废弃。
-- 配置：`website.root`（properties / `JOOTM2_WEBSITE` / `--website`），前缀固定 `/site`。
+- 配置：`website.root`（properties / `JOOTM2_WEBSITE` / `--website`），前缀固定 `/site`；跳转 `website.redirect`（properties / `JOOTM2_WEBSITE_REDIRECT` / `--website-redirect`，传空字符串关闭跳转走本地）。
 - 性能底线（用户硬性要求：不能影响主逻辑）：站点路由**不走 gzip**——zlib 压缩在事件循环里同步执行，`drops.html`（1.9MB）单次冷压 13.63ms，关掉后同步阻塞上限 4.21ms（tick 间隔 100ms）。独立进程 keep-alive 8 线程压测（≈158 req/s）下 tick 间隔与空闲不可区分（p99 203.3 vs 197.8ms）。
 - 目录不存在时 `/site` 返回 404，启动日志提示生成命令，不影响游戏。
 
@@ -46,6 +47,12 @@
 - compose 已挂 `./data:/app/data`，同步后无需重启；验证 `GET /site/` 200 + 首页统计数字。
 - 缓存头验证（改 `net.py` 需重启服务/镜像）：`curl -sI https://aliyun.notmmao.com/site/assets/icons/items/1.png | grep -i 'cache-control\|etag'` 应为 `public, max-age=604800, must-revalidate`；HTML 应为 `no-cache`。再带 `-H 'If-None-Match: <上次 ETag>'` 请求同一图片应返回 304。浏览器侧 DevTools Network 勾选 Disable cache 关闭后刷新两次，第二次图片应从 disk/memory cache 读取、无 `/site/*.png` 请求。
 - 「wiki 站同步」是部署阿里云的标准步骤之一，与游戏代码一起做。
+
+### list2（Vercel）部署与 /site 跳转（2026-11-17）
+- 产物源：`data/website`（72MB / 1967 文件），因 list2 发布脚本有 60MB 上限，用 Pillow 做**无损**调色板压缩（RGBA 颜色数 ≤256 的图转 P 模式并逐像素校验一致）：`data/website-list2/`（54MB），压缩逻辑见 HANDOFF-PYSERVER §88。
+- 发布：`python "C:/Users/Mao/.workbuddy/skills/list2-publish/scripts/publish.py" --source "D:/work/me/game/jootm2/data/website-list2" --name mir2-wiki`，push main 后 Vercel 自动部署。线上 `https://list.notmmao.com/mir2-wiki/`（commit `ed0c779`）。
+- **list2 仓库 `core.quotepath=false`**：wiki 有中文文件名，`git diff --cached --name-only` 默认输出八进制转义，发布脚本前缀校验会误判为越界而回滚。发布前在 list2 仓库执行 `git config core.quotepath false`（只改本地 git 配置，不改受控文件）。
+- `/site` 跳转：pyserver 读到 `website.redirect` 非空即 302 过去，无需再 rsync wiki 到阿里云；阿里云只需更新镜像（配置默认值已内置，也可用环境变量覆盖）。验证：`curl -sI http://139.224.24.88:8080/site/maps.html | grep -i 'HTTP\|location'` 应为 302 + list2 地址。回退：把 `website.redirect` 设空并重启，恢复本地静态服务。
 
 ## 顺序与验收（已完成）
 1. 图标与地图本地生成：物品 350+、技能 32、怪物 92+、NPC 46；地图 374 张（含刷怪点）。
