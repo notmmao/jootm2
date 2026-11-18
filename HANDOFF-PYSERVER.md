@@ -882,3 +882,32 @@ test_multiplayer_features 32/32。
 **验证**：test_bots 23/23（新增技能/命中点断言）、test_autopilot 39/39、
 test_afk_offline 50/50、test_afk_supply 37/37、test_mage_flee 8/8、
 test_all_messages 95/95。
+
+## §121 道士宝宝击杀掉落归属核查（2026-11-18 深夜）
+
+用户反馈疑似「宝宝打死的怪，道士捡不起来」。核查结论：**归属链本身正确**，
+不需要改服务端。
+
+**原版依据**（火炬 `M2Server/ObjBase.pas`）：
+- `Die` :2733-2744：`ehiter := ExpHiter; if ExpHiter.Master <> nil then
+  ehiter := ExpHiter.Master; ScatterBagItems(ehiter)` —— 宝宝击杀掉落归主人。
+- `PickUp` :6805-6846：本人 / 队友可捡；`ANTI_MUKJA_DELAY` 超时清归属；
+  `CM_PICKUP` :12117 服务端校验「玩家当前格 == 物品格」，必须站上去。
+- `CanWalk` (Envir.pas:518-551) + `MoveToMovingObject` :609：活着的宝宝
+  `HoldPlace=TRUE` 会挡格，主人也进不去。
+
+**本项目实现**：`_summon_ai` 补刀时 `kill_monster(enemy, now, master)` →
+`drop_loot(..., killer=master)` → `GroundItem.owner_id = master.id`；
+`_can_pick_owner` 本人恒放行。新增 `scripts/test_pet_drop_pickup.py`
+8/8 PASS（owner=主人 id、非同格拒绝、同格捡到、旁人 2 分钟内拒绝、
+超时放行）。另实测：宝宝站在掉落格上时 `occupied=True`、主人走不进去、
+隔格 pickup 静默拒绝——与原版一致，属于「等宝宝走开」而非 bug。
+
+**容易造成误判的情形**（都不是归属 bug）：
+1. 未站到物品所在格（原版同格限定，隔格点击只会走过去或静默失败）；
+2. 宝宝/别的怪站在掉落格上挡路（原版宝宝 HoldPlace=TRUE 同样挡）；
+3. 用别的角色捡，2 分钟归属期内被拒（提示「在一定时间以内无法捡起」）；
+4. 鸡/鹿/羊/狼/毒蜘蛛/蝎子/食人花/洞蛆是动物，死亡不散落地面物品，
+   要 Alt+左键挖尸（`butchable` race 白名单）；
+5. 托管「效率」档 `pickup_min_price=50` 会主动跳过便宜掉落；
+   触屏拾取键会搜 1 格内物品，但服务端同格判定会静默拒绝（已记录待优化）。
