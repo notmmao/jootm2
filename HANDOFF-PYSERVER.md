@@ -740,3 +740,26 @@ tick 重构：bots.tick 并入 autopilot manager（四段式 offline→bots→�
 
 **验证**：`test_afk_offline` 45/45（新增 9 条观战：确认文案/实时推送/心跳/
 停止不再推/命令入口/停机清理）；`test_afk_supply` 34/34 零退化。
+
+## §114 施法动作保真：命中覆盖 + 走步滑步（2026-11-18 晚）
+
+**现象**（用户托管实测）：①法师施法动作看起来像砍怪动作（道士同病）；
+②托管走位施法时「一边走一边施法、最后一步滑步」。
+
+**根因**：
+- ① `_broadcast_magic_hit` / 圣言术秒杀广播 `{"type":"attack","magicId":N}`
+  没带 `noAttackAnim` → 前端 attack 处理把刚设置的 `spell` 动作覆盖成近战
+  挥砍。原版 RM_MAGSTRUCK 只给目标发挥击，攻击者动作只由 RM_SPELL 负责。
+- ② 原版客户端按 actor 消息队列**串行**处理（走完一步才播施法）；本项目
+  远程实体是位置插值（`_moveAt` 起 MONSTER_MOVE_DUR=720ms 滑动）+ 动作直接
+  覆盖，托管「最后一格 move + spellCast」几乎同发 → 施法动作叠在滑行上。
+
+**修复**：
+- 服务端两处魔法命中广播加 `"noAttackAnim": True`（handlers_combat.py）；
+- 前端 spellCast 到达时若目标实体还在走步插值中 → 记 `_pendingSpellAt`，
+  渲染循环等插值结束（站定）再补播 `spell`（只覆盖 walk/run/stand）；
+  self 不排队（自己施法本地即时播）。
+
+**验证**：`test_spell_fx` 13/13（新增 [5] 命中广播断言）；`test_all_messages`
+95/95、`test_amulet_depletion` 9/9、`test_autopilot_taoist` 18/18、
+`test_slave_protection` 22/22 零退化。

@@ -28,6 +28,7 @@ from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
 from pyserver.util import U_ARMRINGL  # noqa: E402
+from pyserver.world import Monster  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -156,6 +157,25 @@ def main() -> int:
               for m in sess.messages),
           f"types={sess.types()}")
     check("无 spellFail", not any(m.get("type") == "spellFail" for m in sess.messages))
+
+    print("\n[5] 魔法命中广播带 noAttackAnim（施法动作不被挥砍覆盖，RM_MAGSTRUCK 不给攻击者发挥击）")
+    t = w.monster_templates.get("稻草人") or next(iter(w.monster_templates.values()))
+    mob = Monster(id=w.new_id(), name=t.name, x=p.x + 1, y=p.y, hp=max(20, t.hp),
+                  max_hp=max(20, t.hp), level=t.level, exp=t.exp,
+                  race=t.race, race_img=t.raceImg, appr=t.appr, template=t,
+                  spawn_x=p.x + 1, spawn_y=p.y, spawn_map=p.map)
+    w.add_actor(mob, p.map)
+    p.skill_cooldown.clear()
+    sess.drain()
+    service._cast_magic(sess, {"type": "castMagic", "magicId": 1,
+                               "targetX": p.x + 1, "targetY": p.y,
+                               "targetId": mob.id})
+    hits = [h for h in sess.messages if h.get("type") == "attack"]
+    check("魔法命中 attack 广播已下发", any(h.get("targetId") == mob.id for h in hits),
+          f"types={sess.types()}")
+    check("命中广播带 noAttackAnim（前端不再把 spell 覆盖成砍怪动作）",
+          any(h.get("targetId") == mob.id and h.get("noAttackAnim") for h in hits),
+          f"hits={hits}")
 
     print(f"\n结果: PASS={PASS} FAIL={FAIL}")
     return 1 if FAIL else 0

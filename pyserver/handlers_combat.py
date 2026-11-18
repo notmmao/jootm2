@@ -242,9 +242,13 @@ class CombatHandlers:
             # m_nMeatQuality（nDamage*1000），魔法打死的动物肉品质极低。
             if isinstance(m, Monster) and m.meat_quality > 0:
                 m.meat_quality = max(0, m.meat_quality - damage * 1000)
+        # noAttackAnim：原版 RM_MAGSTRUCK 只给目标发挥击，施法者的动作由
+        # RM_SPELL（spellCast）负责——不带此标记前端会把施法动作覆盖成挥砍
+        # （表现为「法师施法动作像砍怪」，道士同病）。
         w.broadcast_around(m.map, {"type": "attack", "attackerId": p.id,
                                    "targetId": m.id, "damage": damage,
-                                   "magicId": magic_id, "x": m.x, "y": m.y},
+                                   "magicId": magic_id, "noAttackAnim": True,
+                                   "x": m.x, "y": m.y},
                            m.x, m.y, SIGHT_RANGE)
         w.send_stats(m)
 
@@ -1538,6 +1542,7 @@ class CombatHandlers:
                         w.broadcast_around(target.map, {
                             "type": "attack", "attackerId": p.id, "targetId": target.id,
                             "damage": target.max_hp, "magicId": 32,
+                            "noAttackAnim": True,
                             "x": target.x, "y": target.y}, target.x, target.y, SIGHT_RANGE)
                         self._kill_if_dead(p, target, now)
                         w.send_system(p, f"圣言术消灭了 {target.name}！")

@@ -2092,7 +2092,18 @@ export class PlayScene extends Scene {
                 const c = this.entities.get(msg.casterId);
                 // 施法动作（HA.spell 段，与普通攻击 hit 段不同）；怪物施法者不覆盖——
                 // 神兽吐火等由 attack 消息设置攻击动画（ActAttack 两足站立喷火），避免被 spell→stand 回退覆盖
-                if (c && c.type === 'player') { c._action = 'spell'; c._actionAt = Date.now(); }
+                if (c && c.type === 'player') {
+                    // 原版客户端按 actor 消息队列**串行**处理：走完一步才播施法。
+                    // 服务端托管「最后一格 move + spellCast」几乎同发，若走步位置
+                    // 插值（MONSTER_MOVE_DUR）还没播完就切 spell，会看到
+                    // 「一边走一边施法、最后一步滑步」。排队到插值结束再播。
+                    const stepLeft = MONSTER_MOVE_DUR - (Date.now() - (c._moveAt || 0));
+                    if (c.id !== this.self?.id && stepLeft > 0) {
+                        c._pendingSpellAt = Date.now();
+                    } else {
+                        c._action = 'spell'; c._actionAt = Date.now();
+                    }
+                }
                 break;
             }
             case 'magicFire': {
@@ -4609,6 +4620,15 @@ export class PlayScene extends Scene {
             if (!stillScrolling && (e._action === 'walk' || e._action === 'run')
                 && (now - (e._lastMoveAt || 0)) > 600) {
                 e._action = 'stand';
+            }
+            // spellCast 排队：走步插值结束后（站定）才补播施法动作。
+            // 只在 walk/run/stand 时生效，避免覆盖 attack/struck/death。
+            if (e._pendingSpellAt && e.id !== this.self?.id
+                && (e._action === 'walk' || e._action === 'run' || e._action === 'stand')
+                && (now - (e._moveAt || 0)) >= MONSTER_MOVE_DUR) {
+                e._action = 'spell';
+                e._actionAt = now;
+                e._pendingSpellAt = 0;
             }
             // 攻击/施法/受击/挖肉动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击/施法）
             const animMs = e._action === 'sitdown' ? SITDOWN_ANIM_MS
