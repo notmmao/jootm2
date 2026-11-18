@@ -474,6 +474,9 @@ class NpcScriptEngine:
             if kind == "claim":
                 return (afk["claim_count"] < cfg.afk_claim_per_day
                         or afk["claim_date"] != today())
+            if kind == "gold":
+                # 今日金币补助还能领（gold_claim_date 走 character_afk 表落库）
+                return afk["gold_claim_date"] != today()
             return True
         return True
 
@@ -506,6 +509,12 @@ class NpcScriptEngine:
             from .afk import claim_gift
             ok, msg = claim_gift(self.world, p)
             self.world.send_system(p, f"[离线修炼] {msg}")
+        elif n == "givegold":
+            # 玛法领路人每日金币补助（每日 1 次，afk.goldPerDay 配置；
+            # 记账同 character_afk 表——[n] 标记重登归零不能用）。
+            from .afk import claim_gold
+            ok, msg = claim_gold(self.world, p)
+            self.world.send_system(p, f"[金币补助] {msg}")
         elif n in ("mapmove", "map"):
             self._do_map_move(p, c, r)
             return "BREAK"

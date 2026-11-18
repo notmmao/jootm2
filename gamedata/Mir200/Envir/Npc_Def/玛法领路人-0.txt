@@ -15,7 +15,7 @@ checklevel 3
 您愿意接受吗？\
 
 <愿意,谢谢/@next1>    <了解更多/@more>\
-<领取离线修炼补助/@afkgift>
+<领取离线修炼补助/@afkgift>    <领取每日金币/@afkgold>
 
 #ELSESAY
 <$USERNAME>，欢迎来到我本沉默传奇的神奇世界,\
@@ -75,4 +75,18 @@ giveafk
 <谢谢/@exit>
 #ELSESAY
 今天的修炼补助已经领过了,明天再来吧\
+<好的,知道了/@exit>
+
+
+[@afkgold]
+#IF
+checkafk gold
+#ACT
+givegold
+#SAY
+这是今天的金币补助,拿去添置些装备药水吧!\
+每天都可以来找我领一次\
+<谢谢/@exit>
+#ELSESAY
+今天的金币补助已经领过了,明天再来吧\
 <好的,知道了/@exit>

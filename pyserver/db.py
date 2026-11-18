@@ -79,6 +79,7 @@ _SCHEMA = (
     "character_id INTEGER PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0, "
     "claim_date TEXT NOT NULL DEFAULT '', claim_count INTEGER NOT NULL DEFAULT 0, "
     "used_date TEXT NOT NULL DEFAULT '', used_minutes INTEGER NOT NULL DEFAULT 0, "
+    "gold_claim_date TEXT NOT NULL DEFAULT '', "
     "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
     # 离线修炼会话：运行中每 60s 刷新 remaining_minutes，服务端重启按它续挂
     # （§3.2 重启补偿）；一角色同时最多一条 active 会话。
@@ -139,6 +140,13 @@ class Database:
                 )
             except sqlite3.OperationalError:
                 pass
+        # character_afk.gold_claim_date：每日金币补助记账（2026-11-18 新增）
+        try:
+            self.conn.execute(
+                "ALTER TABLE character_afk ADD COLUMN "
+                "gold_claim_date TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
 
     def close(self) -> None:
         self.conn.close()
@@ -399,28 +407,36 @@ class Database:
 
     def get_afk(self, character_id: int) -> dict:
         row = self.conn.execute(
-            "SELECT balance, claim_date, claim_count, used_date, used_minutes "
-            "FROM character_afk WHERE character_id = ?", (character_id,)
+            "SELECT balance, claim_date, claim_count, used_date, used_minutes, "
+            "gold_claim_date FROM character_afk WHERE character_id = ?",
+            (character_id,)
         ).fetchone()
         if row is None:
             return {"balance": 0, "claim_date": "", "claim_count": 0,
-                    "used_date": "", "used_minutes": 0}
+                    "used_date": "", "used_minutes": 0, "gold_claim_date": ""}
         return {"balance": int(row["balance"]),
                 "claim_date": row["claim_date"], "claim_count": int(row["claim_count"]),
                 "used_date": row["used_date"],
-                "used_minutes": int(row["used_minutes"])}
+                "used_minutes": int(row["used_minutes"]),
+                "gold_claim_date": row["gold_claim_date"]}
 
     def save_afk(self, character_id: int, balance: int, claim_date: str,
-                 claim_count: int, used_date: str, used_minutes: int) -> None:
+                 claim_count: int, used_date: str, used_minutes: int,
+                 gold_claim_date: str = "") -> None:
+        """gold_claim_date 传空串 = 保留库里的旧值（只有 claim_gold 会写真日期），
+        避免 claim_gift/grant/记账等既有调用方把金币领取日期误清。"""
         with self.conn:
             self.conn.execute(
                 "INSERT INTO character_afk(character_id, balance, claim_date, "
-                "claim_count, used_date, used_minutes) VALUES(?,?,?,?,?,?) "
+                "claim_count, used_date, used_minutes, gold_claim_date) "
+                "VALUES(?,?,?,?,?,?,?) "
                 "ON CONFLICT(character_id) DO UPDATE SET balance=excluded.balance, "
                 "claim_date=excluded.claim_date, claim_count=excluded.claim_count, "
-                "used_date=excluded.used_date, used_minutes=excluded.used_minutes",
+                "used_date=excluded.used_date, used_minutes=excluded.used_minutes, "
+                "gold_claim_date=COALESCE(NULLIF(excluded.gold_claim_date, ''), "
+                "character_afk.gold_claim_date)",
                 (character_id, max(0, int(balance)), claim_date, int(claim_count),
-                 used_date, max(0, int(used_minutes))),
+                 used_date, max(0, int(used_minutes)), gold_claim_date),
             )
 
     def start_afk_session(self, character_id: int, map_name: str, x: int, y: int,

@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from pyserver.afk import NullSession, claim_gift, today  # noqa: E402
+from pyserver.afk import NullSession, claim_gift, claim_gold, today  # noqa: E402
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
@@ -283,7 +283,27 @@ def main() -> int:
               any("观战测试停机" in t for t in gm_texts())
               and p8.id not in srv.afk._watchers)
 
-        print("\n=== 10. 重启续挂 + 补偿（用新 GameService 模拟重启）===")
+        print("\n=== 11. 玛法领路人每日金币补助（afk.goldPerDay，落库限领）===")
+        s9 = FakeSession()
+        p9 = login(srv, s9, "AfkGold")
+        cid9 = p9.character_id
+        gold0 = p9.gold
+        ok, msg = claim_gold(srv.world, p9)
+        check("首次领取金币成功", ok and p9.gold == gold0 + cfg.afk_gold_per_day,
+              f"gold={p9.gold}, msg={msg}")
+        check("领取日期落库", db.get_afk(cid9)["gold_claim_date"] == today())
+        ok2, _ = claim_gold(srv.world, p9)
+        check("同日第二次领取被拒", not ok2 and p9.gold == gold0 + cfg.afk_gold_per_day)
+        db.save_afk(cid9, db.get_afk(cid9)["balance"], "2000-01-01", 0,
+                    "", 0, "2000-01-01")
+        ok3, _ = claim_gold(srv.world, p9)
+        check("跨天后可再领", ok3)
+        # claim_gift 等旧 6 参调用不得清掉金币领取日期
+        db.save_afk(cid9, db.get_afk(cid9)["balance"], today(), 1, "", 0)
+        ok4, _ = claim_gold(srv.world, p9)
+        check("其余 save_afk 调用保留金币日期", not ok4)
+
+        print("\n=== 12. 重启续挂 + 补偿（用新 GameService 模拟重启）===")
         s6 = FakeSession()
         p6 = login(srv, s6, "AfkResume")
         cid6 = p6.character_id
@@ -304,7 +324,7 @@ def main() -> int:
         check("续挂通知写入报告（上线可见）", bool(note))
         srv2.afk.takeover("AfkResume")
 
-        print("\n=== 11. 排队/容量闸门（全服名额 0 → 下线接管拒绝）===")
+        print("\n=== 13. 排队/容量闸门（全服名额 0 → 下线接管拒绝）===")
         small_cfg, small_db, _, small_srv = make_service(afk_min_level=1,
                                                          afk_excluded_maps=(),
                                                          afk_max_agents=0)

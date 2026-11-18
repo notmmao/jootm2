@@ -123,6 +123,28 @@ def claim_gift(world, p) -> tuple[bool, str]:
                   f"当前余额 {balance} 分钟（每日可领 {cfg.afk_claim_per_day} 次）。")
 
 
+def claim_gold(world, p) -> tuple[bool, str]:
+    """玛法领路人每日金币补助（用户 2026-11-18：金币紧张，新增）。
+
+    每日 1 次、金额 ``afk.goldPerDay``（默认 5000，设 0 关闭）；记账与修炼
+    时长同表 ``character_afk``（gold_claim_date 列）——NPC 脚本的 [n] 标记
+    重登归零（db.py 已知坑），绝不能用于限领。"""
+    cfg = world.config
+    amount = max(0, int(cfg.afk_gold_per_day))
+    if amount <= 0:
+        return False, "金币补助已关闭。"
+    db = world.db
+    t = today()
+    afk = db.get_afk(p.character_id)
+    if afk["gold_claim_date"] == t:
+        return False, "今天的金币补助已经领过了，明天再来。"
+    db.save_afk(p.character_id, afk["balance"], afk["claim_date"],
+                afk["claim_count"], afk["used_date"], afk["used_minutes"], t)
+    p.gold += amount
+    world.send_stats(p)
+    return True, f"领取 {amount} 金币补助（每日 1 次）。"
+
+
 class NullSession:
     """离线代理的假会话：吞掉所有下行消息，其余属性对齐 net.py 的 WsSession。
 
@@ -153,6 +175,8 @@ class OfflinePilot(AutoPilot):
     注意 slots dataclass 继承的 3.10 坑：方法内**禁止零参数 super()**
     （__class__ cell 不重建），一律显式 ``AutoPilot.xxx(self, ...)``。
     """
+
+    bag_full_stop_override: int = 1   # 补给关闭的 v1 回退固定满包停机
 
     exp_start: int = 0            # 开局本级经验（结算算经验增量用）
     level_start: int = 0
