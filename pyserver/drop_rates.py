@@ -56,15 +56,18 @@ class DropRates:
     monsters: dict[str, dict[str, float]] = field(default_factory=dict)
     items: dict[str, float] = field(default_factory=dict)
 
-    def probability(self, monster: str, item_name: str) -> float:
-        """返回该怪物掉该物品的概率倍率（1.0 = 原版）。"""
+    def probability(self, monster: str, item_name: str, boost: float = 1.0) -> float:
+        """返回该怪物掉该物品的概率倍率（1.0 = 原版）。
+
+        ``boost`` 用于活动期额外相乘（周末双倍），不写回配置表。
+        """
         is_gold = item_name == GOLD_ITEM
         rate = self.gold if is_gold else self.item
         rate *= self.items.get(item_name, 1.0)
         per = self.monsters.get(monster)
         if per:
             rate *= per.get("gold" if is_gold else "item", 1.0)
-        return max(0.0, rate)
+        return max(0.0, rate * boost)
 
     def amount(self, monster: str) -> float:
         """返回该怪物掉金币时的数量倍率。"""
@@ -73,12 +76,11 @@ class DropRates:
             return max(0.0, per["goldAmount"])
         return max(0.0, self.gold_amount)
 
-    def exp_for(self, monster: str) -> float:
-        """返回击杀该怪物时的经验倍率（0 = 不给经验）。"""
+    def exp_for(self, monster: str, boost: float = 1.0) -> float:
+        """返回击杀该怪物时的经验倍率（0 = 不给经验）。``boost`` 为活动加成。"""
         per = self.monsters.get(monster)
-        if per and "exp" in per:
-            return max(0.0, per["exp"])
-        return max(0.0, self.exp)
+        rate = per["exp"] if per and "exp" in per else self.exp
+        return max(0.0, rate * boost)
 
     def magic_need(self, raw: int) -> int:
         """把 Magic.csv 的修炼点需求按 ``magicTrain`` 折算（0 = 不再升级）。"""
@@ -91,11 +93,12 @@ class DropRates:
             return 0
         return max(1, int(round(raw / rate)))
 
-    def hit(self, monster: str, item_name: str, num: int, den: int) -> bool:
-        """按原版 ``num/den`` 概率掷点，再乘倍率。"""
+    def hit(self, monster: str, item_name: str, num: int, den: int,
+            boost: float = 1.0) -> bool:
+        """按原版 ``num/den`` 概率掷点，再乘倍率与活动加成（封顶 100%）。"""
         if den <= 0:
             return False
-        p = self.probability(monster, item_name) * num / den
+        p = self.probability(monster, item_name, boost) * num / den
         if p <= 0:
             return False
         return p >= 1 or random.random() < p

@@ -48,6 +48,14 @@ DEFAULTS: dict[str, str] = {
     "afk.restartBonusMinutes": "60",   # 重启续挂补偿时长（分钟）
     "afk.supplyEnabled": "1",          # 补给闭环开关（回城卖货买药，§3.4 v2）
     "afk.supplyTownMap": "0",          # 补给城地图 id（默认比奇省）
+    # ---- 周末双倍活动（用户新增功能，全部可配）----
+    "weekend.enabled": "1",            # 总开关
+    "weekend.expRate": "2.0",          # 击杀经验倍率
+    "weekend.dropRate": "2.0",         # 掉落概率倍率（封顶 100%）
+    "weekend.days": "6,7",             # 生效星期：1=周一 .. 7=周日
+    "weekend.startHour": "0",          # 起始小时（0~24，可含小数如 20.5）
+    "weekend.endHour": "24",           # 结束小时（不含；小于起始小时=跨午夜）
+    "weekend.force": "0",              # 1=强制开启（临时活动/测试）
 }
 
 _ENV_KEYS = {
@@ -101,6 +109,14 @@ class ServerConfig:
     afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
     # 在线托管满包行为：0=继续打怪、停止拾取（新默认）；1=回城停机（旧行为）。
     autopilot_bag_full_stop: int = 0
+    # ---- 周末双倍活动 ----
+    weekend_enabled: int = 1
+    weekend_exp_rate: float = 2.0
+    weekend_drop_rate: float = 2.0
+    weekend_days: tuple[int, ...] = (6, 7)
+    weekend_start_hour: float = 0.0
+    weekend_end_hour: float = 24.0
+    weekend_force: int = 0
 
     @property
     def mud2_dir(self) -> Path:
@@ -194,6 +210,17 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         raw = val(prop, None, None, default).strip()
         return tuple(m.strip() for m in raw.split(",") if m.strip())
 
+    def _weekday_tuple(prop: str, default: str) -> tuple[int, ...]:
+        out: list[int] = []
+        for part in _maps(prop, default):
+            try:
+                day = int(part)
+            except ValueError:
+                continue
+            if 1 <= day <= 7 and day not in out:
+                out.append(day)
+        return tuple(out) or (6, 7)
+
     return ServerConfig(
         root=root,
         host=val("server.host", _ENV_KEYS["host"], "host", "0.0.0.0"),
@@ -230,4 +257,11 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
         afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
         autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
+        weekend_enabled=max(0, as_int("weekend.enabled", None, None, 1)),
+        weekend_exp_rate=max(0.0, as_float("weekend.expRate", None, None, 2.0)),
+        weekend_drop_rate=max(0.0, as_float("weekend.dropRate", None, None, 2.0)),
+        weekend_days=_weekday_tuple("weekend.days", "6,7"),
+        weekend_start_hour=as_float("weekend.startHour", None, None, 0.0),
+        weekend_end_hour=as_float("weekend.endHour", None, None, 24.0),
+        weekend_force=max(0, as_int("weekend.force", None, None, 0)),
     )

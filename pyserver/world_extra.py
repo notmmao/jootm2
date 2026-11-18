@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .drop_rates import load_drop_rates
+from .weekend import drop_rate as weekend_drop_rate, exp_rate as weekend_exp_rate
 from .gamedata import parse_map_quest, read_lines
 from .util import (
     BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, PK_POINT_PER_KILL,
@@ -664,10 +665,11 @@ class WorldExtra:
             return
         mon = m.template.name if m.template else m.name
         rates = self.drop_rates
+        boost = weekend_drop_rate(self.config)   # 周末活动：只在判定时乘，不改掉落表
         owner_id = killer.id if killer is not None and isinstance(killer, Player) else -1
         for e in table:
             # 原版概率是 num/den（MonItems 的 `1/4`），倍率在判定时相乘。
-            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point):
+            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point, boost):
                 continue
             pos = self.scatter_pos(m.map, m.x, m.y)
             if pos is None:
@@ -699,9 +701,10 @@ class WorldExtra:
         if not table:
             return []
         rates = self.drop_rates
+        boost = weekend_drop_rate(self.config)
         out: list[dict] = []
         for e in table:
-            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point):
+            if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point, boost):
                 continue
             if e.item_name == "金币":
                 gold = max(1, java_div(e.count, 2) + int(random.random() * e.count))
@@ -829,7 +832,7 @@ class WorldExtra:
         只在**击杀结算**处调用；``add_exp`` 本身保持原样，测试与 GM 加经验
         不受倍率影响。
         """
-        rate = self.drop_rates.exp_for(monster)
+        rate = self.drop_rates.exp_for(monster, weekend_exp_rate(self.config))
         if exp <= 0 or rate == 1.0:
             return exp
         if rate <= 0:

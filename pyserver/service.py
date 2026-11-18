@@ -28,6 +28,7 @@ from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .util import RED_NAME_PK_POINT, U_DRESS, U_WEAPON
 from .version import load_version
+from . import weekend
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
                     encode, normalize_exp, now_ms)
 from .world_extra import (BODY_LEATHERY, BUTCH_INTERVAL_MS, BUTCH_WEAR_MAX,
@@ -109,6 +110,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # AI Bot 玩家（活跃气氛的假人，§4）：gamedata/bots.json 配置，不落库。
         # 生成时机在 __main__.py（world/notice 等就绪后调 bots.rebuild()）。
         self.bots = BotManager(self, PROJECT_ROOT / "gamedata" / "bots.json")
+        # 周末双倍活动：初始状态即进程启动时的状态（停机期间翻转不补广播）。
+        self.weekend_active = weekend.is_active(config)
         self._handlers: dict[str, Callable[[Any, dict], None]] = {
             # 账号 / 角色 / 场景主干
             "ping": self._ping,
@@ -477,6 +480,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         world.broadcast_entity_add(p)
         # 登录时下发离线修炼的待读报告/通知（重启续挂、结算摘要等）。
         self.afk.on_login(p)
+        # 周末双倍活动状态提示（开启/未开启各一行，不打扰战斗）。
+        notice = weekend.login_text(self.config)
+        if notice:
+            world.send_system(p, notice)
 
     # ---- 场景内 ---------------------------------------------------------
 
@@ -979,6 +986,12 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         self.afk.tick(now)
         # AI Bot：漫游/台词；打怪型 Bot 的决策由 autopilot.tick 统一驱动。
         self.bots.tick(now)
+        # 周末双倍：状态翻转时全服广播一次（周六 0 点 / 周一 0 点）。
+        active = weekend.is_active(self.config)
+        if active != self.weekend_active:
+            self.weekend_active = active
+            self.world.broadcast_all({"type": "systemMessage",
+                                      "text": weekend.START_MSG if active else weekend.END_MSG})
 
     # ---- REST -----------------------------------------------------------
 

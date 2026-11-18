@@ -939,3 +939,33 @@ test_all_messages 95/95。
 **验证**：`test_bots` 29/29（新增 2b 段 6 项：配置覆盖/缺省回退/走满进休息/
 休息期零移动/休息结束恢复/AutoPilot 刚动过不叠加漫游）、`test_autopilot`
 39/39、`test_afk_offline` 50/50、`test_pet_drop_pickup` 8/8。
+
+## §123 周末双倍经验 / 双倍爆率（2026-11-19 凌晨）
+
+用户新功能，三项拍板：**掉落概率 ×2（非数量×2）、周六+周日全天（可配）、
+登录提示 + 状态切换全服广播**。新增分类标签 `[活动]`（已同步 CLAUDE.md 标签表）。
+
+**接入设计**：不改任何 MonItems 掉落表，只在判定时乘倍率，与
+`config/game_rates.json` 的全局倍率相乘；概率封顶 100%。
+
+- `pyserver/config.py`：`weekend.enabled/expRate/dropRate/days/startHour/endHour/force`
+  全部有缺省值（周六日 ×2），`config/server.properties` **未改**——部署代码即生效；
+  要调就在 properties 加键（days 用 1=周一..7=周日，startHour 可含小数，
+  endHour < startHour 表示跨午夜，force=1 临时强制开启）。
+- `pyserver/weekend.py`（新）：`is_active/exp_rate/drop_rate/login_text`，判定用
+  服务器本地时间；`enabled=0` 优先级高于 `force`。
+- `pyserver/drop_rates.py`：`probability/hit/exp_for` 增加 `boost` 参数（默认 1.0，
+  向后兼容），活动加成不写回配置表。
+- `pyserver/world_extra.py`：`kill_exp`、`drop_loot`、`roll_butch_loot`（挖肉同样
+  享受双倍爆率）在结算处注入 boost。宝宝/托管击杀走同一 `kill_exp`，自动生效。
+- `pyserver/service.py`：`_enter_game` 下发活动状态提示；`tick` 检测状态翻转时
+  全服广播开始/结束各一次（启动期间翻转不补广播）。离线代理与 Bot 同样受益。
+
+**验证**：`test_weekend_boost` 31/31（时间窗口/封顶/配置/结算注入/提示/广播）、
+test_pyserver 128/128、test_all_messages 95/95、test_tick_systems 180/180、
+test_death_drop 26/26、test_autopilot 39/39、test_afk_offline 50/50、
+test_afk_supply 37/37、test_bots 29/29、test_pet_drop_pickup 8/8、
+test_mage_flee 8/8、test_slave_protection 22/22、test_npc_mafa_guide 20/20。
+
+**注意**：改 `config/server.properties` 时同样要单独 scp（gamedata/config 挂载遮镜像），
+只改缺省值则无需动配置文件。
