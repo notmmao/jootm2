@@ -21,6 +21,32 @@ from .world import SIGHT_RANGE, Player, direction_delta, direction_toward, now_m
 
 DEFAULT_CHAT_EVERY = (180, 420)      # 台词间隔区间（秒）
 REVIVE_DELAY_MS = 10_000             # Bot 死亡后躺尸几秒再回城复活
+# 漫游节奏：连续走几步就歇一下，像真人在城里挂机发呆，而不是 540ms 一步永动。
+# 两个值都可由 bots.json 覆盖（int 或 [lo, hi]，单位：步 / 毫秒）。
+DEFAULT_WANDER_STEPS = (4, 10)
+DEFAULT_WANDER_REST_MS = (3_000, 9_000)
+# AutoPilot 刚驱动过移动的这段时间里，打怪 Bot 的漫游不再插手——
+# 两套逻辑共用同一格移动，叠加发出就是「Bot 一直走」的观感来源。
+AUTOPILOT_MOVE_MEMORY_MS = 2_000
+
+
+def _span(value: Any, default: tuple[int, int]) -> tuple[int, int]:
+    """把配置项解析成 (lo, hi)，支持 int / [lo, hi] / 缺省。"""
+    if value is None:
+        return default
+    try:
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            lo, hi = int(value[0]), int(value[1])
+        else:
+            lo = hi = int(value)
+    except (TypeError, ValueError):
+        return default
+    lo, hi = max(1, lo), max(1, hi)
+    return (lo, hi) if lo <= hi else (hi, lo)
+
+
+def _rand(span: tuple[int, int]) -> int:
+    return random.randint(span[0], span[1])
 
 
 def _load_config(path: Path) -> list[dict]:
@@ -52,8 +78,12 @@ class Bot:
         self.cfg = cfg
         self.mode = str(cfg.get("mode") or "chat")      # chat=城里漫游 / fight=野外打怪
         self.anchor = (p.x, p.y)
-        self.radius = int(cfg.get("wanderRadius") or 10)
+        self.wander_radius = int(cfg.get("wanderRadius") or 10)
         self.last_move_at = 0
+        self.wander_steps_span = _span(cfg.get("wanderSteps"), DEFAULT_WANDER_STEPS)
+        self.wander_rest_span = _span(cfg.get("wanderRestMs"), DEFAULT_WANDER_REST_MS)
+        self.wander_steps_left = _rand(self.wander_steps_span)
+        self.wander_rest_until = 0
         self.next_chat_at = now_ms() + random.randint(30, 120) * 1000
         self.chat_every = cfg.get("chatEvery") or DEFAULT_CHAT_EVERY
         self.lines = cfg.get("lines") or {}
@@ -87,6 +117,14 @@ class Bot:
         # 双重 tick 会破坏 540ms 走路节拍）。
 
     def _tick_wander(self, now: int) -> None:
+        if now < self.wander_rest_until:
+            return                      # 走累了一会，原地歇着（台词照常）
+        if self.mode == "fight":
+            # 打怪型 Bot 的移动权归 AutoPilot：追怪/捡物/挖肉都走它的 _step_to。
+            # 刚驱动过移动时漫游绝不能再插一脚，否则两处 _move 叠加 = 一直走。
+            pilot = self.manager.service.autopilot.get(self.p)
+            if pilot is not None and now - getattr(pilot, "last_move_at", 0) < AUTOPILOT_MOVE_MEMORY_MS:
+                return
         if now - self.last_move_at < WALK_INTERVAL_MS:
             return
         p = self.p
@@ -96,7 +134,7 @@ class Bot:
         self.last_move_at = now
         ax, ay = self.anchor
         dist = max(abs(p.x - ax), abs(p.y - ay))
-        if dist >= self.radius or (dist > 2 and random.random() < 0.35):
+        if dist >= self.wander_radius or (dist > 2 and random.random() < 0.35):
             d = direction_toward(p.x, p.y, ax, ay, random.randrange(8))
         else:
             d = random.randrange(8)
@@ -104,6 +142,11 @@ class Bot:
         if not _walkable(gm, p.x + dx, p.y + dy):
             return
         self.manager.service._move(p.session, {"type": "move", "dir": d, "run": False})
+        # 只有真正走出去才算一步；撞墙空拍不消耗体力。
+        self.wander_steps_left -= 1
+        if self.wander_steps_left <= 0:
+            self.wander_rest_until = now + _rand(self.wander_rest_span)
+            self.wander_steps_left = _rand(self.wander_steps_span)
 
     def _tick_chat(self, now: int) -> None:
         if now < self.next_chat_at:

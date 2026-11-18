@@ -82,7 +82,8 @@ def main() -> int:
          "x": 285, "y": 618, "wanderRadius": 6, "chatEvery": [60, 120],
          "lines": {"idle": ["测试台词一", "测试台词二"]}},
         {"name": "城里乙", "mode": "chat", "level": 9, "map": "0",
-         "x": 292, "y": 604, "wanderRadius": 6},
+         "x": 292, "y": 604, "wanderRadius": 6,
+         "wanderSteps": 2, "wanderRestMs": 4000},
         {"name": "打怪丙", "mode": "fight", "level": 15, "job": 0,
          "map": "3", "x": 80, "y": 80, "spawnRadius": 40,
          "wanderRadius": 14, "preset": "safe", "items": ["木剑"]},
@@ -115,6 +116,59 @@ def main() -> int:
                     moved.add(b.p.name)
         check("全部 Bot 会漫游离开锚点", moved == {"城里甲", "城里乙", "打怪丙"},
               str(sorted(moved)))
+        print("\n=== 2b. 漫游走走停停（不一直走）===")
+        import pyserver.bots as bots_mod
+        from pyserver.autopilot import WALK_INTERVAL_MS
+        walker = next(b for b in bots if b.p.name == "城里乙")
+        check("漫游步数/休息时长可配（城里乙 2 步 / 4 秒）",
+              walker.wander_steps_span == (2, 2)
+              and walker.wander_rest_span == (4_000, 4_000),
+              f"steps={walker.wander_steps_span} rest={walker.wander_rest_span}")
+        check("缺省配置回退到随机区间",
+              bots_mod._span(None, bots_mod.DEFAULT_WANDER_STEPS)
+              == bots_mod.DEFAULT_WANDER_STEPS
+              and bots_mod._span(7, bots_mod.DEFAULT_WANDER_STEPS) == (7, 7)
+              and bots_mod._span([9, 3], bots_mod.DEFAULT_WANDER_STEPS) == (3, 9))
+
+        walker.wander_steps_left = 2
+        walker.wander_rest_until = 0
+        walker.last_move_at = 0
+        orig_walkable, orig_move = bots_mod._walkable, srv._move
+        move_calls: list[int] = []
+        def counting_move(session, msg):
+            move_calls.append(1)
+            return orig_move(session, msg)
+        bots_mod._walkable = lambda gm, x, y: True
+        srv._move = counting_move
+        try:
+            t = now_ms()
+            walker.tick(t)                          # 第 1 步
+            walker.tick(t + WALK_INTERVAL_MS)       # 第 2 步 → 触发休息
+            check("走满步数后进入休息", walker.wander_rest_until == t + WALK_INTERVAL_MS + 4_000,
+                  f"rest_until={walker.wander_rest_until}")
+            after_rest_steps = len(move_calls)
+            for k in range(1, 7):
+                walker.tick(t + WALK_INTERVAL_MS * (2 + k))
+            check("休息期一格都不走", len(move_calls) == after_rest_steps,
+                  f"moves={len(move_calls)}")
+            walker.tick(walker.wander_rest_until + 1)
+            check("休息结束恢复漫游", len(move_calls) == after_rest_steps + 1)
+
+            # 打怪 Bot：AutoPilot 刚驱动过移动时，漫游不得再插一脚（双驱动=一直走）
+            fighter = next(b for b in bots if b.p.name == "打怪丙")
+            srv.autopilot.enable(fighter.p, "safe")
+            pilot = srv.autopilot.get(fighter.p)
+            pilot.last_move_at = t
+            fighter.last_move_at = 0
+            fighter.wander_rest_until = 0
+            before = len(move_calls)
+            fighter.tick(t + 100)
+            check("AutoPilot 刚动过时打怪 Bot 不叠加漫游",
+                  len(move_calls) == before, f"moves+{len(move_calls) - before}")
+            pilot.last_move_at = 0      # 还原，免得未来时间戳卡住后续决策 tick
+        finally:
+            bots_mod._walkable, srv._move = orig_walkable, orig_move
+
         for b in bots:
             b.next_chat_at = now - 1
         srv.tick()

@@ -911,3 +911,31 @@ test_all_messages 95/95。
    要 Alt+左键挖尸（`butchable` race 白名单）；
 5. 托管「效率」档 `pickup_min_price=50` 会主动跳过便宜掉落；
    触屏拾取键会搜 1 格内物品，但服务端同格判定会静默拒绝（已记录待优化）。
+
+## §122 Bot 漫游改为走走停停（2026-11-19 凌晨）
+
+用户反馈「Bot 要适当停一会，不要一直走」。根因有两处：
+
+1. **城里 chat Bot**：`_tick_wander` 每 `WALK_INTERVAL_MS=540ms` 无条件走一步，
+   从不休息，看起来像永动机。
+2. **野外 fight Bot**：移动由两套逻辑同时驱动——AutoPilot 的 `_step_to`
+   （追怪/捡物/挖肉）和 Bot 自己的 `_tick_wander`，同一 tick 可能各发一次
+   `_move`，观感就是Bot 一直走。
+
+**改动**（`pyserver/bots.py`，标签 `[机器人]`）：
+- 新增可配节奏 `wanderSteps`（走几步歇一次，默认随机 4~10）与
+  `wanderRestMs`（歇多久，默认随机 3000~9000ms）；配置项接受 int 或
+  `[lo,hi]`，由新辅助函数 `_span()` / `_rand()` 解析。休息期只停移动，
+  台词照常（`_tick_chat` 不受影响）。
+- 撞墙空拍不消耗步数，只有真正发出 `_move` 才计一步。
+- fight 模式下，`AutoPilot.last_move_at` 距今 < `AUTOPILOT_MOVE_MEMORY_MS=2000`
+  时跳过 wander，避免双驱动叠加。
+- 内部字段 `radius` → `wander_radius`（仅本类引用，已 Grep 确认）。
+
+`gamedata/bots.json` 未改（默认值已生效）；如要调某只 Bot 的节奏，
+在该 Bot 条目加 `"wanderSteps": [4,10], "wanderRestMs": [3000,9000]` 即可
+（**注意 gamedata 挂载遮镜像，改配置需单独 scp**）。
+
+**验证**：`test_bots` 29/29（新增 2b 段 6 项：配置覆盖/缺省回退/走满进休息/
+休息期零移动/休息结束恢复/AutoPilot 刚动过不叠加漫游）、`test_autopilot`
+39/39、`test_afk_offline` 50/50、`test_pet_drop_pickup` 8/8。
