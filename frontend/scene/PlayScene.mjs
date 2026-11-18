@@ -594,7 +594,7 @@ export class PlayScene extends Scene {
             status: '', reason: '', route: '', kills: 0, presetNames: {},
         };
         const autoBar = document.createElement('div');
-        autoBar.style.cssText = 'position:absolute;left:556px;top:126px;width:236px;'
+        autoBar.style.cssText = 'position:absolute;left:496px;top:126px;width:296px;'
             + 'height:22px;display:flex;gap:4px;pointer-events:auto;font-size:12px;';
         this._autoBtn = document.createElement('div');
         this._autoBtn.id = 'autoPilotBtn';
@@ -635,6 +635,18 @@ export class PlayScene extends Scene {
         noButchLabel.appendChild(this._autoNoButch);
         noButchLabel.appendChild(document.createTextNode('不挖肉'));
         autoBar.appendChild(noButchLabel);
+
+        // 「离线」入口：打开/关闭离线修炼面板（docs/OFFLINE-AFK-PROTOCOL.md）。
+        // 不占快捷键；执行逻辑全在服务端，前端只发 afk 三动作并渲染回包。
+        this._afk = { state: null, panel: null, reportPanel: null };
+        this._afkBtn = document.createElement('div');
+        this._afkBtn.id = 'afkBtn';
+        this._afkBtn.style.cssText = 'width:52px;height:22px;box-sizing:border-box;'
+            + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        this._afkBtn.title = '离线修炼：设定计划后，下线自动开始修炼';
+        this._afkBtn.addEventListener('click', () => this._toggleAfkPanel());
+        autoBar.appendChild(this._afkBtn);
         root.appendChild(autoBar);
 
         this._autoStatusEl = document.createElement('div');
@@ -785,6 +797,239 @@ export class PlayScene extends Scene {
         } else {
             this._autoStatusEl.style.display = 'none';
         }
+    }
+
+    // ---- 离线修炼 Offline AFK（docs/OFFLINE-AFK-PROTOCOL.md）------------
+    // 计划在下线后生效：设定后角色照常在线玩，断线瞬间服务端 promote() 接管。
+    // 前端只做 info 渲染 / start / stop 三件事，余额靠找玛法领路人领取。
+    _toggleAfkPanel() {
+        if (!this._afk || !this.hudEl) return;
+        this._buildAfkPanel();
+        const show = this._afk.panel.style.display !== 'block';
+        this._afk.panel.style.display = show ? 'block' : 'none';
+        if (show) {
+            this._renderAfk();
+            this.conn.send('afk', { action: 'info' });
+        }
+    }
+
+    _buildAfkPanel() {
+        if (this._afk.panel || !this.hudEl) return;
+        const p = document.createElement('div');
+        p.id = 'afkPanel';
+        p.style.cssText = 'position:absolute;left:430px;top:150px;width:340px;'
+            + 'background:rgba(8,10,14,0.94);border:2px solid #8a7448;box-sizing:border-box;'
+            + 'pointer-events:auto;display:none;z-index:70;font-family:SimSun,serif;color:#e8d9b0;'
+            + 'font-size:12px;line-height:20px;padding-bottom:8px;';
+        const title = document.createElement('div');
+        title.style.cssText = 'height:24px;line-height:24px;padding-left:10px;font-size:13px;'
+            + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #8a7448;';
+        title.textContent = '离线修炼';
+        p.appendChild(title);
+        const closeBtn = document.createElement('div');
+        closeBtn.textContent = '×';
+        closeBtn.style.cssText = 'position:absolute;left:320px;top:0;width:20px;height:24px;'
+            + 'line-height:22px;text-align:center;cursor:pointer;color:#c9b98a;font-size:14px;';
+        closeBtn.title = '关闭';
+        closeBtn.addEventListener('click', () => { p.style.display = 'none'; });
+        p.appendChild(closeBtn);
+
+        const mkRow = (label) => {
+            const row = document.createElement('div');
+            row.style.cssText = 'padding:2px 10px 0 10px;';
+            row.appendChild(document.createTextNode(label));
+            p.appendChild(row);
+            return row;
+        };
+        const balRow = mkRow('余额：');
+        const balSpan = document.createElement('span');
+        balSpan.id = 'afkBalance';
+        balSpan.style.color = '#ffe9a8';
+        balSpan.textContent = '…';
+        balRow.appendChild(balSpan);
+
+        const usedRow = mkRow('今日已用：');
+        const usedSpan = document.createElement('span');
+        usedSpan.id = 'afkUsed';
+        usedSpan.style.color = '#ffe9a8';
+        usedSpan.textContent = '…';
+        usedRow.appendChild(usedSpan);
+
+        const mapRow = mkRow('当前地图：');
+        const mapSpan = document.createElement('span');
+        mapSpan.id = 'afkMap';
+        mapSpan.style.color = '#ffe9a8';
+        mapSpan.textContent = '…';
+        mapRow.appendChild(mapSpan);
+
+        const presetRow = document.createElement('div');
+        presetRow.style.cssText = 'padding:4px 10px 0 10px;display:flex;align-items:center;gap:6px;';
+        presetRow.appendChild(document.createTextNode('策略档：'));
+        const sel = document.createElement('select');
+        sel.id = 'afkPreset';
+        sel.style.cssText = 'width:78px;height:20px;box-sizing:border-box;'
+            + 'font-family:SimSun,serif;font-size:12px;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        for (const [id, label] of [['safe', '安全'], ['balanced', '均衡'],
+                                   ['efficient', '效率']]) {
+            const opt = document.createElement('option');
+            opt.value = id; opt.textContent = label;
+            sel.appendChild(opt);
+        }
+        sel.value = (this._auto && this._auto.preset) || 'balanced';   // 复用托管三档的默认偏好
+        presetRow.appendChild(sel);
+        presetRow.appendChild(document.createTextNode('修炼分钟：'));
+        const minutes = document.createElement('input');
+        minutes.id = 'afkMinutes';
+        minutes.type = 'number';
+        minutes.min = '10';
+        minutes.max = '720';
+        minutes.value = '240';
+        minutes.style.cssText = 'width:56px;height:20px;box-sizing:border-box;'
+            + 'font-family:SimSun,serif;font-size:12px;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        minutes.addEventListener('keydown', (e) => e.stopPropagation());
+        presetRow.appendChild(minutes);
+        p.appendChild(presetRow);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'padding:6px 10px 0 10px;';
+        const setBtn = document.createElement('div');
+        setBtn.id = 'afkSetBtn';
+        setBtn.style.cssText = 'width:100px;height:22px;box-sizing:border-box;'
+            + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        setBtn.textContent = '设定计划';
+        setBtn.addEventListener('click', () => this._submitAfkPlan());
+        btnRow.appendChild(setBtn);
+        p.appendChild(btnRow);
+
+        const reasonEl = document.createElement('div');
+        reasonEl.id = 'afkReason';
+        reasonEl.style.cssText = 'padding:2px 10px 0 10px;color:#d06060;min-height:0;'
+            + 'white-space:normal;';
+        p.appendChild(reasonEl);
+
+        const note = document.createElement('div');
+        note.style.cssText = 'padding:4px 10px 0 10px;color:#9fb08a;white-space:normal;';
+        note.textContent = '下线后自动开始修炼，找比奇城玛法领路人领取时长。';
+        p.appendChild(note);
+
+        p.addEventListener('mousedown', (e) => e.stopPropagation());
+        this.hudEl.appendChild(p);
+        this._afk.panel = p;
+    }
+
+    /** 当前地图（中文 title 优先）与内部编号（黑名单比对用）。 */
+    _afkMapInfo() {
+        const sm = (this.snapshot && this.snapshot.map) || {};
+        return { title: sm.title || sm.name || '未知地图', name: String(sm.name ?? '') };
+    }
+
+    _renderAfk() {
+        if (!this._afk || !this._afk.panel) return;
+        const st = this._afk.state;
+        const bal = document.getElementById('afkBalance');
+        const used = document.getElementById('afkUsed');
+        const mapSpan = document.getElementById('afkMap');
+        const reason = document.getElementById('afkReason');
+        const setBtn = document.getElementById('afkSetBtn');
+        const sel = document.getElementById('afkPreset');
+        if (!bal || !setBtn) return;
+        if (st) {
+            bal.textContent = `${st.balance} / ${st.poolCap} 分钟`;
+            used.textContent = `${st.usedToday} / ${st.dailyLimit} 分钟`
+                + (st.claimable ? '（今日还可领取）' : '（今日已领取）');
+            const m = this._afkMapInfo();
+            const allowed = st.excludedMaps ? !st.excludedMaps.includes(m.name) : true;
+            mapSpan.textContent = `${m.title}（${allowed ? '允许离线修炼' : '禁止离线修炼'}）`;
+            mapSpan.style.color = allowed ? '#ffe9a8' : '#d06060';
+            if (sel) sel.value = (st.plan && st.plan.preset) || sel.value;
+            if (st.plan && st.plan.minutes) {
+                const mi = document.getElementById('afkMinutes');
+                if (mi && document.activeElement !== mi) mi.value = st.plan.minutes;
+            }
+            setBtn.textContent = st.plan ? '取消计划' : '设定计划';
+            reason.textContent = this._afk.lastReason || '';
+        } else {
+            setBtn.textContent = '设定计划';
+        }
+    }
+
+    _submitAfkPlan() {
+        if (!this._afk) return;
+        const st = this._afk.state;
+        if (st && st.plan) {
+            this.conn.send('afk', { action: 'stop' });
+            return;
+        }
+        const sel = document.getElementById('afkPreset');
+        const mi = document.getElementById('afkMinutes');
+        const minutes = mi ? Math.floor(Number(mi.value) || 0) : 240;
+        this.conn.send('afk', {
+            action: 'start',
+            minutes,
+            preset: (sel && sel.value) || 'balanced',
+        });
+    }
+
+    _onAfkState(msg) {
+        if (!this._afk) return;
+        this._afk.state = msg;
+        this._afk.lastReason = (msg.ok === false && msg.reason) ? msg.reason : '';
+        if (msg.ok === false && msg.reason) this._log(`[离线修炼] ${msg.reason}`, '#c04040');
+        this._renderAfk();
+    }
+
+    /** 登录时服务端推送的结算报告：弹一次性汇总弹窗，确认后关闭。 */
+    _onAfkReport(msg) {
+        if (!this._afk || !this.hudEl) return;
+        const reports = Array.isArray(msg.reports) ? msg.reports : [];
+        if (!reports.length) return;
+        this._afk.reportPanel?.remove();
+        const p = document.createElement('div');
+        p.id = 'afkReportPanel';
+        p.style.cssText = 'position:absolute;left:220px;top:170px;width:360px;'
+            + 'background:rgba(8,10,14,0.94);border:2px solid #8a7448;box-sizing:border-box;'
+            + 'pointer-events:auto;z-index:90;font-family:SimSun,serif;color:#e8d9b0;'
+            + 'font-size:12px;line-height:18px;padding-bottom:8px;';
+        const title = document.createElement('div');
+        title.style.cssText = 'height:24px;line-height:24px;padding-left:10px;font-size:13px;'
+            + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #8a7448;';
+        title.textContent = '离线修炼报告';
+        p.appendChild(title);
+        const list = document.createElement('div');
+        list.style.cssText = 'padding:6px 10px 0 10px;max-height:150px;overflow-y:auto;white-space:normal;';
+        for (const rep of reports) {
+            const line = document.createElement('div');
+            line.style.cssText = 'padding:1px 0;color:#e8d9b0;';
+            if (Number(rep.minutes) <= 0) {
+                // 纯通知条目（重启续挂/未能开启等）：只显示 notice/reason 文本
+                line.textContent = `· ${rep.notice || rep.reason || ''}`;
+                line.style.color = '#9fb08a';
+            } else {
+                const gold = Number(rep.gold_delta) || 0;
+                line.textContent = `· 修炼 ${rep.minutes} 分钟 · 经验 +${rep.exp_gained}`
+                    + ` · 击杀 ${rep.kills} · 金币 ${gold >= 0 ? '+' : ''}${gold}`
+                    + ` · 死亡 ${rep.deaths} 次${rep.reason ? ` ｜ ${rep.reason}` : ''}`;
+            }
+            list.appendChild(line);
+        }
+        p.appendChild(list);
+        const okBtn = document.createElement('div');
+        okBtn.id = 'afkReportOk';
+        okBtn.textContent = '知道了';
+        okBtn.style.cssText = 'margin:8px auto 0 auto;width:80px;height:22px;box-sizing:border-box;'
+            + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        okBtn.addEventListener('click', () => {
+            p.remove();
+            if (this._afk) this._afk.reportPanel = null;
+        });
+        p.appendChild(okBtn);
+        p.addEventListener('mousedown', (e) => e.stopPropagation());
+        this.hudEl.appendChild(p);
+        this._afk.reportPanel = p;
     }
 
     /** 音效开关（原版 TogglePlaySoundEffect）→ 交给 SoundManager（含 BGM 与持久化）。 */
@@ -1945,6 +2190,14 @@ export class PlayScene extends Scene {
             case 'autopilotState':
                 // 服务端权威状态：开启/暂停/停止/击杀数/策略档都由这一条同步
                 this._onAutoState(msg);
+                break;
+            case 'afkState':
+                // 离线修炼 info/start/stop 回包（docs/OFFLINE-AFK-PROTOCOL.md）
+                this._onAfkState(msg);
+                break;
+            case 'afkReport':
+                // 登录时下发的离线修炼结算报告：弹一次性汇总弹窗
+                this._onAfkReport(msg);
                 break;
             case 'systemMessage':
                 // 原版 AddSysMsg 是 clGreen（深绿 #008000，白底上可读）；
@@ -5097,6 +5350,7 @@ export class PlayScene extends Scene {
         this._bigMapCanvas = null;
         this._bigMapTitle = null;
         this._sysMenu = null;
+        this._afk = null;
         this._pendingStep = false;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';

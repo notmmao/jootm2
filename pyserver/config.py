@@ -31,6 +31,23 @@ DEFAULTS: dict[str, str] = {
     "world.height": "200",
     "world.playerSpawnX": "100",
     "world.playerSpawnY": "100",
+    # ---- 离线修炼（docs/OFFLINE-AFK-PLAN.md §3.3/§3.6，全部可配）----
+    # 测试期默认值调低方便体验；正式服建议 minLevel>=30、excludedMaps 加长。
+    "afk.minLevel": "15",              # 开启离线修炼的等级门槛
+    "afk.excludedMaps": "0",           # 黑名单地图（逗号分隔），默认只禁比奇省
+    "afk.perMapLimit": "2",            # 每张图离线代理并发上限，超出拒绝
+    "afk.maxAgents": "10",             # 全服离线代理总量上限
+    "afk.dailyMinutes": "360",         # 每角色每日修炼总时长（分钟）
+    "afk.expRate": "0.7",              # 离线经验系数（掉落/金币不打折）
+    "afk.lootSightCut": "0.5",         # 离线代理拾取视野系数（给在线玩家留捡漏）
+    "afk.deathStop": "3",              # 单次修炼内累计死亡上限（防药尽送死）
+    "afk.claimMinutes": "240",         # 玛法领路人单次领取时长（分钟）
+    "afk.claimPerDay": "1",            # 每日限领次数
+    "afk.poolCapMinutes": "720",       # 余额上限（分钟）
+    "afk.newbieMinutes": "240",        # 新号赠送时长（分钟）
+    "afk.restartBonusMinutes": "60",   # 重启续挂补偿时长（分钟）
+    "afk.supplyEnabled": "1",          # 补给闭环开关（回城卖货买药，§3.4 v2）
+    "afk.supplyTownMap": "0",          # 补给城地图 id（默认比奇省）
 }
 
 _ENV_KEYS = {
@@ -65,6 +82,22 @@ class ServerConfig:
     player_spawn_x: int = 100
     player_spawn_y: int = 100
     backlog: int = 256
+    # ---- 离线修炼 ----
+    afk_min_level: int = 15
+    afk_excluded_maps: tuple[str, ...] = ("0",)
+    afk_per_map_limit: int = 2
+    afk_max_agents: int = 10
+    afk_daily_minutes: int = 360
+    afk_exp_rate: float = 0.7
+    afk_loot_sight_cut: float = 0.5
+    afk_death_stop: int = 3
+    afk_claim_minutes: int = 240
+    afk_claim_per_day: int = 1
+    afk_pool_cap_minutes: int = 720
+    afk_newbie_minutes: int = 240
+    afk_restart_bonus_minutes: int = 60
+    afk_supply_enabled: int = 1
+    afk_supply_town_map: str = "0"
 
     @property
     def mud2_dir(self) -> Path:
@@ -148,6 +181,16 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         except ValueError:
             return default
 
+    def as_float(prop: str, env_key: str | None, over_key: str | None, default: float) -> float:
+        try:
+            return float(val(prop, env_key, over_key, str(default)))
+        except ValueError:
+            return default
+
+    def _maps(prop: str, default: str) -> tuple[str, ...]:
+        raw = val(prop, None, None, default).strip()
+        return tuple(m.strip() for m in raw.split(",") if m.strip())
+
     return ServerConfig(
         root=root,
         host=val("server.host", _ENV_KEYS["host"], "host", "0.0.0.0"),
@@ -167,4 +210,19 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         player_spawn_x=as_int("world.playerSpawnX", None, None, 100),
         player_spawn_y=as_int("world.playerSpawnY", None, None, 100),
         backlog=as_int("server.backlog", None, None, 256),
+        afk_min_level=as_int("afk.minLevel", None, None, 15),
+        afk_excluded_maps=_maps("afk.excludedMaps", "0"),
+        afk_per_map_limit=as_int("afk.perMapLimit", None, None, 2),
+        afk_max_agents=as_int("afk.maxAgents", None, None, 10),
+        afk_daily_minutes=as_int("afk.dailyMinutes", None, None, 360),
+        afk_exp_rate=max(0.0, as_float("afk.expRate", None, None, 0.7)),
+        afk_loot_sight_cut=min(1.0, max(0.0, as_float("afk.lootSightCut", None, None, 0.5))),
+        afk_death_stop=as_int("afk.deathStop", None, None, 3),
+        afk_claim_minutes=as_int("afk.claimMinutes", None, None, 240),
+        afk_claim_per_day=as_int("afk.claimPerDay", None, None, 1),
+        afk_pool_cap_minutes=as_int("afk.poolCapMinutes", None, None, 720),
+        afk_newbie_minutes=as_int("afk.newbieMinutes", None, None, 240),
+        afk_restart_bonus_minutes=as_int("afk.restartBonusMinutes", None, None, 60),
+        afk_supply_enabled=max(0, as_int("afk.supplyEnabled", None, None, 1)),
+        afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
     )

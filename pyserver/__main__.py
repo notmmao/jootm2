@@ -38,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--tick-ms", dest="tick_ms", type=int, help="游戏 tick 间隔（毫秒）")
     ap.add_argument("--no-resource-index", action="store_true",
                     help="启动时不重新生成 resources.json")
+    ap.add_argument("--no-bots", dest="no_bots", action="store_true",
+                    help="不生成 AI Bot（回归测试隔离世界用）")
     ap.add_argument("--version", action="version", version=f"pyserver {__version__}")
     return ap
 
@@ -54,6 +56,12 @@ async def amain(args: argparse.Namespace) -> int:
     if not args.no_resource_index:
         generate_resources_index(cfg.resources_root)
     service = GameService(cfg, db)
+    # 离线修炼重启续挂（docs/OFFLINE-AFK-PLAN.md §3.2）：启动时拉起所有
+    # status=running 的会话，并补偿 afk.restartBonusMinutes 分钟。
+    service.afk.resume_from_db()
+    # AI Bot 重建（不落库，重启按 gamedata/bots.json 重新生成）。
+    if not args.no_bots:
+        service.bots.rebuild()
     server = Server(cfg, service)
 
     print(f"[main] jootm2 (python/{__version__}) starting...\n{cfg.describe()}")
@@ -73,6 +81,8 @@ async def amain(args: argparse.Namespace) -> int:
         print("\n[main] shutting down, saving players...")
     finally:
         await server.close()
+        # 落库所有仍在世界的角色（含离线修炼代理），余额/会话行已实时维护。
+        service.save_all_players()
         db.close()
     return 0
 

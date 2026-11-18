@@ -287,6 +287,11 @@ class CombatHandlers:
         exp = calc_get_exp(p.level, mon_level, exp)
         # 统一倍率表：击杀经验（config/game_rates.json 的 exp，按怪物可覆盖）
         exp = w.kill_exp(m.template.name if m.template else m.name, exp)
+        # 离线修炼经验系数（docs/OFFLINE-AFK-PLAN.md §3.3，afk.expRate 可配）：
+        # 只打折经验，掉落/金币不打折（产出是真实战斗的）。
+        if getattr(p, "afk_offline", False):
+            rate = float(getattr(getattr(w, "config", None), "afk_exp_rate", 0.7))
+            exp = max(1, round(exp * rate))
         party = w.party_of(p.id)
         if party is not None and len(party.member_ids) > 1:
             nearby = []

@@ -72,6 +72,30 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS character_pk ("
     "character_id INTEGER PRIMARY KEY, pk_point INTEGER NOT NULL DEFAULT 0, "
     "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
+    # 离线修炼余额与领取记账（docs/OFFLINE-AFK-PLAN.md §3.6）。独立于 characters
+    # 表（同上，Java 共用结构不加列）；余额/每日限领都走这张表，NPC 脚本的
+    # [n] 标记重登归零（db.py 已知坑），不能用于限领。
+    "CREATE TABLE IF NOT EXISTS character_afk ("
+    "character_id INTEGER PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0, "
+    "claim_date TEXT NOT NULL DEFAULT '', claim_count INTEGER NOT NULL DEFAULT 0, "
+    "used_date TEXT NOT NULL DEFAULT '', used_minutes INTEGER NOT NULL DEFAULT 0, "
+    "FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE)",
+    # 离线修炼会话：运行中每 60s 刷新 remaining_minutes，服务端重启按它续挂
+    # （§3.2 重启补偿）；一角色同时最多一条 active 会话。
+    "CREATE TABLE IF NOT EXISTS afk_sessions ("
+    "character_id INTEGER PRIMARY KEY, map_name TEXT NOT NULL, x INTEGER NOT NULL, "
+    "y INTEGER NOT NULL, preset TEXT NOT NULL, planned_minutes INTEGER NOT NULL, "
+    "remaining_minutes INTEGER NOT NULL, deaths INTEGER NOT NULL DEFAULT 0, "
+    "started_at INTEGER NOT NULL, restart_bonus INTEGER NOT NULL DEFAULT 0, "
+    "status TEXT NOT NULL DEFAULT 'running')",
+    # 离线修炼报告：停机/结算时写入，玩家下次登录时下发并标记已读。
+    "CREATE TABLE IF NOT EXISTS afk_reports ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, character_id INTEGER NOT NULL, "
+    "started_at INTEGER NOT NULL, ended_at INTEGER NOT NULL, minutes INTEGER NOT NULL, "
+    "exp_gained INTEGER NOT NULL DEFAULT 0, kills INTEGER NOT NULL DEFAULT 0, "
+    "gold_delta INTEGER NOT NULL DEFAULT 0, deaths INTEGER NOT NULL DEFAULT 0, "
+    "reason TEXT NOT NULL DEFAULT '', notice TEXT NOT NULL DEFAULT '', "
+    "delivered INTEGER NOT NULL DEFAULT 0)",
 )
 
 
@@ -274,6 +298,12 @@ class Database:
         ).fetchone()
         return self._char(row) if row else None
 
+    def find_character_by_id(self, character_id: int) -> dict | None:
+        row = self.conn.execute(
+            f"SELECT {CHAR_COLUMNS} FROM characters WHERE id = ?", (character_id,)
+        ).fetchone()
+        return self._char(row) if row else None
+
     def name_exists(self, name: str) -> bool:
         return self.scalar("SELECT COUNT(*) FROM characters WHERE name = ?", (name,)) > 0
 
@@ -353,6 +383,113 @@ class Database:
                 "ON CONFLICT(character_id) DO UPDATE SET pk_point=excluded.pk_point",
                 (character_id, int(pk_point)),
             )
+
+    # ------------------------------------------------------------ 离线修炼
+    # 余额/领取/每日用量走独立表 character_afk（characters 表结构 Java 共用，
+    # 不能加列；NPC 脚本 [n] 标记重登归零也不能用于限领）。
+
+    def ensure_afk_row(self, character_id: int, gift_minutes: int = 0) -> None:
+        """建角/首次使用时补一行；gift_minutes>0 时新号直接入余额。"""
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO character_afk(character_id, balance) VALUES(?, ?) "
+                "ON CONFLICT(character_id) DO NOTHING",
+                (character_id, max(0, int(gift_minutes))),
+            )
+
+    def get_afk(self, character_id: int) -> dict:
+        row = self.conn.execute(
+            "SELECT balance, claim_date, claim_count, used_date, used_minutes "
+            "FROM character_afk WHERE character_id = ?", (character_id,)
+        ).fetchone()
+        if row is None:
+            return {"balance": 0, "claim_date": "", "claim_count": 0,
+                    "used_date": "", "used_minutes": 0}
+        return {"balance": int(row["balance"]),
+                "claim_date": row["claim_date"], "claim_count": int(row["claim_count"]),
+                "used_date": row["used_date"],
+                "used_minutes": int(row["used_minutes"])}
+
+    def save_afk(self, character_id: int, balance: int, claim_date: str,
+                 claim_count: int, used_date: str, used_minutes: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO character_afk(character_id, balance, claim_date, "
+                "claim_count, used_date, used_minutes) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(character_id) DO UPDATE SET balance=excluded.balance, "
+                "claim_date=excluded.claim_date, claim_count=excluded.claim_count, "
+                "used_date=excluded.used_date, used_minutes=excluded.used_minutes",
+                (character_id, max(0, int(balance)), claim_date, int(claim_count),
+                 used_date, max(0, int(used_minutes))),
+            )
+
+    def start_afk_session(self, character_id: int, map_name: str, x: int, y: int,
+                          preset: str, planned_minutes: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO afk_sessions(character_id, map_name, x, y, preset, "
+                "planned_minutes, remaining_minutes, deaths, started_at, "
+                "restart_bonus, status) VALUES(?,?,?,?,?,?,?,0,?,0,'running') "
+                "ON CONFLICT(character_id) DO UPDATE SET map_name=excluded.map_name, "
+                "x=excluded.x, y=excluded.y, preset=excluded.preset, "
+                "planned_minutes=excluded.planned_minutes, "
+                "remaining_minutes=excluded.remaining_minutes, deaths=0, "
+                "started_at=excluded.started_at, restart_bonus=0, status='running'",
+                (character_id, map_name, x, y, preset, int(planned_minutes),
+                 int(planned_minutes), int(time.time() * 1000)),
+            )
+
+    def update_afk_remaining(self, character_id: int, remaining: int,
+                             deaths: int, bonus: int = 0) -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE afk_sessions SET remaining_minutes=?, deaths=?, "
+                "restart_bonus=? WHERE character_id=? AND status='running'",
+                (max(0, int(remaining)), int(deaths), int(bonus), character_id),
+            )
+
+    def settle_afk_session(self, character_id: int, status: str = "done") -> dict | None:
+        """结算会话：置状态并返回该行（供退回余额/写报告）。"""
+        row = self.conn.execute(
+            "SELECT * FROM afk_sessions WHERE character_id=? AND status='running'",
+            (character_id,)).fetchone()
+        if row is None:
+            return None
+        with self.conn:
+            self.conn.execute(
+                "UPDATE afk_sessions SET status=? WHERE character_id=?",
+                (status, character_id))
+        return dict(row)
+
+    def running_afk_sessions(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM afk_sessions WHERE status='running'")]
+
+    def insert_afk_report(self, character_id: int, started_at: int, ended_at: int,
+                          minutes: int, exp_gained: int, kills: int, gold_delta: int,
+                          deaths: int, reason: str, notice: str = "") -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO afk_reports(character_id, started_at, ended_at, minutes, "
+                "exp_gained, kills, gold_delta, deaths, reason, notice, delivered) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,0)",
+                (character_id, int(started_at), int(ended_at), int(minutes),
+                 int(exp_gained), int(kills), int(gold_delta), int(deaths),
+                 reason, notice),
+            )
+
+    def pending_afk_reports(self, character_id: int) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM afk_reports WHERE character_id=? AND delivered=0 "
+            "ORDER BY id", (character_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_afk_reports_delivered(self, character_id: int) -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE afk_reports SET delivered=1 WHERE character_id=? AND delivered=0",
+                (character_id,))
+
 
     def max_item_make_index(self) -> int:
         top = 0

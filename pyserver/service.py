@@ -15,8 +15,10 @@ import time
 from collections import Counter
 from typing import Any, Callable
 
-from .config import GM_ACCOUNTS, ServerConfig
+from .config import GM_ACCOUNTS, PROJECT_ROOT, ServerConfig
 from .db import Database
+from .afk import OfflineAgentManager
+from .bots import BotManager
 from .autopilot import (DEFAULT_PRESET, MANUAL_TYPES, PRESETS, AutoPilotManager,
                         normalize_preset)
 from .handlers_combat import COMBAT_TYPES, CombatHandlers
@@ -38,6 +40,8 @@ MIGRATED_TYPES = frozenset({
     "ping", "login", "register", "listCharacters", "createCharacter",
     "deleteCharacter", "enterGame", "noticeOk", "move", "say", "logout",
     "backToSelect", "butch", "autopilot",
+    # 离线修炼（docs/OFFLINE-AFK-PLAN.md §3）：info/start/stop 单入口。
+    "afk",
 }) | ITEM_TYPES | NPC_TYPES | COMBAT_TYPES | SOCIAL_TYPES
 
 PENDING_TYPES: frozenset[str] = frozenset()
@@ -99,6 +103,12 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         self._reported_pending: set[str] = set()
         # 在线托管：进程内实例，绝不落库；on_disconnect 是唯一清理点。
         self.autopilot = AutoPilotManager(self)
+        # 离线修炼代理（docs/OFFLINE-AFK-PLAN.md）：下线接管、登录交还、
+        # 重启续挂都由它管理；余额/会话/报告落库走 db 的 afk 三表。
+        self.afk = OfflineAgentManager(self)
+        # AI Bot 玩家（活跃气氛的假人，§4）：gamedata/bots.json 配置，不落库。
+        # 生成时机在 __main__.py（world/notice 等就绪后调 bots.rebuild()）。
+        self.bots = BotManager(self, PROJECT_ROOT / "gamedata" / "bots.json")
         self._handlers: dict[str, Callable[[Any, dict], None]] = {
             # 账号 / 角色 / 场景主干
             "ping": self._ping,
@@ -115,6 +125,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "backToSelect": self._back_to_select,
             "butch": self._butch,
             "autopilot": self._autopilot,
+            "afk": self._afk,
             # 物品 / 背包 / 装备 / 快捷栏
             "pickup": self._pickup,
             "useItem": self._use_item,
@@ -240,6 +251,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         trade = self.world.trades.get(p.id)
         if trade is not None:
             self._trade_cancel_session(trade)
+        # 离线修炼分叉点：配置了计划的角色不退场，换 NullSession 继续打怪。
+        # 接管成功时角色数据不在此处 persist——停机结算时统一落库。
+        if self.afk.promote(p):
+            return
         self.persist(p)
         self.world.remove_player(p)
         self.world.broadcast_around(p.map, {"type": "entityRemove", "id": p.id},
@@ -344,7 +359,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             "skills": dumps({str(starter_magic): {"level": 0, "train": 0}}),
             "created_at": now_ms(),
         }
-        self.db.insert_character(rec)
+        cid = self.db.insert_character(rec)
+        # 新号赠送离线修炼时长（已拍板；余额走 character_afk 独立表）。
+        self.db.ensure_afk_row(cid, self.config.afk_newbie_minutes)
         session.send_json({"type": result, "ok": True})
 
     def _delete_character(self, session: Any, msg: dict) -> None:
@@ -366,7 +383,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if rec is None or rec["account_id"] != session.account_id:
             return "角色不存在。"
         if self.world.player(name) is not None:
-            return "该角色已在线。"
+            # 离线修炼中的角色：先结算交还（写报告/退余额/退场）再放行登录。
+            if not self.afk.takeover(name):
+                return "该角色已在线。"
         return None
 
     def _enter_game(self, session: Any, msg: dict) -> None:
@@ -456,6 +475,8 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         session.send_json(world.map_snapshot(p, "enterGame"))
         world.send_stats(p)
         world.broadcast_entity_add(p)
+        # 登录时下发离线修炼的待读报告/通知（重启续挂、结算摘要等）。
+        self.afk.on_login(p)
 
     # ---- 场景内 ---------------------------------------------------------
 
@@ -541,6 +562,30 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if not ok:
             self.autopilot.push_state(p, preset=key, reason=why, ok=False)
 
+    # ---- 离线修炼（docs/OFFLINE-AFK-PLAN.md §3）--------------------------
+    def _afk(self, session: Any, msg: dict) -> None:
+        p = self.find_by_session(session)
+        if p is None:
+            return
+        action = str(msg.get("action") or "info").lower()
+        if action == "start":
+            minutes = _int(msg, "minutes", 0)
+            ok, why, info = self.afk.request_start(p, minutes,
+                                                   str(msg.get("preset") or DEFAULT_PRESET))
+            session.send_json({"type": "afkState", "ok": ok, "reason": why,
+                               "action": "start", **info})
+            if ok:
+                self.world.send_system(p, f"[离线修炼] {why}")
+            return
+        if action == "stop":
+            ok, why, info = self.afk.request_stop(p)
+            session.send_json({"type": "afkState", "ok": ok, "reason": why,
+                               "action": "stop", **info})
+            return
+        # action == info
+        session.send_json({"type": "afkState", "ok": True, "action": "info",
+                           **self.afk.state_info(p)})
+
     def _say(self, session: Any, msg: dict) -> None:
         p = self.find_by_session(session)
         text = _str(msg, "text")
@@ -596,7 +641,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
 
     _GM_HELP = ("GM命令: @移动 [地图] x y  @金 数量  @等级 n  "
                 "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  "
-                "@托管 [安全|均衡|效率]  @帮助")
+                "@托管 [安全|均衡|效率]  "
+                "@离线 grant 角色名 分钟 | @离线 list  "
+                "@机器人 list|reload|名字 台词  @帮助")
 
     def _gm_command(self, p, line: str) -> None:
         w = self.world
@@ -704,6 +751,67 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 key = (normalize_preset(args[0]) if args else
                        (cur.preset if cur else DEFAULT_PRESET))
                 self.autopilot.enable(p, key)
+            return
+        if cmd in ("离线", "afk"):
+            # @离线 grant 角色名 分钟 = 加修炼时长余额；@离线 list = 查看代理
+            if not args:
+                w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 list")
+                return
+            if args[0] == "list":
+                rows = self.afk.snapshot()
+                w.send_system(p, f"离线修炼代理 {len(rows)} 个：")
+                for r in rows:
+                    w.send_system(p, f"  {r['name']} {r['level']}级 {r['map']} "
+                                     f"剩{r['remaining']}分 死{r['deaths']} "
+                                     f"[{r['status']}]")
+                return
+            if args[0] == "grant" and len(args) >= 3:
+                target = self.world.player(args[1])
+                rec = self.db.find_character(args[1])
+                minutes = arg_int(2, 0)
+                if minutes <= 0:
+                    w.send_system(p, "分钟数无效。")
+                    return
+                if target is not None:
+                    cid = target.character_id
+                elif rec is not None:
+                    cid = rec["id"]
+                else:
+                    w.send_system(p, f"找不到角色 {args[1]}。")
+                    return
+                afk = self.db.get_afk(cid)
+                cap = self.config.afk_pool_cap_minutes
+                self.db.save_afk(cid, min(cap, afk["balance"] + minutes),
+                                 afk["claim_date"], afk["claim_count"],
+                                 afk["used_date"], afk["used_minutes"])
+                w.send_system(p, f"已为 {args[1]} 加 {minutes} 分钟修炼时长"
+                                 f"（余额 {min(cap, afk['balance'] + minutes)}）。")
+                if target is not None and target.session is not None:
+                    w.send_system(target, f"[离线修炼] 获赠 {minutes} 分钟修炼时长。")
+                return
+            w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 list")
+            return
+        if cmd in ("机器人", "bot"):
+            # @机器人 list / @机器人 名字 台词 / @机器人 reload
+            if not args or args[0] == "list":
+                bots = self.bots.all()
+                w.send_system(p, f"AI Bot {len(bots)} 个：")
+                for b in bots:
+                    w.send_system(p, f"  {b.p.name} {b.p.level}级 {b.mode} "
+                                     f"{b.p.map.name if b.p.map else '?'}"
+                                     f"@({b.p.x},{b.p.y})")
+                return
+            if args[0] == "reload":
+                self.bots.rebuild()
+                w.send_system(p, f"已按 bots.json 重建 {len(self.bots.all())} 个 Bot。")
+                return
+            if len(args) >= 2:
+                if self.bots.say(args[0], " ".join(args[1:])):
+                    w.send_system(p, "已让 Bot 发言。")
+                else:
+                    w.send_system(p, f"找不到 Bot {args[0]}。")
+                return
+            w.send_system(p, "用法: @机器人 list | @机器人 reload | @机器人 名字 台词")
             return
         w.send_system(p, "未知命令。" + self._GM_HELP)
 
@@ -857,6 +965,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         self.world.tick(now)
         # 托管与共用同一个 now：动作节拍与怪物 AI / 回血在同一个 tick 内对齐。
         self.autopilot.tick(now)
+        # 离线修炼代理：分钟记账（60s 节拍）、时长耗尽停机、周期落库。
+        self.afk.tick(now)
+        # AI Bot：漫游/台词；打怪型 Bot 的决策由 autopilot.tick 统一驱动。
+        self.bots.tick(now)
 
     # ---- REST -----------------------------------------------------------
 
@@ -896,6 +1008,18 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                            "presets": [{"id": k, "name": v["name"],
                                         "desc": v["desc"]}
                                        for k, v in PRESETS.items()]})
+        if path == "/api/afk":
+            return encode({"count": len(self.afk._pilots),
+                           "agents": self.afk.snapshot(),
+                           "config": {
+                               "minLevel": self.config.afk_min_level,
+                               "excludedMaps": list(self.config.afk_excluded_maps),
+                               "perMapLimit": self.config.afk_per_map_limit,
+                               "maxAgents": self.config.afk_max_agents,
+                               "dailyMinutes": self.config.afk_daily_minutes,
+                               "expRate": self.config.afk_exp_rate,
+                               "restartBonusMinutes": self.config.afk_restart_bonus_minutes,
+                           }})
         if path == "/api/migration":
             return encode({
                 "implementation": "python-stdlib",

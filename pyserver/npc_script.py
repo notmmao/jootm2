@@ -458,6 +458,23 @@ class NpcScriptEngine:
             return self.world.count_map_humans(c.param.strip()) >= c.int_at("tag", 1)
         if n == "checkbaggage":
             return len(p.bag) < BAG_SIZE
+        if n == "checkafk":
+            # 离线修炼脚本条件（docs/OFFLINE-AFK-PLAN.md §3.6）：
+            # checkafk level          → 等级达到 afk.minLevel
+            # checkafk balance <tag>  → 修炼时长余额 >= tag（默认 1）
+            # checkafk claim          → 今日还能领取（次数/日期走 character_afk 表）
+            from .afk import today
+            cfg = self.world.config
+            afk = self.world.db.get_afk(p.character_id)
+            kind = c.param.strip().lower()
+            if kind == "level":
+                return p.level >= cfg.afk_min_level
+            if kind == "balance":
+                return afk["balance"] >= c.int_at("tag", 1)
+            if kind == "claim":
+                return (afk["claim_count"] < cfg.afk_claim_per_day
+                        or afk["claim_date"] != today())
+            return True
         return True
 
     def _run_actions(self, p, npc, acts: list[Cmd], r: Result) -> str | None:
@@ -483,6 +500,12 @@ class NpcScriptEngine:
         elif n == "dec":
             k = self._quest_index(c.param)
             p.quest_params[k] = p.quest_params.get(k, 0) - 1
+        elif n == "giveafk":
+            # 玛法领路人发放离线修炼时长（每日限领/池上限在 claim_gift 内校验，
+            # 走 character_afk 落库记账；单次发放量由 afk.claimMinutes 配置统一）。
+            from .afk import claim_gift
+            ok, msg = claim_gift(self.world, p)
+            self.world.send_system(p, f"[离线修炼] {msg}")
         elif n in ("mapmove", "map"):
             self._do_map_move(p, c, r)
             return "BREAK"

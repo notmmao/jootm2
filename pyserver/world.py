@@ -379,6 +379,9 @@ class Player(Actor):
     inc_spell: int = 0
     # GM 账号标记（登录时按 config.GM_ACCOUNTS 判定）。
     is_gm: bool = False
+    # AI Bot 玩家标记（活跃气氛的假人，docs/OFFLINE-AFK-PLAN.md §4）：
+    # 不落库、重启按 gamedata/bots.json 重建；选怪/名单等按需区分。
+    is_bot: bool = False
     last_healing_at: int = 0
     poison_damage: int = 0
     last_poison_at: int = 0
@@ -410,6 +413,11 @@ class Player(Actor):
     # ObjBase.pas:634-638）：{"map","x","y","expire"}，到期 SpaceMove 回记录点；
     # 主动换图自动取消（ObjBase.pas:23616）。
     time_recall: dict | None = None
+    # 离线修炼（docs/OFFLINE-AFK-PLAN.md）：afk_plan 是在线时配置的待生效计划
+    # （下线瞬间由 OfflineAgentManager.promote 接管）；afk_offline 标记角色当前
+    # 正由离线代理驱动（经验系数、离线报告都认这个旗标）。
+    afk_plan: dict | None = None
+    afk_offline: bool = False
 
     def bag_item(self, make_index: int) -> dict | None:
         return next((it for it in self.bag

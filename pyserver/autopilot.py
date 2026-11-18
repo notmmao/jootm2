@@ -257,6 +257,8 @@ class AutoPilot:
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
     blocked_steps: int = 0
+    # AI Bot 专用：选怪时跳过已被真人玩家锁定的怪（§4.1 决不抢怪）。
+    avoid_real_targets: bool = False
 
     # ---- 状态回包 -------------------------------------------------------
     def set_status(self, text: str, now: int, force: bool = False) -> None:
@@ -264,6 +266,13 @@ class AutoPilot:
         if force or (text != self.pushed_status
                      and now - self.last_state_at >= STATE_PUSH_MS):
             self.manager.push(self.player_id, now, force=force)
+
+    def adjust_cfg(self, cfg: dict) -> dict:
+        """策略档微调钩子：在线托管原样返回；离线代理覆写以降低拾取视野。"""
+        return cfg
+
+    def on_disabled(self, reason: str) -> None:
+        """停机回调钩子：在线托管无操作；离线代理用它结算报告。"""
 
     # ---- 主循环 ---------------------------------------------------------
     def tick(self, now: int) -> None:
@@ -277,13 +286,19 @@ class AutoPilot:
         if not self.active:
             return
         if getattr(p, "dead", False) or not p.alive:
-            mgr.disable(p, "角色死亡，托管已停止")
+            mgr.handle_death(p, self)
             return
 
-        cfg = PRESETS[self.preset]
+        cfg = self.adjust_cfg(PRESETS[self.preset])
         # 熔断：长时间一点进展都没有（经验/背包/金币都不变），说明卡住 /
         # 打不到怪 / 断在奇怪状态。挖肉不涨经验但会进肉、捡钱也只动金币，
         # 都要算进展，否则新手纯挖肉赚钱 3 分钟就被误停。
+        if self._tick_progress(p, now):
+            return
+        self._tick_combat(srv, w, p, cfg, now)
+
+    def _tick_progress(self, p, now: int) -> bool:
+        """经验/背包/金币零变化熔断。返回 True = 已停机，本 tick 结束。"""
         progress = (p.exp != self.last_exp or len(p.bag) != self.last_bag
                     or p.gold != self.last_gold)
         if progress:
@@ -291,10 +306,18 @@ class AutoPilot:
             self.last_bag = len(p.bag)
             self.last_gold = p.gold
             self.last_progress_at = now
-        elif now - self.last_progress_at >= STUCK_MS:
-            mgr.disable(p, "长时间没有获得经验，托管已停止")
-            return
+            return False
+        if now - self.last_progress_at >= STUCK_MS:
+            self.manager.disable(p, "长时间没有获得经验，托管已停止")
+            return True
+        return False
 
+    def _tick_combat(self, srv, w, p, cfg, now: int) -> None:
+        """常规决策循环（装备维护 → 生存 → 拾取 → 战斗）。
+
+        独立成方法是为了让离线代理（OfflinePilot）能在补给状态下替换
+        _fight 段，同时完整复用装备维护与生存逻辑。
+        """
         try:
             self.acted = False
             self._ensure_equipment(srv, w, p, now)   # 武器/符损毁后自动补戴
@@ -305,7 +328,7 @@ class AutoPilot:
             self._fight(srv, w, p, cfg, now)
         except Exception as e:  # 单个 pilot 出错不能拖垮 100ms tick
             print(f"[autopilot] {p.name} 异常: {type(e).__name__}: {e}")
-            mgr.disable(p, "内部错误，托管已停止")
+            self.manager.disable(p, "内部错误，托管已停止")
             return
         self.set_status(self.status, now)
 
@@ -320,7 +343,7 @@ class AutoPilot:
         if ratio <= cfg["retreat_hp"] and potion is None:
             # 没药的道士还能靠治愈术自救（有蓝就不停机，治愈冷却中才熔断）
             if not self._taoist_heal(srv, w, p, now):
-                self.manager.disable(p, "血量过低且没有药水，托管已停止")
+                self._on_danger_no_potion(srv, w, p, now)
             return
         if ratio <= cfg["potion_hp"]:
             # 道士优先治愈术回血（Magic.pas:301-317：不吃符、目标为空默认
@@ -356,14 +379,23 @@ class AutoPilot:
         if len(p.bag) >= BAG_SIZE - BUTCH_BAG_RESERVE or self.cleaning_meat:
             self._clean_meat(srv, w, p, now)
         if len(p.bag) >= BAG_SIZE:
-            scroll = _find_town_scroll(w, p)
-            if scroll is not None:
-                srv._use_item(p.session, {"type": "useItem",
-                                          "makeIndex": int(scroll.get("makeIndex", 0))})
-                self.manager.disable(p, "背包已满，已用回城卷回城；补给后再开启托管")
-            else:
-                self.manager.disable(p, "背包已满且没有回城卷，请清理背包")
+            self._on_bag_full(srv, w, p, now)
             return
+
+    # ---- 熔断钩子（在线托管默认停机；离线代理覆写为补给闭环）----------
+    def _on_danger_no_potion(self, srv, w, p, now: int) -> None:
+        """血线危险且无药可喝、又无法治愈 —— 默认停机。"""
+        self.manager.disable(p, "血量过低且没有药水，托管已停止")
+
+    def _on_bag_full(self, srv, w, p, now: int) -> None:
+        """背包完全填满 —— 默认用回城卷回城后停机。"""
+        scroll = _find_town_scroll(w, p)
+        if scroll is not None:
+            srv._use_item(p.session, {"type": "useItem",
+                                      "makeIndex": int(scroll.get("makeIndex", 0))})
+            self.manager.disable(p, "背包已满，已用回城卷回城；补给后再开启托管")
+        else:
+            self.manager.disable(p, "背包已满且没有回城卷，请清理背包")
 
     # ---- 背包整理：挖肉限流 + 丢最差品质的肉 --------------------------
     def _clean_meat(self, srv, w, p, now: int) -> None:
@@ -868,6 +900,8 @@ class AutoPilot:
                                 # 就是「道士攻击自己的召唤物」，还记仇到主人头上
             if self.unreachable.get(a.id, 0) > now:
                 continue
+            if self.avoid_real_targets and self._held_by_real(w, a, p):
+                continue        # Bot 决不抢真人目标锁里的怪
             t = a.template
             if t is None or any(k in a.name for k in AVOID_NAMES):
                 continue
@@ -905,6 +939,8 @@ class AutoPilot:
                 continue        # 召唤物不追（见 _choose_target）
             if self.unreachable.get(a.id, 0) > now:
                 continue
+            if self.avoid_real_targets and self._held_by_real(w, a, p):
+                continue        # Bot 决不抢真人目标锁里的怪
             if any(k in a.name for k in AVOID_NAMES):
                 continue
             t = a.template
@@ -1005,6 +1041,23 @@ class AutoPilot:
         else:
             self.loot_id = 0
             self.loot_until = 0
+
+    @staticmethod
+    def _held_by_real(w, monster: Monster, p) -> bool:
+        """这只怪是否已被**真人玩家**锁定（AI Bot 让怪专用）。
+
+        怪的 ``target_id`` 指向它正在攻击的对象；只有当持有者是真人
+        （非 Bot、真会话在线）时才算抢怪——别的 Bot / 离线代理锁的怪
+        Bot 可以接手（同为代理，不存在「抢玩家怪」的观感问题）。
+        """
+        holder = w.actor(monster.target_id) if monster.target_id and monster.target_id > 0 else None
+        if not isinstance(holder, Player) or holder is p:
+            return False
+        if getattr(holder, "is_bot", False):
+            return False
+        if getattr(holder, "afk_offline", False):
+            return False        # 离线代理锁的怪，Bot 可以接手（同为代理）
+        return holder.session is not None
 
 
 # ---------------------------------------------------------------- 物品筛选
@@ -1135,6 +1188,10 @@ class AutoPilotManager:
         if p is not None:
             self._pilots.pop(p.id, None)
 
+    def handle_death(self, p, pilot: AutoPilot) -> None:
+        """死亡处理钩子：在线托管停机；离线代理覆写为自动复活/熔断。"""
+        self.disable(p, "角色死亡，托管已停止")
+
     def enable(self, p, preset=None, now: int | None = None,
                no_butch: bool | None = None) -> tuple[bool, str]:
         if p is None or p.session is None:
@@ -1201,6 +1258,7 @@ class AutoPilotManager:
         pilot.active = False
         pilot.reason = reason
         pilot.status = "已停止"
+        pilot.on_disabled(reason)
         if p is not None and p.session is not None:
             p.session.send_json(self.state_dict(p, None, pilot.preset,
                                                 reason=reason, now=now_ms()))

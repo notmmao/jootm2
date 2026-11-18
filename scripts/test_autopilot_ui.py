@@ -66,7 +66,8 @@ def main() -> int:
     env = os.environ.copy()
     proc = subprocess.Popen(
         [PY310, "-m", "pyserver", "--host", "127.0.0.1", "--port", str(port),
-         "--db", str(DB), "--no-resource-index"],
+         "--db", str(DB), "--no-resource-index",
+         "--no-bots"],
         cwd=str(ROOT), env=env, stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT)
     try:
