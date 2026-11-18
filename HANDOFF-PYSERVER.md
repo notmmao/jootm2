@@ -833,3 +833,34 @@ test_multiplayer_features 32/32（新增远处/别图玩家收不到 chat）、t
 `test_afk_offline` 50/50、`test_bots` 19/19、`test_autopilot_taoist` 18/18、
 `test_autopilot_hosted_opt` 36/36；`test_autopilot` 39/39（首跑挖肉 3 FAIL
 为既有 timing 抖动，复跑 3 次全过）。
+
+## §119 交易/组队原版 UI、仓库流程、负重与 Bot 换手（2026-11-18 深夜）
+
+**交易 UI**（TradePartyUI）：金币输入框被交易面板盖住 → 弹窗 `zIndex=60` +
+输入框 `z-index:1` + 自动 focus。交易/组队窗口不再自绘：按 FState.pas:1553-1604
+改用原版 WIL 图——交易左 Prguse390(220×175)/右 Prguse389(236×175)、
+金币 Prguse28、锁定 Prguse391、关闭 Prguse64（10 格 5×2/36×33 对齐 DDGrid）；
+组队 DGroupDlg Prguse120(276×242)、邀请/退出 Prguse124/125。
+
+**仓库流程**：存入改两步确认——点背包物品先放进 DSellDlgSpot 蓝框暂存，
+点 OK 才发 `storageStore`，对齐卖/丢装备交互（此前点物品直接入库）。
+
+**负重保真**：`max_weight`/`max_wear_weight`/`max_hand_weight` 三档原版
+ObjBase.pas:4101/4117/4131 是 `Round((Level/div)*Level)`，旧代码整除。
+14 级法师魔法头盔（需求 14、重 4）原版装备负重 17，旧代码算 15 → 误判
+「过重」。三处统一 `int(x + 0.5)`，无需练级即可穿。
+
+**Bot 换手**：`_choose_target` 目标缓存曾压住正在打自己的怪，Bot 继续打远处
+高经验怪站着挨打。现扫描时攻击者优先级最高；但 `nearby()` 是 O(全图 actor)，
+为免重蹈 CPU 32% 覆辙，缓存路径上的换手检查独立节流 600ms
+（`last_threat_scan_at`），不退化成每 tick 全图扫描。
+
+**NPC 入口冲突**：玛法领路人原有一次性「3级给5000」用 `[001]` 标记，领过后
+`@main` 的 `check [001] 1 → goto @away` 截断，新加的「领取离线修炼补助 /
+领取每日金币」两个入口全消失。在 `@away` 的 ELSESAY 补回两个入口。
+
+**验证**：test_npc_mafa_guide 20/20（新增入口断言）、test_bots 21/21（新增
+换手+节流）、test_tick_systems 180/180、test_all_messages 95/95、
+test_afk_offline 50/50、test_afk_supply 37/37、test_autopilot 39/39、
+test_autopilot_taoist 18/18、test_mage_flee 8/8、test_spell_fx 13/13、
+test_multiplayer_features 32/32。
