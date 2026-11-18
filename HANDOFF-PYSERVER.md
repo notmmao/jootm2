@@ -643,27 +643,6 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
 
 **提交**：按 CLAUDE.md 标签拆分 `[前端]` 导航实现 + `[测试]` 专项测试 + `[文档]` 本节。
 
-## §110 移动端触屏控制移植自幸存者分支（2026-11-18，用户要求）
-
-**用户要求**：把幸存者分支的手机/平板触屏优化平移到 pyserver 主线；**只在检测到移动触屏设备时才出现虚拟控制 UI**，桌面端必须零干扰。
-
-**设备检测（关键差异）**：幸存者版用 `ontouchstart || maxTouchPoints>0`，带触摸屏的笔记本会误触发；主线改为严格判据：
-1. URL `?touch=1` / `?touch=0` 强制覆盖（测试与触屏笔记本手动开启用）；
-2. 主判据 `matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0`；
-3. 兜底移动端 UA + 触点/`ontouchstart`。
-判据为 false 时 `TouchControls` 构造函数**直接返回**：不建 DOM、不装监听、不加 `body.touch`。
-
-**实现**：
-- 新文件 `frontend/input/TouchControls.mjs`（零引擎改动）：浮动摇杆（Pointer Events + `setPointerCapture`，只跟第一根 pointerId，触点经 `viewport.toLocal()` 换算），输出模拟量 `{dx,dy,mag}`；8 方向映射 `[2,3,4,5,6,7,0,1]`，死区 0.24，推力 ≥0.72 自动跑。右侧 9 个按钮：攻击/拾取/药/技1~3/背包/地图/菜单。
-- `frontend/index.html`：viewport 禁缩放 + `viewport-fit=cover`；`body.touch` 禁长按选择/回弹；`#screen`/`#touch-ui` 用 `touch-action:none`，`#gui` 保留 `pan-y`；竖屏横屏提示。
-- `frontend/scene/PlayScene.mjs`：`enter()` 装配实例（`window.__touchControls` 调试钩子）；`render()` 主循环加 `_tickTouchMove(now)`；`onExit()` 销毁并清 DOM/body class/window 钩子。**摇杆不本地位移**，而是转成 `dir` 复用既有 `move` 包与 `_lastMoveAt` 节流（`WALK_INTERVAL=540`/`RUN_INTERVAL=360`），与自动导航/锁定目标互斥、触发托管手动接管。按钮回调全部接到既有方法：`_touchAttack`（最近怪锁定追击/空挥）、`_touchPick`（脚下或 1 格内）、`_castFromSlot(1..3)`、`_useQuickSlot(0)`、`_toggleBag`、`_cycleMapView`、`_closeTopWindow || _toggleSystemMenu`。
-
-**验证**：新脚本 `scripts/test_touch_controls.py` **33/33**：桌面无 UI / 移动自动出 UI / `?touch=0` 关闭 / `?touch=1` 强开 / 8 方向 / 走跑判定 / 真实指针事件发包 / 手机 scale≈0.65 下坐标换算 / 7 类按钮接线 / 场景退出清理 / 无 JS 异常。回归：`test_input_shortcuts` 9/9、`test_bigmap_nav` 19/19、`test_autopilot_ui` 13/13、`test_window_close` 12/12、`test_multiplayer_ui` 16/16、`test_pyserver` 128/0、`test_tick_systems` 180/0。截图 `data/screenshots/touch_mobile.png`（844×390 横屏）、`touch_desktop_forced.png`（?touch=1，800×600 逻辑）。
-
-**注意**：① 纯前端改动，Ctrl+F5 强刷即可，无需重启服务端。② 触屏笔记本默认不显示虚拟 UI，需加 `?touch=1`。③ 虚拟按钮与原版 HUD 下半部图标有少量视觉叠压（移动端底部空间有限），功能互不干扰；聊天输入在触屏下仍依赖点击原版输入框。④ `docs/autopilot-hud.png` 在回归中被 `test_autopilot_ui` 重生成，属主线独立工作，未纳入本次提交。
-
-**提交**：按 CLAUDE.md 标签拆分 `[前端]` 实现 + `[测试]` 专项脚本 + `[文档]` 本节。
-
 ## §110 法师托管放风筝：被强怪贴身先拉开到 4 格再施法（2026-11-18，用户反馈）
 
 **问题**：法师托管被近身后站着不动施法（施法节拍/冷却命中 `return` 保持站位），
@@ -692,3 +671,56 @@ hosted_fixes 14/0、all_messages 95/0、pyserver 128/0、UI 13/13，全绿。
 混用真实/虚拟时钟的历史脆弱点，连跑 5 次全绿，与本轮无关。③ 工作区同时有其他并行
 改动（大地图导航 §109 已提交；触屏控制 `frontend/index.html`、`frontend/input/`、`test_touch_controls.py`
 正在开发），本轮一行未碰，提交只含托管放风筝的 3 个文件 + 归档瘦身。
+## §111 离线修炼一期：引擎复用 + 令牌 + 重启续挂（2026-11-18，用户拍板 9 项）
+
+**需求**：朋友要离线挂机，原则是保护在线/新手资源；后续 AI Bot 与离线挂机同引擎。
+规划文档 `docs/OFFLINE-AFK-PLAN.md`（全部拍板项已写入 §六/七），协议 `docs/OFFLINE-AFK-PROTOCOL.md`。
+
+**实现**：
+- **核心决策**：离线代理不重写内核——`NullSession` 顶替 `p.session`，`find_by_session`
+  按对象身份匹配，整条 handler 链路（走/打/捡/喝/补装备）原样可用，广播照常发只是没人收。
+  决策内核（autopilot.py）只加 3 个钩子：`adjust_cfg`（离线拾取视野减半）、
+  `handle_death`（默认停机；离线覆写为自动复活+连死熔断）、`on_disabled`（结算回调）。
+- `pyserver/afk.py`：`OfflinePilot(AutoPilot)` + `OfflineAgentManager`（promote 下线接管 /
+  takeover 登录结算 / tick 分钟记账+周期落库 / resume_from_db 重启续挂）。
+- **落库**：`character_afk`（余额+领取+每日用量）/ `afk_sessions`（remaining 每 60s 刷新，
+  重启续挂记账事实源）/ `afk_reports`（登录下发）。**characters 表不加列**（Java 共用红线）。
+- **令牌**（用户拍板从玛法领路人发）：角色级时长余额，不做可交易道具；每日限领**不能**
+  用 NPC `[n]` 标记（重登归零坑 §102），走 character_afk 落库。npc_script 新增
+  `checkafk`（level/balance/claim）/`giveafk`；脚本实际编码是 UTF-8-sig（非 GBK，
+  read_lines 自动探测兜住）。新号赠送 240 分钟（_create_character）。
+- **重启补偿**（用户明确要 +1~2h 而非只续）：启动扫 running 会话自动拉起，
+  `afk.restartBonusMinutes`（默认 60）加进 remaining，通知走 afk_reports（notice 字段）。
+- **接线**：WS `afk`（info/start/stop，MIGRATED_TYPES/分派表/测试三处同步）；
+  `service.on_disconnect` 在 persist 前调 `afk.promote` 分叉；`_validate_enter` 先
+  `afk.takeover`；tick 加 afk.tick；GM `@离线 grant/list`；REST `/api/afk`。
+- **资源闸门**（全部 server.properties `afk.*`）：minLevel=15 / excludedMaps=0（黑名单制，
+  默认只禁比奇省）/ perMapLimit=2 / maxAgents=10 / dailyMinutes=360 / expRate=0.7
+  （钩子在 handlers_combat._grant_exp，只打折经验）/ lootSightCut=0.5 / deathStop=3。
+- **Bot 系统**：`pyserver/bots.py` + `gamedata/bots.json`（2 城里寒暄 + 1 矿区打怪）。
+  Player 加 `is_bot`；打怪 Bot 复用 service.autopilot（Bot._tick_fight 只补挂，决策 tick
+  由 autopilot.tick 统一驱动，双重 tick 会破坏走路节拍）；选怪 `avoid_real_targets`
+  跳过真人目标锁（离线代理的怪 Bot 可接手）；`@机器人 list/reload/名字 台词`；
+  `--no-bots` 启动参数给回归隔离世界（test_autopilot_ws 曾因 Bot 混入 REST 6 FAIL）。
+
+**验证**：新增 `test_afk_offline` 36/36（赠送/领取/门禁/下线接管/经验系数/死亡复活熔断/
+耗尽结算/登录报告/重启续挂/名额闸门）、`test_bots` 19/19；全量既有测试零退化。
+
+**坑**：① frozen dataclass 不能原地改配置，测试要用 dataclasses.replace 造新 service；
+② 经验断言要动态基线（calc_get_exp 等级惩罚 + kill_exp 倍率都会改数值）；
+③ promote 最初没把 remaining 写进 pilot（默认 0 → 首次记账即「时长耗尽」停机），
+结算退款未钳负 → 余额 209 的测试抓出来，已修。
+
+## §112 离线修炼前端 + 补给闭环（2026-11-18，子代理并行产出）
+
+**前端**（PlayScene.mjs，+255 行）：托管状态条旁「离线」按钮 + 离线修炼面板
+（余额/今日用量/当前地图是否允许/三档下拉/分钟输入/设定或取消计划）+ 登录
+`afkReport` 汇总弹窗。协议见 `docs/OFFLINE-AFK-PROTOCOL.md`。
+**补给闭环**（afk.py/autopilot.py）：门邻接表跨图 BFS → 逐段 A* 踩门换图；
+补给触发（背包 BAG_SIZE-4 或无药）→ 回城卖肉卖杂物 → 买药 → 回锚点；
+锚点记忆 + 补给状态机四段（gotoTown→sell→buy→gotoAnchor）+ 两次失败熔断；
+tick 重构：bots.tick 并入 autopilot manager（四段式 offline→bots→在线→bot-fight），
+补给节拍 1s/60s 双节拍；NPC 城选近的（已知城表）。
+**验证**：`test_afk_supply` 34/34（门邻接/触发/卖肉到账/买药/回锚点/熔断）；
+`test_afk_ui` 13/13、`test_autopilot_ui` 13/13（两个 UI 测试补 `--no-bots` 隔离）；
+全量回归零退化。
