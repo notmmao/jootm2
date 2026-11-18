@@ -864,3 +864,21 @@ ObjBase.pas:4101/4117/4131 是 `Round((Level/div)*Level)`，旧代码整除。
 test_afk_offline 50/50、test_afk_supply 37/37、test_autopilot 39/39、
 test_autopilot_taoist 18/18、test_mage_flee 8/8、test_spell_fx 13/13、
 test_multiplayer_features 32/32。
+
+## §120 Bot「不还手」真因：没学技能导致命中点过低（2026-11-18 深夜）
+
+用户本地复测「Bot 被打还是不还手」。实机复现：Bot 确实选中了攻击者、有
+挥刀广播、怪也掉血，但 4 次出手 3 次 MISS——视觉上就像不还手。
+
+**根因**：`BotManager._spawn` 只发装备，从不给技能。战士命中点
+`DEF_HIT(5) + SKILL_HIT_BONUS(全 0) = 5`；矿区 27 级怪敏捷高，命中率
+`min(hit+1, speed)/speed` 极低。正常 17 级真人战士早就有 3 级基本剑术。
+
+**修复**：新增 `_learn_skills()`，按原版 `Magic.csv NeedLevel` 给 Bot 学到
+当前等级能吃到的最高基础技能（战士 3 基本剑术/7 攻杀；法师 1 火球/11 雷电；
+道士 2 治愈/13 火符），`bots.json` 可用 `skills: {id: level}` 覆盖。
+17 级矿工老张命中点 5 → 14（3 级基本剑术）。
+
+**验证**：test_bots 23/23（新增技能/命中点断言）、test_autopilot 39/39、
+test_afk_offline 50/50、test_afk_supply 37/37、test_mage_flee 8/8、
+test_all_messages 95/95。
