@@ -98,6 +98,9 @@ class ServerConfig:
     afk_restart_bonus_minutes: int = 60
     afk_supply_enabled: int = 1
     afk_supply_town_map: str = "0"
+    afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
+    # 在线托管满包行为：0=继续打怪、停止拾取（新默认）；1=回城停机（旧行为）。
+    autopilot_bag_full_stop: int = 0
 
     @property
     def mud2_dir(self) -> Path:
@@ -225,4 +228,6 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_restart_bonus_minutes=as_int("afk.restartBonusMinutes", None, None, 60),
         afk_supply_enabled=max(0, as_int("afk.supplyEnabled", None, None, 1)),
         afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
+        afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
+        autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
     )

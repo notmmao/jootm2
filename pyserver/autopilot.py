@@ -23,8 +23,9 @@ import heapq
 from dataclasses import dataclass, field
 from typing import Any
 
-from .world import (BAG_SIZE, Monster, Player, direction_delta, now_ms)
-from .handlers_combat import spell_cost, skill_level
+from .world import (BAG_SIZE, Monster, Player, direction_delta,
+                    now_ms)
+from .handlers_combat import spell_cost, skill_level, direction_from
 from .util import U_ARMRINGL, U_BUJUK, U_WEAPON, slot_accepts
 
 # ---- 节拍（与前端 PlayScene.mjs 一致）------------------------------------
@@ -222,6 +223,8 @@ class AutoPilot:
     player_id: int
     preset: str = DEFAULT_PRESET
     no_butch: bool = False          # 用户独立开关：勾选后任何档位都不挖肉
+    bag_full_stop_override: int | None = None  # 满包停机覆写：None=按配置；
+                                               # 离线代理固定 1（v1 回退停机）
     active: bool = True
     reason: str = ""
     status: str = "托管已开启"
@@ -388,14 +391,28 @@ class AutoPilot:
         self.manager.disable(p, "血量过低且没有药水，托管已停止")
 
     def _on_bag_full(self, srv, w, p, now: int) -> None:
-        """背包完全填满 —— 默认用回城卷回城后停机。"""
-        scroll = _find_town_scroll(w, p)
-        if scroll is not None:
-            srv._use_item(p.session, {"type": "useItem",
-                                      "makeIndex": int(scroll.get("makeIndex", 0))})
-            self.manager.disable(p, "背包已满，已用回城卷回城；补给后再开启托管")
-        else:
-            self.manager.disable(p, "背包已满且没有回城卷，请清理背包")
+        """背包完全填满 —— 默认**不停机**：暂停拾取继续打怪（金币不占格照捡）；
+        ``autopilot.bagFullStop=1`` 保留旧行为（回城卷回城后停机）。
+
+        用户 2026-11-18 反馈：沃玛森林爆一堆装备就把托管停了，再按 P 还停
+        （满包→拾取→再满→再停的循环）。拾取循环本来就跳过非金币物品
+        （_pickup / _choose_loot 的 BAG_SIZE 检查），所以只要不停机就是
+        稳定的「满包打怪」状态，不需要回城。
+        离线代理（OfflinePilot）补给关闭的 v1 回退仍固定停机（bag_full_stop_
+        override=1）——没有补给闭环，满包继续打只会原地站桩。"""
+        stop = self.bag_full_stop_override
+        if stop is None:
+            stop = int(getattr(srv.config, "autopilot_bag_full_stop", 0))
+        if stop:
+            scroll = _find_town_scroll(w, p)
+            if scroll is not None:
+                srv._use_item(p.session, {"type": "useItem",
+                                          "makeIndex": int(scroll.get("makeIndex", 0))})
+                self.manager.disable(p, "背包已满，已用回城卷回城；补给后再开启托管")
+            else:
+                self.manager.disable(p, "背包已满且没有回城卷，请清理背包")
+            return
+        self.set_status("背包已满 · 停止拾取继续打怪", now)
 
     # ---- 背包整理：挖肉限流 + 丢最差品质的肉 --------------------------
     def _clean_meat(self, srv, w, p, now: int) -> None:
@@ -558,6 +575,12 @@ class AutoPilot:
             return True
         if p.mp < spell_cost(t, skill_level(p, 13)):
             return False
+        if _magic_los_blocked(srv, p, target):
+            # 火符与火球同源（原版 Magic.pas:859 也走 MagCanHitTarget）：
+            # 视线被挡就拉黑目标回落近战，别把符打在树上。
+            self.unreachable[target.id] = now + 3000
+            self.set_status(f"视线受阻 · {target.name}", now)
+            return False
         if srv._find_amulet(p, 1, 1) is None:
             # 符用光了：先即时从背包补一张（同一 tick 内生效，避免空放一次
             # 火符后被判定「没符」白回落近战）；补不到才回落近战。
@@ -605,6 +628,13 @@ class AutoPilot:
                 return True             # 客户端节拍未到：不连发，也别贴身
             if p.mp < spell_cost(t, skill_level(p, magic_id)):
                 continue                # 这招没蓝，试下一招
+            if magic_id in (1, 5) and _magic_los_blocked(srv, p, target):
+                # 原版 MagCanHitTarget 会拦下的场景：目标躲在树/高墙后，
+                # 朝它放火球只会打在树上（用户 2026-11-18 反馈）。拉黑目标
+                # 3 秒换一只/走近绕开，不再对着障碍白放。
+                self.unreachable[target.id] = now + 3000
+                self.set_status(f"视线受阻 · {target.name}", now)
+                return False
             exp_before = p.exp
             srv._cast_magic(p.session, {"type": "castMagic",
                                         "magicId": magic_id, "targetId": target.id,
@@ -1079,14 +1109,38 @@ def _template(w, it: dict | None):
     return w.item_templates.get(int(it.get("index", 0)))
 
 
+def _magic_los_blocked(srv, p, target) -> bool:
+    """原版 TCreature.MagCanHitTarget（ObjBase.pas:7144-7166）视线自查：
+    沿施法方向逐格走，``CanFireFly`` 不通过（树/高墙）即无视线。
+
+    原版火球(1/5)/灵魂火符(13) 都会被它拦下伤害（Magic.pas:550/859，
+    RM_MAGICFIRE 特效照放——「隔着树打到树上」是原版表现）。托管加自查：
+    无视线就不浪费 MP，把目标短暂拉黑换下一个或走近绕开。"""
+    if target is None or p.map is None:
+        return False
+    w = srv.world
+    sx, sy = p.x, p.y
+    for _ in range(12):
+        if sx == target.x and sy == target.y:
+            return False
+        d = direction_from(sx, sy, target.x, target.y)
+        dx, dy = direction_delta(d)
+        nx, ny = sx + dx, sy + dy
+        if not w.can_fire_fly(p.map, nx, ny):
+            return True
+        sx, sy = nx, ny
+    return False
+
+
 def _find_potion(w, p):
     best, best_key = None, None
     for it in p.bag:
         t = _template(w, it)
         if t is None or t.stdMode != 0 or t.acMin <= 0:
             continue
-        # 疗伤药(shape=1)立即回血优先；其余按回复量从小到大，避免浪费大药
-        key = (0 if t.shape == 1 else 1, t.acMin)
+        # 普通金创药(shape 0)按回复量从小到大先喝；太阳水/强效太阳水等
+        # 特殊药(shape>=1，双回+即时)值钱，压箱底最后用（用户 2026-11-18）。
+        key = (0 if t.shape == 0 else 1, t.acMin)
         if best_key is None or key < best_key:
             best, best_key = it, key
     return best
@@ -1095,15 +1149,15 @@ def _find_potion(w, p):
 def _find_mana_potion(w, p):
     """从背包挑一瓶加蓝药（StdMode 0 且 MAC>0）。
 
-    与 `_find_potion`（血药）对称：Shape1 太阳水即时回蓝优先，其余按回复量
-    从小到大，别把大蓝瓶浪费在小掉蓝上。蓝线判断会把 inc_spell 池算进去，
-    所以这里拿到的药是真需要喝的。"""
+    与 `_find_potion`（血药）对称：普通魔法药(shape 0)按回复量从小到大
+    先喝，太阳水等特殊药(shape>=1)压箱底；别把大蓝瓶浪费在小掉蓝上。
+    蓝线判断会把 inc_spell 池算进去，所以这里拿到的药是真需要喝的。"""
     best, best_key = None, None
     for it in p.bag:
         t = _template(w, it)
         if t is None or t.stdMode != 0 or t.macMin <= 0:
             continue
-        key = (0 if t.shape == 1 else 1, t.macMin)
+        key = (0 if t.shape == 0 else 1, t.macMin)
         if best_key is None or key < best_key:
             best, best_key = it, key
     return best
