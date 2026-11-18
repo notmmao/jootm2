@@ -644,6 +644,7 @@ export class PlayScene extends Scene {
         this._afkBtn.style.cssText = 'width:52px;height:22px;box-sizing:border-box;'
             + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
             + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
+        this._afkBtn.textContent = '离线';
         this._afkBtn.title = '离线修炼：设定计划后，下线自动开始修炼';
         this._afkBtn.addEventListener('click', () => this._toggleAfkPanel());
         autoBar.appendChild(this._afkBtn);
