@@ -246,7 +246,44 @@ def main() -> int:
         check("takeover 后可正常登录", strict._validate_enter(s5, "AfkTakeover") is None
               or srv._validate_enter(s5, "AfkTakeover") is None)
 
-        print("\n=== 9. 重启续挂 + 补偿（用新 GameService 模拟重启）===")
+        print("\n=== 9. GM 观战（@离线 watch 状态流转发）===")
+        s8 = FakeSession()
+        p8 = login(srv, s8, "AfkWatched")
+        srv.afk.request_start(p8, 60, "safe")
+        srv.on_disconnect(s8)
+        check("观战目标已接管", p8.id in srv.afk._pilots)
+        gm_s = FakeSession()
+        gm = login(srv, gm_s, "AfkWatcherGM")
+
+        def gm_texts():
+            return [m.get("text", "") for m in gm_s.messages
+                    if m.get("type") == "systemMessage"]
+
+        check("watch_start 返回确认", "开始观战" in srv.afk.watch_start(gm, "AfkWatched"))
+        pilot8 = srv.afk._pilots[p8.id]
+        pilot8.set_status("观战测试状态", now_ms(), force=True)
+        check("状态变更实时推给 GM", any("观战测试状态" in t for t in gm_texts()))
+        srv.afk._last_charge_at = 0
+        srv.afk.tick(now_ms() + 60_000)
+        check("分钟心跳（坐标/HP/剩余分钟）",
+              any("HP" in t and "剩" in t for t in gm_texts()))
+        check("watch_stop 确认", "已停止观战" in srv.afk.watch_stop(gm))
+        before = len(gm_texts())
+        pilot8.set_status("不应再推送", now_ms(), force=True)
+        check("停止后不再推送",
+              len(gm_texts()) == before
+              and not any("不应再推送" in t for t in gm_texts()))
+        srv._gm_command(gm, "离线 watch AfkWatched")
+        check("@离线 watch 命令生效", gm.id in srv.afk._watchers.get(p8.id, set()))
+        srv._gm_command(gm, "离线 watch")
+        check("@离线 watch 无参即停止", gm.id not in srv.afk._watchers.get(p8.id, set()))
+        srv.afk.watch_start(gm, "AfkWatched")
+        srv.afk.disable(p8, "观战测试停机")
+        check("停机推送原因并清理观战",
+              any("观战测试停机" in t for t in gm_texts())
+              and p8.id not in srv.afk._watchers)
+
+        print("\n=== 10. 重启续挂 + 补偿（用新 GameService 模拟重启）===")
         s6 = FakeSession()
         p6 = login(srv, s6, "AfkResume")
         cid6 = p6.character_id
@@ -267,7 +304,7 @@ def main() -> int:
         check("续挂通知写入报告（上线可见）", bool(note))
         srv2.afk.takeover("AfkResume")
 
-        print("\n=== 10. 排队/容量闸门（全服名额 0 → 下线接管拒绝）===")
+        print("\n=== 11. 排队/容量闸门（全服名额 0 → 下线接管拒绝）===")
         small_cfg, small_db, _, small_srv = make_service(afk_min_level=1,
                                                          afk_excluded_maps=(),
                                                          afk_max_agents=0)

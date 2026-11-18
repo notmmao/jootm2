@@ -724,3 +724,19 @@ tick 重构：bots.tick 并入 autopilot manager（四段式 offline→bots→�
 **验证**：`test_afk_supply` 34/34（门邻接/触发/卖肉到账/买药/回锚点/熔断）；
 `test_afk_ui` 13/13、`test_autopilot_ui` 13/13（两个 UI 测试补 `--no-bots` 隔离）；
 全量回归零退化。
+
+## §113 GM 观战通道 @离线 watch（2026-11-18）
+
+**需求**：用户想实时观察离线代理的行为。画面层免费（代理是真实实体，GM `@移动`
+传到旁边即可看见走位/砍怪），缺的是意图层（状态文案）——离线没有客户端可推。
+
+**实现**（afk.py + service.py GM 分支，约 +80 行）：
+- `OfflineAgentManager._watchers: dict[pilot_id, set[gm_player_id]]`；
+- `push()`（set_status 节流后的唯一出口）转发状态文案给观战 GM → 自动继承
+  set_status 的去重/限频，不会刷屏；`disable()` 推送「已停止：原因」并清理；
+- 分钟记账节拍附加观战心跳：`地图(x,y) HP 剩N分钟`——战斗平稳、状态长时间
+  不变时也能确认代理活着；GM 下线在 _notify_watchers 里顺手清掉；
+- GM 命令：`@离线 watch 角色名` 开始 / `@离线 watch`（无参）停止，帮助文案同步。
+
+**验证**：`test_afk_offline` 45/45（新增 9 条观战：确认文案/实时推送/心跳/
+停止不再推/命令入口/停机清理）；`test_afk_supply` 34/34 零退化。

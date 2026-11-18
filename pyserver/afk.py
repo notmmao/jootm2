@@ -564,6 +564,7 @@ class OfflineAgentManager:
     def __init__(self, service: Any):
         self.service = service
         self._pilots: dict[int, OfflinePilot] = {}
+        self._watchers: dict[int, set[int]] = {}   # 代理 id → 观战 GM 的 player_id
         self._last_charge_at = 0      # 分钟记账节拍
         self._last_persist_at = 0     # 周期落库节拍（降低宕机损失）
 
@@ -579,11 +580,54 @@ class OfflineAgentManager:
             pilot.active = False
 
     def push(self, player_id: int, now: int, force: bool = False) -> None:
-        """离线没有客户端可推，只同步 pushed_status 避免重复字符串比较。"""
+        """离线没有客户端可推，只同步 pushed_status 避免重复字符串比较；
+        有 GM 观战时把状态文案实时转发过去（走 set_status 的节流，不会刷屏）。"""
         pilot = self._pilots.get(player_id)
         if pilot is not None:
             pilot.pushed_status = pilot.status
             pilot.last_state_at = now
+            self._notify_watchers(player_id, pilot.status)
+
+    # ---- GM 观战 --------------------------------------------------------
+
+    def _notify_watchers(self, player_id: int, text: str) -> None:
+        """把一条动态推给该代理的所有观战 GM；GM 已下线的顺手清掉。"""
+        gids = self._watchers.get(player_id)
+        if not gids:
+            return
+        w = self.service.world
+        p = w.actor(player_id)
+        prefix = f"[观战] {p.name if p is not None else '?'}: "
+        for gid in list(gids):
+            g = next((q for q in w.players() if q.id == gid), None)
+            if g is None:
+                gids.discard(gid)
+            else:
+                w.send_system(g, prefix + text)
+        if not gids:
+            self._watchers.pop(player_id, None)
+
+    def watch_start(self, gm, name: str) -> str:
+        """GM 开始实时跟踪一个离线代理的状态流。"""
+        p = self.service.world.player(name)
+        if p is None or p.id not in self._pilots:
+            return f"角色 {name} 当前不在离线修炼中（@离线 list 查看）。"
+        self._watchers.setdefault(p.id, set()).add(gm.id)
+        return f"开始观战 {name}：{self._pilots[p.id].status}\n（再发一次 @离线 watch 停止）"
+
+    def watch_stop(self, gm) -> str:
+        stopped: list[str] = []
+        for pid, gids in list(self._watchers.items()):
+            if gm.id not in gids:
+                continue
+            gids.discard(gm.id)
+            if not gids:
+                self._watchers.pop(pid, None)
+            a = self.service.world.actor(pid)
+            stopped.append(a.name if a is not None else "?")
+        if not stopped:
+            return "当前没有观战中的离线代理。"
+        return f"已停止观战：{'、'.join(stopped)}。"
 
     def push_state(self, p, preset: str | None = None, reason: str = "",
                    ok: bool = True) -> None:
@@ -597,6 +641,8 @@ class OfflineAgentManager:
         pilot.active = False
         pilot.reason = reason
         pilot.status = "已停止"
+        self._notify_watchers(p.id, f"已停止：{reason}")
+        self._watchers.pop(p.id, None)
         pilot.on_disabled(reason)
         self._settle(p, pilot, reason)
 
@@ -837,6 +883,12 @@ class OfflineAgentManager:
             pilot.remaining = remaining
             db.update_afk_remaining(p.character_id, remaining, pilot.deaths,
                                     pilot.restart_bonus)
+            if self._watchers.get(pilot.player_id):
+                # 观战心跳：战斗平稳、状态不变时也能确认代理活着。
+                self._notify_watchers(
+                    pilot.player_id,
+                    f"{p.map.name if p.map else '?'}({p.x},{p.y}) "
+                    f"HP {p.hp}/{p.max_hp} 剩{remaining}分钟")
             if remaining <= 0:
                 self.disable(p, "修炼时长已用完，离线修炼结束")
         if now - self._last_persist_at < 300_000:

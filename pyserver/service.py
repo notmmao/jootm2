@@ -642,7 +642,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
     _GM_HELP = ("GM命令: @移动 [地图] x y  @金 数量  @等级 n  "
                 "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  "
                 "@托管 [安全|均衡|效率]  "
-                "@离线 grant 角色名 分钟 | @离线 list  "
+                "@离线 grant 角色名 分钟 | @离线 watch [角色名] | @离线 list  "
                 "@机器人 list|reload|名字 台词  @帮助")
 
     def _gm_command(self, p, line: str) -> None:
@@ -753,9 +753,10 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 self.autopilot.enable(p, key)
             return
         if cmd in ("离线", "afk"):
-            # @离线 grant 角色名 分钟 = 加修炼时长余额；@离线 list = 查看代理
+            # @离线 grant 角色名 分钟 = 加修炼时长余额；@离线 list = 查看代理；
+            # @离线 watch [角色名] = 实时跟踪代理状态流（无参=停止观战）
             if not args:
-                w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 list")
+                w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 watch [角色名] | @离线 list")
                 return
             if args[0] == "list":
                 rows = self.afk.snapshot()
@@ -764,6 +765,12 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                     w.send_system(p, f"  {r['name']} {r['level']}级 {r['map']} "
                                      f"剩{r['remaining']}分 死{r['deaths']} "
                                      f"[{r['status']}]")
+                return
+            if args[0] == "watch":
+                if len(args) >= 2:
+                    w.send_system(p, self.afk.watch_start(p, args[1]))
+                else:
+                    w.send_system(p, self.afk.watch_stop(p))
                 return
             if args[0] == "grant" and len(args) >= 3:
                 target = self.world.player(args[1])
@@ -789,7 +796,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 if target is not None and target.session is not None:
                     w.send_system(target, f"[离线修炼] 获赠 {minutes} 分钟修炼时长。")
                 return
-            w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 list")
+            w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 watch [角色名] | @离线 list")
             return
         if cmd in ("机器人", "bot"):
             # @机器人 list / @机器人 名字 台词 / @机器人 reload
