@@ -17,7 +17,7 @@ from typing import Any
 
 from .afk import NullSession
 from .autopilot import (AutoPilot, WALK_INTERVAL_MS, _walkable, normalize_preset)
-from .world import Player, direction_delta, direction_toward, now_ms
+from .world import SIGHT_RANGE, Player, direction_delta, direction_toward, now_ms
 
 DEFAULT_CHAT_EVERY = (180, 420)      # 台词间隔区间（秒）
 REVIVE_DELAY_MS = 10_000             # Bot 死亡后躺尸几秒再回城复活
@@ -114,8 +114,10 @@ class Bot:
         if not pool:
             return
         line = random.choice(pool)
-        self.manager.service.world.broadcast_all({
-            "type": "chat", "id": self.p.id, "name": self.p.name, "text": line[:200]})
+        # 与原版普通 Say 一致：只有同图附近的人听得到（不再全服刷屏）。
+        self.manager.service.world.broadcast_around(self.p.map, {
+            "type": "chat", "id": self.p.id, "name": self.p.name, "text": line[:200]},
+            self.p.x, self.p.y, SIGHT_RANGE)
 
 
 class BotManager:
@@ -245,6 +247,8 @@ class BotManager:
         bot = self.by_name(name)
         if bot is None:
             return False
-        self.service.world.broadcast_all({
-            "type": "chat", "id": bot.p.id, "name": bot.p.name, "text": text[:200]})
+        # 同上：GM 让 Bot 说话也只传同图附近，不跨图广播。
+        self.service.world.broadcast_around(bot.p.map, {
+            "type": "chat", "id": bot.p.id, "name": bot.p.name, "text": text[:200]},
+            bot.p.x, bot.p.y, SIGHT_RANGE)
         return True

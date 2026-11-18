@@ -804,3 +804,12 @@ test_all_messages 95/95、test_slave_protection 22/22。
 `mapTitle`（world.map_titles，MapInfo.txt 的 `[0 比奇省]` 中文名，取不到回落
 编号）。前端 TradePartyUI 渲染 `@ 比奇省`，悬停 title 保留「中文名 (编号)」。
 test_multiplayer_features 31/31（新增 mapTitle 断言）。
+
+## §117 普通聊天改回同图附近可见（2026-11-18）
+
+用户反馈沃玛森林能听见矿区 Bot 说话。原版 `TCreature.Say → SendRefMsg(RM_HEAR)`
+（ObjBase.pas:2307）只发同图视野内；本项目 service._say / bots 两处都用
+`broadcast_all` 全服广播。改为 `broadcast_around(map, x, y, SIGHT_RANGE)`，
+Bot 的 GM say 同样收窄。原版 `!~` 喊话（Say 末尾 CryCry wide=50、10s CD、
+黄色字）仍未实现，当前 `!~` 只会作为普通文本发送。
+test_multiplayer_features 32/32（新增远处/别图玩家收不到 chat）、test_bots 19/19。

@@ -2,7 +2,7 @@
 """多人功能服务端离线回归（纯标准库，Python 3.10）。
 
 覆盖本轮新增：
-- 头顶气泡：普通聊天 chat 消息带说话者 id（气泡定位依据），全体广播保留。
+- 头顶气泡：普通聊天 chat 消息带说话者 id（气泡定位依据），同图附近可见。
 - 密语：原版 SM_WHISPER（/玩家名 内容）——只定向发双方、目标离线有提示、
   不进世界频道、@ 仍是 GM 命令通道。
 - 在线列表：onlineList 回全体在线玩家（名字/等级/职业/地图，按等级降序）。
@@ -106,7 +106,7 @@ def main() -> None:
     q, s2 = make_player(svc, "B", job=1)
     nearby(p, q)
 
-    print("\n[1] 普通聊天：chat 带说话者 id（气泡定位），全体可见")
+    print("\n[1] 普通聊天：chat 带说话者 id（气泡定位），同图附近可见")
     s1.drain(); s2.drain()
     send(svc, s1, {"type": "say", "text": "大家好"})
     c1 = s1.of("chat"); c2 = s2.of("chat")
@@ -114,7 +114,14 @@ def main() -> None:
     check("chat 带 id=说话者", c1 is not None and c1.get("id") == p.id)
     check("chat 带 name/text", c1 is not None and c1.get("name") == p.name
           and c1.get("text") == "大家好")
-    check("全体广播：对方也收到", c2 is not None and c2.get("id") == p.id)
+    check("附近广播：对方也收到", c2 is not None and c2.get("id") == p.id)
+    # 原版 TCreature.Say → SendRefMsg(RM_HEAR)：远处/别图听不到
+    r, s3 = make_player(svc, "C", job=2)
+    r.map = next(m for m in w.maps.values() if m.name != p.map.name)
+    r.x, r.y = 200, 200
+    s3.drain()
+    send(svc, s1, {"type": "say", "text": "远处的喊话"})
+    check("远处/别图玩家收不到 chat", not s3.has("chat"))
     check("气泡所需字段齐全", c1 is not None and all(k in c1 for k in ("id", "name", "text")))
 
     print("\n[2] 密语：/名字 内容 只定向发双方")

@@ -604,8 +604,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if text.startswith("/"):
             self._whisper(p, text[1:])
             return
-        self.world.broadcast_all({"type": "chat", "id": p.id, "name": p.name,
-                                  "text": text[:500]})
+        # 原版 TCreature.Say → SendRefMsg(RM_HEAR)（ObjBase.pas:2307）：同图附近可见的人
+        # 才收得到，不是全服。此前 broadcast_all 导致沃玛森林能听见矿区 Bot 说话。
+        self.world.broadcast_around(p.map, {"type": "chat", "id": p.id, "name": p.name,
+                                            "text": text[:500]},
+                                    p.x, p.y, SIGHT_RANGE)
 
     def _whisper(self, p: Player, body: str) -> None:
         """密语（原版 TUserHuman.Whisper，ObjBase.pas:10670-10692）。
