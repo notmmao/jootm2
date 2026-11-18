@@ -138,6 +138,12 @@ def main() -> None:
     r = engine.execute(p, npc, "main")
     check("已领后 @main 不再发钱", p.gold == gold1, f"Δ={p.gold - gold1}")
     check("@away 提示「领取过一次」", "领取过一次" in r.say_text)
+    # 用户 2026-11-18 反馈：领过旧的一次性 5000 后，@main 被 goto @away
+    # 截断，新加的离线修炼/每日金币入口全消失。@away 的 ELSESAY 必须保留它们。
+    check("已领旧礼包后仍可见「领取离线修炼补助」入口",
+          "领取离线修炼补助" in r.say_text)
+    check("已领旧礼包后仍可见「领取每日金币」入口",
+          "领取每日金币" in r.say_text)
 
     print("\n[5] 已领状态下强行再走 @away / @next1，仍不能重复领")
     r = engine.execute(p, npc, "away")
