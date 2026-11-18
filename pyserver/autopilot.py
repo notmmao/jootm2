@@ -74,6 +74,12 @@ MAGE_ATTACK_SKILLS = (11, 5, 1)
 KITE_TRIGGER_DIST = 2          # 怪贴到 2 格内才考虑走位（切比雪夫）
 KITE_SAFE_DIST = 4             # 拉开到 4 格就停手重新施法（仍在 8 格射程内）
 KITE_STEP_MS = WALK_INTERVAL_MS  # 后撤走一步沿用走/跑节拍，不额外加速
+# 回蓝期被盯上时的「偷跑」：法师没蓝可放时绝不站桩挨打，也不朝怪走近，
+# 拉开到施法半径（8 格）外再停；与放风筝共用动作锁/走位节拍但不共用目标锁。
+FLEE_TRIGGER_DIST = 8          # 被 8 格内的怪锁定（或刚掉血）就撤
+FLEE_SAFE_DIST = 10            # 拉到 10 格（怪的仇恨半径外）才停
+FLEE_LOCK_MS = 5_000           # 同一次偷跑的最长持续，防来回横跳
+FLEE_HURT_MEMORY_MS = 2_000    # 掉血后即使怪暂时丢了目标，也认这段时间内受击
 # 强怪判定（满足任一）：攻击上限够疼 或 血量够厚，避免对鸡/稻草人无脑后退
 KITE_STRONG_MAXDC = 12
 KITE_STRONG_HP = 200
@@ -238,6 +244,10 @@ class AutoPilot:
     last_cast_beat: int = 0         # 上次施法对应的动作锁时长（ms）
     kite_until: int = 0             # 放风筝走位目标锁过期时刻（避免来回抖动）
     kite_target_id: int = 0         # 正在放风筝拉开的那只怪
+    flee_until: int = 0             # 偷跑目标锁过期时刻（回蓝期被打）
+    flee_target_id: int = 0         # 正在躲的那只怪
+    last_hp_seen: int = 0           # 上一 tick 的 HP：掉血即认为「被打」
+    last_damage_at: int = 0         # 最近一次观测到掉血的时刻
     last_pickup_at: int = 0
     last_potion_at: int = 0
     last_mp_potion_at: int = 0
@@ -291,6 +301,11 @@ class AutoPilot:
         if getattr(p, "dead", False) or not p.alive:
             mgr.handle_death(p, self)
             return
+        # 受击侦测：服务端有多条扣血路径（普攻/魔法/毒），不逐处打标记，
+        # 用相邻 tick 的 HP 差即可覆盖；涨血（喝药/回血池）不算挨打。
+        if self.last_hp_seen and p.hp < self.last_hp_seen:
+            self.last_damage_at = now
+        self.last_hp_seen = p.hp
 
         cfg = self.adjust_cfg(PRESETS[self.preset])
         # 熔断：长时间一点进展都没有（经验/背包/金币都不变），说明卡住 /
@@ -387,7 +402,19 @@ class AutoPilot:
 
     # ---- 熔断钩子（在线托管默认停机；离线代理覆写为补给闭环）----------
     def _on_danger_no_potion(self, srv, w, p, now: int) -> None:
-        """血线危险且无药可喝、又无法治愈 —— 默认停机。"""
+        """血线危险且无药可喝、又无法治愈 —— 有回城卷先保命回城再停机。
+
+        用户 2026-11-18 要求：「快死了要回城（如果有回城券）」。回城后
+        托管停止，避免角色在城里又自动跑回危险地图反复送死；玩家补药后
+        重新按 P 即可。没券时维持旧行为（直接停机）。
+        """
+        scroll = _find_town_scroll(w, p)
+        if scroll is not None and p.map is not None:
+            srv._use_item(p.session, {"type": "useItem",
+                                      "makeIndex": int(scroll.get("makeIndex", 0))})
+            self.set_status("血量过低 · 回城保命", now, force=True)
+            self.manager.disable(p, "血量过低，已用回城卷回城保命；补药后再开启托管")
+            return
         self.manager.disable(p, "血量过低且没有药水，托管已停止")
 
     def _on_bag_full(self, srv, w, p, now: int) -> None:
@@ -708,6 +735,73 @@ class AutoPilot:
         self.set_status(f"放风筝 · 拉开到 {KITE_SAFE_DIST} 格", now)
         return True
 
+    def _flee_threat(self, w, p, now: int):
+        """回蓝期找要躲的怪：锁定玩家的（或刚让咱掉血的）最近一只。
+
+        只看 ``Monster.target_id``（服务端 _acquire_target 每 600ms 刷新），
+        避免用「HP 比上 tick 低」误判中毒/回血池结算；掉血记忆仅作兜底。
+        """
+        gm = p.map
+        if gm is None:
+            return None
+        best, best_d = None, 10 ** 9
+        for a in gm.actors.values():
+            if not isinstance(a, Monster) or not a.alive or a.master_id >= 0:
+                continue
+            if any(k in a.name for k in AVOID_NAMES):
+                continue
+            d = p.distance_to(a)
+            if d > FLEE_TRIGGER_DIST or d >= best_d:
+                continue
+            if a.target_id == p.id or (now - self.last_damage_at < FLEE_HURT_MEMORY_MS
+                                       and d <= KITE_TRIGGER_DIST):
+                best, best_d = a, d
+        return best
+
+    def _flee_step(self, srv, w, p, target, now: int) -> bool:
+        """法师没蓝时偷跑：往离怪最远的可走邻格跑，拉开到安全距离再停。
+
+        返回 True = 本 tick 已用于走位；False = 无需/无法后撤，调用方照常
+        等回蓝。与放风筝一样受原版动作锁约束（刚施完法要等落地才能走）。
+        """
+        gm = p.map
+        if gm is None:
+            return False
+        dist = p.distance_to(target)
+        if dist >= FLEE_SAFE_DIST:
+            self.flee_target_id = 0
+            self.flee_until = 0
+            return False
+        if self.flee_target_id != target.id and now < self.flee_until:
+            return False                    # 正在躲另一只，别来回横跳
+        if self._action_busy(p, now):
+            self.set_status("偷跑 · 等待动作落地", now)
+            return True
+        if now - self.last_move_at < RUN_INTERVAL_MS:
+            return True                     # 跑动节拍未到
+        if now_ms() - getattr(p, "map_change_at", 0) < 350:
+            return True
+        best_dir, best_dist = -1, dist
+        for d in range(8):
+            dx, dy = direction_delta(d)
+            nx, ny = p.x + dx, p.y + dy
+            if not _walkable(gm, nx, ny):
+                continue
+            nd = max(abs(nx - target.x), abs(ny - target.y))
+            if nd > best_dist:
+                best_dir, best_dist = d, nd
+        if best_dir < 0:
+            # 墙角堵死：不原地抖动，站桩等回蓝（或被打死，交给死亡复活流程）
+            self.flee_target_id = 0
+            self.flee_until = 0
+            return False
+        self.flee_target_id = target.id
+        self.flee_until = now + FLEE_LOCK_MS
+        self.last_move_at = now
+        srv._move(p.session, {"type": "move", "dir": best_dir, "run": True})
+        self.set_status(f"偷跑 · 躲开 {target.name}", now)
+        return True
+
     # ---- 目标决策：掉落物 → 选怪 → 寻路 → 攻击 --------------------------
     def _fight(self, srv, w, p, cfg, now: int) -> None:
         if self.acted:               # 治愈术等生存动作已占用本 tick
@@ -753,6 +847,13 @@ class AutoPilot:
         # 法师远程（Magic.pas:266 施法半径 8 格）：进射程优先法术，没蓝/没学
         # 不贴身砍（法师物理输出极低），原地等回蓝；超射程照常走近。
         if p.job == 1:
+            # 空蓝站桩挨打是新手最容易被骂的场景（用户 2026-11-18 反馈）：
+            # 没蓝可放时不朝怪走、也不原地等死，被盯上就偷跑到射程外等回蓝。
+            # 有蓝能打时仍走原逻辑（贴身强怪放风筝，其余正常输出）。
+            if not _mage_can_cast(w, p):
+                threat = self._flee_threat(w, p, now)
+                if threat is not None and self._flee_step(srv, w, p, threat, now):
+                    return
             if dist <= 8:
                 # 被强怪贴身：先拉开距离再施法（法师脆皮，站着硬扛会很快死）。
                 # 硬直期动作锁会挡住走位，此时不施法也不动，等动作落地那一拍
@@ -1181,6 +1282,17 @@ def _min_mage_spell_cost(w, p):
         if best is None or cost < best:
             best = cost
     return best
+
+
+def _mage_can_cast(w, p) -> bool:
+    """已学技能且当前 MP 够放其中一招（偷跑判据：没蓝可放就别站桩）。"""
+    for magic_id in MAGE_ATTACK_SKILLS:
+        if magic_id not in p.skills:
+            continue
+        t = w.magic_templates.get(magic_id)
+        if t is not None and p.mp >= spell_cost(t, skill_level(p, magic_id)):
+            return True
+    return False
 
 
 def _best_wearable(w, p, slot: int, accept):

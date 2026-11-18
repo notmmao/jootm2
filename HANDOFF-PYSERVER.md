@@ -813,3 +813,23 @@ test_multiplayer_features 31/31（新增 mapTitle 断言）。
 Bot 的 GM say 同样收窄。原版 `!~` 喊话（Say 末尾 CryCry wide=50、10s CD、
 黄色字）仍未实现，当前 `!~` 只会作为普通文本发送。
 test_multiplayer_features 32/32（新增远处/别图玩家收不到 chat）、test_bots 19/19。
+
+## §118 法师回蓝期偷跑 + 濒死回城卷保命（2026-11-18 深夜）
+
+**偷跑**：用户反馈法师原地等回蓝时被打只能站桩。新增 `_mage_can_cast`（已学
+技能且 MP 够放）判据：空蓝时不再朝怪走近/站着挨打，而是找锁定自己的怪
+（`Monster.target_id == p.id`，落血记忆兜底）用 `_flee_step` 往最远可走格
+**跑开**至 FLEE_SAFE_DIST=10 格外；有蓝时保留原放风筝/施法逻辑。与放风筝
+共用动作锁和跑动节拍，但独立目标锁（flee_until）防横跳；墙角堵死则回落
+站桩（原版也不会穿墙）。
+
+**濒死回城**：`_on_danger_no_potion` 在有回城卷时先 `useItem` 传送回城再停机
+（防止角色回城后自动跑回危险区反复送死）；没卷维持旧停机。离线代理
+（补充给闭环）：有卷则先记原图锚点、卷回城后进入 `SUPPLY_GOTO_TOWN`
+买药再返回锚点继续修炼。
+
+**验证**：新 `test_mage_flee` 8/8（偷跑方向/状态、有蓝不偷跑、卷消耗/
+停机、无卷旧行为）；`test_afk_supply` 37/37（新增离线濒死补给）、
+`test_afk_offline` 50/50、`test_bots` 19/19、`test_autopilot_taoist` 18/18、
+`test_autopilot_hosted_opt` 36/36；`test_autopilot` 39/39（首跑挖肉 3 FAIL
+为既有 timing 抖动，复跑 3 次全过）。

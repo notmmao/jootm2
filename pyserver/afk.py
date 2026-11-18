@@ -24,7 +24,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, normalize_preset)
+from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
+                        normalize_preset)
 from .util import RED_NAME_PK_POINT
 from .world import BAG_SIZE, Player, now_ms
 
@@ -221,6 +222,15 @@ class OfflinePilot(AutoPilot):
             # 补给赶路途中血线危险：继续赶路（城里安全区），不停机。
             self.set_status("补给途中 · 血线危险", now)
             return
+        if self._supply_enabled(srv) and p.map is not None:
+            # 离线代理有补给闭环：回城卷直接传送 + 进入补给状态买药，
+            # 买完会回原锚点继续修炼；不卷则沿用旧行为（停机）。
+            scroll = _find_town_scroll(w, p)
+            if scroll is not None:
+                self._supply_begin(srv, w, p, now, "血量过低")   # 先记原图锚点
+                srv._use_item(p.session, {"type": "useItem",
+                                          "makeIndex": int(scroll.get("makeIndex", 0))})
+                return
         AutoPilot._on_danger_no_potion(self, srv, w, p, now)
 
     def _on_bag_full(self, srv, w, p, now: int) -> None:

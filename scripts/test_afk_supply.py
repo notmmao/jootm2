@@ -318,6 +318,31 @@ def main() -> int:
                   pilot5.reason)
         finally:
             srv.config = saved_cfg
+
+        print("\n=== 9. 濒死有回城卷：离线代理卷回城 + 进入补给闭环 ===")
+        cfg9, db9, db_path9, srv9 = make_service()
+        try:
+            s9 = FakeSession()
+            p9 = login(srv9, s9, "DangerRecall")
+            clear_threats(srv9, p9)
+            p9.bag.clear()                 # 清掉自带药水，制造「无药濒死」
+            p9.hp, p9.max_hp = 10, 300
+            p9.map_change_at = 0
+            srv9.world.give_item(p9, "回城卷", 1)
+            anchor = p9.map.name
+            pilot9 = make_offline(srv9, p9)
+            pilot9.tick(1000)
+            check("濒死进入补给状态", pilot9.supply_state == SUPPLY_GOTO_TOWN,
+                  pilot9.supply_state)
+            check("回城卷已消耗", not any(it.get("name") == "回城卷" for it in p9.bag))
+            check("锚点仍记原地图", pilot9.anchor_map == anchor,
+                  f"{anchor} → {pilot9.anchor_map}")
+        finally:
+            db9.close()
+            for suffix in ("", "-wal", "-shm"):
+                q9 = Path(str(db_path9) + suffix)
+                if q9.exists():
+                    q9.unlink()
     finally:
         db.close()
         for suffix in ("", "-wal", "-shm"):
