@@ -132,6 +132,14 @@ def main() -> int:
         check("打怪 Bot 自动挂载 AutoPilot", pilot is not None)
         check("策略档为 safe", pilot is not None and pilot.preset == "safe")
         check("avoid_real_targets 开启", pilot is not None and pilot.avoid_real_targets)
+        # Bot 必须像同级真人一样学过基础技能，否则命中点只有 DEF_HIT=5，
+        # 打怪大量 MISS，看上去就是「被打不还手」（用户 2026-11-18 反馈）。
+        from pyserver.world import hit_point
+        check("战士 Bot 已学基本剑术(3)",
+              3 in fight.p.skills and fight.p.skills[3]["level"] >= 1,
+              f"skills={fight.p.skills}")
+        check("Bot 命中点高于裸号 5", hit_point(fight.p) > 5,
+              f"hit={hit_point(fight.p)}")
         check("Bot 附近发现目标（决策在跑）",
               pilot is not None and ("前往" in pilot.status or "打怪" in pilot.status
                                      or "拾取" in pilot.status or "挖肉" in pilot.status),

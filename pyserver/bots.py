@@ -169,9 +169,41 @@ class BotManager:
         p.recompute(w)
         # 原版升级不回满，这里按「满状态生成」（Bot 是氛围道具，不必抠血条）
         p.hp, p.mp = p.max_hp, p.max_mp
+        self._learn_skills(p, cfg)
         self._dress(p, cfg)
         w.broadcast_entity_add(p)
         return p
+
+    def _learn_skills(self, p: Player, cfg: dict) -> None:
+        """按原版 ``NeedLevel`` 给 Bot 学到当前等级能吃到的基础技能。
+
+        Bot 是虚构角色，不走技能书/修炼流程。旧实现一个技能都不给，战士
+        命中点只有 ``DEF_HIT=5``（SKILL_HIT_BONUS 全是 0），打矿区怪 3/4
+        MISS —— 服务端明明在还手，玩家看上去却像站着挨打。17 级真人战士
+        早就有 3 级基本剑术，这里按 Magic.csv 的 NeedLevel 补齐；配置里
+        可用 ``skills`` 显式指定 ``{技能ID: 等级}`` 覆盖。
+        """
+        w = self.service.world
+        ids = {0: (3, 7), 1: (1, 11), 2: (2, 13)}.get(p.job, ())
+        override = cfg.get("skills")
+        if isinstance(override, dict) and override:
+            for k, v in override.items():
+                try:
+                    p.skills[int(k)] = {"level": max(0, min(3, int(v))),
+                                        "train": 0, "key": 0}
+                except (TypeError, ValueError):
+                    continue
+            return
+        for mid in ids:
+            t = w.magic_templates.get(mid)
+            if t is None:
+                continue
+            lv = 0
+            for i, need in enumerate(t.needLevel[:3]):
+                if need > 0 and p.level >= need:
+                    lv = i + 1
+            if lv > 0:
+                p.skills[mid] = {"level": lv, "train": 0, "key": 0}
 
     def _dress(self, p: Player, cfg: dict) -> None:
         """给 Bot 发基础装备并**全槽位**自动穿戴（用户 2026-11-18 反馈 Bot 全裸）。
