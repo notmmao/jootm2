@@ -502,8 +502,9 @@ export class TradePartyUI {
             const row = document.createElement('div');
             row.style.cssText = 'height:22px;line-height:22px;padding:0 6px;font-size:12px;'
                 + 'border-bottom:1px solid #3a3120;color:#e8d9b0;cursor:default;';
-            row.textContent = `${pl.name}  Lv.${pl.level}  ${JOBS[pl.job] || '?'}  @ ${pl.map || '?'}`;
-            row.title = `${pl.name} — ${pl.map || '未知地图'}`;
+            const mt = pl.mapTitle || pl.map || '?';
+            row.textContent = `${pl.name}  Lv.${pl.level}  ${JOBS[pl.job] || '?'}  @ ${mt}`;
+            row.title = `${pl.name} — ${mt}${pl.map && pl.map !== mt ? ` (${pl.map})` : ''}`;
             list.appendChild(row);
         }
     }

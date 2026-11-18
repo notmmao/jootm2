@@ -606,11 +606,14 @@ class SocialHandlers:
         w = self.world
         players = []
         for other in w.players():
+            mname = other.map.name if other.map else ""
             players.append({
                 "name": other.name,
                 "level": other.level,
                 "job": other.job,
-                "map": other.map.name if other.map else "",
+                "map": mname,
+                # MapInfo.txt 的中文名（如 0→比奇省），取不到回落编号
+                "mapTitle": w.map_titles.get(mname, mname) if mname else "",
             })
         players.sort(key=lambda e: (-e["level"], e["name"]))
         p.session.send_json({"type": "onlineList", "players": players})

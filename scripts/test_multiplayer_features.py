@@ -158,6 +158,9 @@ def main() -> None:
     names = {e["name"] for e in players}
     check("含测试玩家 p/q", p.name in names and q.name in names)
     check("地图字段非空", all(e.get("map") for e in players))
+    check("地图中文名(mapTitle)非空且非纯编号", all(
+        e.get("mapTitle") and e["mapTitle"] != e["map"] for e in players),
+        f"实际 {[e.get('mapTitle') for e in players]}")
 
     print("\n[5] 查看装备：近距 + 13 槽装备快照")
     # 给 q 穿一件装备（slot=1 武器）

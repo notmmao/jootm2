@@ -797,3 +797,10 @@ CheckHomePos（ObjBase.pas:13103-13121，Run 每 3s）：新增 parse_start_poin
 test_bots 19/19、test_autopilot 39/39（首跑 3 FAIL 复跑消失，既有挖肉
 timing 抖动与本次无关）、test_autopilot_taoist 18/18、test_spell_fx 13/13、
 test_all_messages 95/95、test_slave_protection 22/22。
+
+## §116 在线玩家名单显示地图中文名（2026-11-18）
+
+`_online_list`（handlers_social.py）原来只回 `map` 编号（0/d3031）；补
+`mapTitle`（world.map_titles，MapInfo.txt 的 `[0 比奇省]` 中文名，取不到回落
+编号）。前端 TradePartyUI 渲染 `@ 比奇省`，悬停 title 保留「中文名 (编号)」。
+test_multiplayer_features 31/31（新增 mapTitle 断言）。
