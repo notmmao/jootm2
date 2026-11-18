@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>离线修炼使用指南</title>
+<style>
+  :root { --ink:#2b2620; --gold:#8a6d2f; --line:#d9cdb4; --bg:#faf6ec; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font-family:"Microsoft YaHei","PingFang SC",sans-serif; line-height:1.75; }
+  .wrap { max-width:860px; margin:0 auto; padding:36px 28px 64px; }
+  h1 { font-size:26px; border-bottom:3px solid var(--gold); padding-bottom:10px; margin:0 0 6px; }
+  .sub { color:#7a6a4a; font-size:14px; margin-bottom:28px; }
+  h2 { font-size:19px; color:var(--gold); margin:34px 0 10px; }
+  .step { display:flex; align-items:baseline; gap:10px; }
+  .step .no { background:var(--gold); color:#fff; border-radius:50%; width:26px; height:26px;
+              display:inline-flex; align-items:center; justify-content:center; font-size:15px;
+              flex:none; transform:translateY(4px); }
+  img { max-width:100%; border:1px solid var(--line); border-radius:6px;
+        box-shadow:0 2px 10px rgba(80,60,20,.12); margin:10px 0 4px; display:block; }
+  .cap { font-size:13px; color:#8a7a5a; margin:2px 0 14px; }
+  kbd { background:#fff; border:1px solid #c9b98a; border-bottom-width:2px; border-radius:4px;
+        padding:1px 7px; font-size:13px; font-family:inherit; }
+  table { border-collapse:collapse; width:100%; font-size:14px; margin:10px 0;
+          background:#fff; }
+  th,td { border:1px solid var(--line); padding:7px 12px; text-align:left; }
+  th { background:#f0e8d2; color:#6a5626; }
+  .tip { background:#fff8dc; border-left:4px solid var(--gold); padding:10px 14px;
+         border-radius:0 6px 6px 0; font-size:14px; margin:12px 0; }
+  .tip b { color:var(--gold); }
+  code { background:#efe8d5; padding:1px 6px; border-radius:4px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>离线修炼使用指南</h1>
+  <div class="sub">下线挂机 · 时长领取 · 补给与结算 —— 更新于 2026-11-18</div>
+
+  <div class="tip"><b>一句话：</b>设定计划后正常下线，角色会留在原地自动打怪、捡物、
+  喝药，药不够还会回城卖货买药再回去；重新上线时收到一份结算报告。
+  修炼消耗<b>时长余额</b>，余额找比奇城的<b>玛法领路人</b>领取。</div>
+
+  <h2><span class="step"><span class="no">1</span>领时长 —— 比奇城找玛法领路人</span></h2>
+  <p>玛法领路人在比奇城内（坐标 <code>280,610</code>）。点击 NPC 对话，选择
+  <b>「领取离线修炼补助」</b>：</p>
+  <img src="images/afk-guide/npc.png" alt="玛法领路人对话，领取离线修炼补助入口">
+  <div class="cap">对话菜单里的「领取离线修炼补助」</div>
+  <p>规则：新角色注册即赠送 4 小时体验时长；之后每日可领 1 次，每次 +4 小时，
+  余额上限 12 小时，领满后当天不能再领。</p>
+
+  <h2><span class="step"><span class="no">2</span>设定计划 —— 托管条上的「离线」按钮</span></h2>
+  <p>进入游戏后，屏幕右上角的托管条上有 <kbd>托管 [P]</kbd> <kbd>均衡</kbd>
+  <kbd>不挖肉</kbd> 和 <kbd>离线</kbd> 四个控件，点击 <kbd>离线</kbd> 打开配置面板：</p>
+  <img src="images/afk-guide/entry.png" alt="游戏主界面与托管条上的离线按钮">
+  <div class="cap">右上角托管条最右侧的「离线」按钮</div>
+  <img src="images/afk-guide/panel.png" alt="离线修炼配置面板">
+  <div class="cap">面板：余额 / 今日已用 / 当前地图是否允许 / 策略档 / 修炼分钟</div>
+  <p>面板里可以看到：</p>
+  <ul>
+    <li><b>余额</b>——当前剩余修炼时长（分钟）；</li>
+    <li><b>今日已用</b>——今天的修炼额度使用情况；</li>
+    <li><b>当前地图</b>——比奇城内<b>不能</b>开启（新手区保护），换到野外地图再设定；</li>
+    <li><b>策略档</b>——安全 / 均衡 / 效率，与在线托管共用一套打法；</li>
+    <li><b>修炼分钟</b>——本次计划修炼多久，确认后点 <kbd>设定计划</kbd>。</li>
+  </ul>
+
+  <h2><span class="step"><span class="no">3</span>下线，剩下的交给服务器</span></h2>
+  <p>计划设定好之后，正常退出游戏即可。角色会<b>留在原地继续战斗</b>，其他在线玩家
+  能看到 TA 在打怪；期间自动执行：选怪攻击 → 拾取 → 喝药 → 背包慢了回城卖货买药
+  → 回锚点继续。死亡会自动回城复活再回去（连续死亡 3 次会熔断停机，防止药尽送死）。</p>
+
+  <h2><span class="step"><span class="no">4</span>上线收报告</span></h2>
+  <p>再次登录时，会弹出离线期间的结算报告：</p>
+  <img src="images/afk-guide/report.png" alt="离线修炼报告弹窗">
+  <div class="cap">修炼时长 / 经验 / 击杀 / 金币 / 死亡次数一目了然</div>
+
+  <h2>规则速览</h2>
+  <table>
+    <tr><th>项目</th><th>规则</th></tr>
+    <tr><td>开启等级</td><td>15 级以上</td></tr>
+    <tr><td>可挂地图</td><td>除比奇省(新手区)外的地图（后续可能调整）</td></tr>
+    <tr><td>每日时长</td><td>每天最多修炼 6 小时</td></tr>
+    <tr><td>同时在线代理</td><td>每张地图 2 个、全服 10 个，满了排队</td></tr>
+    <tr><td>收益</td><td>经验 ×0.7（掉落与金币不打折）</td></tr>
+    <tr><td>中途下线</td><td>没修炼完的分钟数自动退回余额，不白扣</td></tr>
+    <tr><td>服务器重启</td><td>自动续挂，并补偿 60 分钟时长，上线有通知</td></tr>
+  </table>
+
+  <h2>常见问题</h2>
+  <p><b>Q：点「设定计划」提示失败？</b><br>
+  看面板里的红字原因：等级不足 15 级、在比奇省、余额不足 10 分钟、已死亡等，
+  对应解决后重试。</p>
+  <p><b>Q：想提前结束？</b><br>
+  上线即自动接管结算，没用完的分钟退回余额；也可以在面板里点「取消计划」。</p>
+  <p><b>Q：和在线托管（P 键）有什么区别？</b><br>
+  托管只在在线时生效；离线修炼是下线后继续，两者共用同一套战斗策略，可以同时用。</p>
+</div>
+</body>
+</html>
