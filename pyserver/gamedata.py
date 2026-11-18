@@ -122,6 +122,17 @@ def parse_start_point(path: Path) -> StartPoint:
     return StartPoint("0", 300, 300)
 
 
+def parse_start_points(path: Path) -> list[StartPoint]:
+    """StartPoint.txt 的**全部**登记点（原版 StartPoints 列表，ObjBase.pas
+    CheckHomePos 逐个比对：玩家走到任一登记点 ±50 格内就把家搬过去）。"""
+    pts: list[StartPoint] = []
+    for line in _rows(path):
+        parts = line.split()
+        if len(parts) >= 3:
+            pts.append(StartPoint(parts[0], _int(parts[1]), _int(parts[2])))
+    return pts or [StartPoint("0", 300, 300)]
+
+
 def _xy(text: str) -> tuple[int, int]:
     parts = text.split(",", 1)
     return _int(parts[0]), (_int(parts[1]) if len(parts) > 1 else 0)

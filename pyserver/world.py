@@ -19,7 +19,7 @@ from .db import Database
 from .gamedata import (
     Gate, MapGrid, MapInfo, MonGen, parse_map_info, parse_mini_map,
     map_size,
-    parse_mon_gen, parse_notice, parse_start_point, read_map, scan_available_maps,
+    parse_mon_gen, parse_notice, parse_start_point, parse_start_points, read_map, scan_available_maps,
 )
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
@@ -1036,6 +1036,10 @@ class GameWorld(WorldExtra):
         self.start_x, self.start_y = sp.x, sp.y
         self.default_map = GameMap(read_map(sp.map_id, config.map_dir))
         self.maps[self.default_map.name] = self.default_map
+        # 全部出生点登记（原版 CheckHomePos 用：走到出生点 ±50 格内即搬家，
+        # 回城卷/死亡回城回的就是这个动态家点；ObjBase.pas:13103-13121）
+        self.start_points = parse_start_points(config.envir_dir / "StartPoint.txt")
+        self._home_check: dict[int, int] = {}   # player_id -> 上次检查时刻
 
         self.available_maps = scan_available_maps(config.map_dir)
         info: MapInfo = parse_map_info(config.envir_dir / "MapInfo.txt")
@@ -1108,6 +1112,7 @@ class GameWorld(WorldExtra):
             self.remove_summon(summon)
         self.actors.pop(p.id, None)
         self.players_by_name.pop(p.name, None)
+        self._home_check.pop(p.id, None)
         if p.map is not None:
             p.map.remove(p.id)
 
@@ -1751,6 +1756,7 @@ class GameWorld(WorldExtra):
                 self._tick_time_recall(a, now)
                 self._tick_pk(a, now)
                 self._regen(a, now)
+                self.check_home_pos(a, now)
                 self._expire_buffs(a, now)
                 self._apply_poison(a, now)
             elif isinstance(a, Monster):
@@ -1826,6 +1832,24 @@ class GameWorld(WorldExtra):
             cache.pop(aid, None)
 
     # -- 玩家状态：回血 / buff / 毒 ---------------------------------------
+
+    def check_home_pos(self, p: Player, now: int) -> None:
+        """原版 TUserHuman.CheckHomePos（ObjBase.pas:13103-13121，Run 循环
+        每 3s 调一次）：玩家站在 StartPoint.txt 登记的出生点地图、且坐标在
+        登记点 ±50 格内时，把「家」搬到那里——回城卷（StdMode 3 Shape 3
+        → UserSpaceMove(HomeMap, HomeX, HomeY)，ObjBase.pas:3174）回的就
+        是这个动态家点。无登记匹配则保持原值（建号出生点）。"""
+        last = self._home_check.get(p.id, 0)
+        if now - last < 3000:
+            return
+        self._home_check[p.id] = now
+        map_name = p.map.name if p.map else ""
+        for sp in self.start_points:
+            if sp.map_id != map_name:
+                continue
+            if abs(p.x - sp.x) <= 50 and abs(p.y - sp.y) <= 50:
+                # 原版逐个比对不 break（同图多点时后匹配的覆盖），照搬
+                p.home_map, p.home_x, p.home_y = sp.map_id, sp.x, sp.y
 
     def _regen(self, p: Player, now: int) -> None:
         """HP/MP 自然回复 + 药水/治愈术回血池（``ObjBase.pas:3782-3850``）。
