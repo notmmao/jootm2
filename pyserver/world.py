@@ -48,6 +48,11 @@ RESPAWN_MS = 15_000
 # DESPAWN_CHECK_MS 是清怪巡检周期。AI 休眠（不游走）则是即时的。
 MON_DESPAWN_MS = 5 * 60_000
 DESPAWN_CHECK_MS = 30_000
+# 怪物目标全图扫描的错峰节流：原版 TAnimalObject.Run 每 tick 重扫视野
+# （Delphi 编译型无压力），Python 里 766 怪 × 10 次/秒的全图 O(N) 扫描
+# 占掉 ~30% CPU（实测 profile：_resolve_target 68s 采样占 44s）。
+# 有缓存目标时 O(1) 校验直接沿用，只有目标失效后才按此周期重扫。
+MON_SCAN_MS = 600
 HP_GROWTH, MP_GROWTH = 3, 2
 BASE_HP, BASE_MP = (26, 16, 18), (12, 20, 16)
 BASE_DC, BASE_MC, BASE_SC = (2, 0, 1), (0, 2, 0), (0, 0, 2)
@@ -835,6 +840,8 @@ class Monster(Actor):
     # 初始化：鸡 3000~6500、鹿/狼 8000~16000；被打/中毒/挖肉都会降低。
     meat_quality: int = 0
     next_attack_at: int = 0
+    # 下次允许做全图目标扫描的时刻（MON_SCAN_MS 错峰节流，见 _acquire_target）
+    next_scan_at: int = 0
     poison_ticks: int = 0
     poison_armor_until: int = 0
     poison_damage: int = 0
@@ -2168,8 +2175,7 @@ class GameWorld(WorldExtra):
         if m.chicken_deer:
             self._chicken_deer_ai(m, now, walk_ms)
             return
-        target = self._resolve_target(m, now)
-        m.target_id = target.id if target is not None else -1
+        target = self._acquire_target(m, now)
 
         if target is not None:
             d = m.distance_to(target)
@@ -2326,8 +2332,7 @@ class GameWorld(WorldExtra):
         隐藏态不进视野快照（_sight_actors/nearby 过滤 hidden），出土广播
         entityAdd、潜回广播 entityRemove，客户端即出现/消失。
         """
-        target = self._resolve_target(m, now)
-        m.target_id = target.id if target is not None else -1
+        target = self._acquire_target(m, now)
         if m.hidden:
             if target is not None and m.distance_to(target) < 4:
                 m.hidden = False
@@ -2528,6 +2533,32 @@ class GameWorld(WorldExtra):
                                base_hp + java_round(base_hp * 0.15) * lv)
         slave.hp = min(slave.hp, slave.max_hp)
         self.send_stats(slave)
+
+    def _acquire_target(self, m: Monster, now: int) -> Actor | None:
+        """目标获取（带全图扫描节流），管理 ``m.target_id`` 并返回当前目标。
+
+        - 缓存目标有效（存活/同图/未隐身/未隐遁/仇恨半径内）→ O(1) 直接沿用，
+          攻击与追击行为与逐 tick 重扫完全一致；
+        - 目标失效 → 到 ``next_scan_at`` 才做一次全图重扫（``_resolve_target``），
+          其余 tick 返回 None（怪原地游走——原版扫不到目标也是同样表现），
+          扫描时刻按 ``m.id % 5`` 错峰，避免全图怪同 tick 集体重扫；
+        - 被打时 Struck 逻辑直接写 ``m.target_id``，下一 tick 即被当作缓存
+          目标沿用，仇恨响应不受节流影响（原版 SetTargetCreat 语义）。
+        """
+        cur = self.actor(m.target_id) if m.target_id >= 0 else None
+        if (cur is not None and cur.alive and cur.map is m.map
+                and m.distance_to(cur) <= AGGRO_RANGE
+                and not getattr(cur, "hidden", False)
+                and (not isinstance(cur, Player) or cur.hide_until <= now)):
+            return cur
+        if now < m.next_scan_at:
+            if m.target_id >= 0 and self.actor(m.target_id) is None:
+                m.target_id = -1    # 目标实体已被移除（尸体清掉），别悬挂
+            return None
+        m.next_scan_at = now + MON_SCAN_MS + (m.id % 5) * 100
+        t = self._resolve_target(m, now)
+        m.target_id = t.id if t is not None else -1
+        return t
 
     def _resolve_target(self, m: Monster, now: int) -> Actor | None:
         t = m.template
