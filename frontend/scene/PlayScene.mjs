@@ -2320,7 +2320,8 @@ export class PlayScene extends Scene {
             case 'storageOpen':
                 // 原版 SM_SENDUSERSTORAGEITEM（ClMain.pas:5435 →
                 // ClientGetSendUserStorage：关卖物窗口 + SpotDlgMode=dmStorage +
-                // ShowShopSellDlg）：存入模式，点背包物品直接发 storageStore
+                // ShowShopSellDlg）：存入模式两步确认——点背包物品先放
+                // DSellDlgSpot 暂存，点 OK 才发 storageStore（见 _showStorageDlg）
                 this._showStorageDlg(msg);
                 break;
             case 'storageList':
@@ -4368,6 +4369,7 @@ export class PlayScene extends Scene {
         // 投放圈 Spot (27,67) 61x52：点背包物品先放进这里暂存，点 OK 才真正存入
         const spot = document.createElement('div');
         spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
+            + 'border:1px solid #5b8fd0;background:rgba(24,64,124,.28);'
             + 'display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
         spot.title = '点背包物品放入，再点 OK 存入';
         spot.addEventListener('click', () => {

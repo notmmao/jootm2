@@ -182,14 +182,13 @@ export class TradePartyUI {
     }
 
     _itemGrid(parent, items, side) {
+        // 原版 DDGrid / DDRGrid：5×2，36×33，起点 (21,56)（FState.pas:1586-1597）
         const grid = document.createElement('div');
-        grid.style.cssText = 'position:absolute;left:8px;top:26px;width:146px;height:132px;'
-            + 'display:grid;grid-template-columns:repeat(6,23px);grid-auto-rows:22px;'
-            + 'gap:1px;align-content:start;';
-        for (let i = 0; i < 30; i++) {
+        grid.style.cssText = 'position:absolute;left:21px;top:56px;width:180px;height:66px;'
+            + 'display:grid;grid-template-columns:repeat(5,36px);grid-auto-rows:33px;';
+        for (let i = 0; i < 10; i++) {
             const cell = document.createElement('div');
-            cell.style.cssText = 'width:23px;height:22px;box-sizing:border-box;'
-                + 'border:1px solid #4a3f28;background:rgba(0,0,0,.3);'
+            cell.style.cssText = 'width:36px;height:33px;box-sizing:border-box;'
                 + 'display:grid;place-items:center;overflow:hidden;cursor:'
                 + (side === 'self' && items[i] ? 'pointer' : 'default') + ';';
             const it = items[i];
@@ -199,7 +198,7 @@ export class TradePartyUI {
                     if (url && cell.isConnected) {
                         const im = document.createElement('img');
                         im.src = url; im.draggable = false;
-                        im.style.cssText = 'max-width:21px;max-height:20px;';
+                        im.style.cssText = 'max-width:32px;max-height:30px;';
                         cell.appendChild(im);
                     }
                 });
@@ -213,52 +212,90 @@ export class TradePartyUI {
     }
 
     _renderTradeSide(win, side, data) {
-        const x = side === 'self' ? 6 : 160;
+        // 原版布局：买进方(prguse390)在左、卖出方(prguse389)在右，贴屏幕顶。
+        const x = side === 'self' ? 220 : 0;
         const box = document.createElement('div');
-        box.style.cssText = `position:absolute;left:${x}px;top:26px;width:150px;height:170px;`;
+        box.style.cssText = `position:absolute;left:${x}px;top:0;width:220px;height:175px;`;
         const name = document.createElement('div');
-        name.style.cssText = 'position:absolute;left:0;top:0;width:100%;text-align:center;'
-            + 'font-size:12px;color:#ffd76a;';
+        name.style.cssText = 'position:absolute;left:0;top:32px;width:100%;text-align:center;'
+            + 'font-size:12px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
         name.textContent = data.name || '';
         box.appendChild(name);
+        this._itemGrid(box, data.items || [], side);
         const sub = document.createElement('div');
-        sub.style.cssText = 'position:absolute;left:0;top:158px;width:100%;text-align:center;'
-            + 'font-size:12px;color:#fff;';
+        sub.style.cssText = 'position:absolute;left:40px;top:140px;width:170px;'
+            + 'font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
         sub.textContent = (data.gold || 0).toLocaleString() + ' 金币';
         box.appendChild(sub);
-        this._itemGrid(box, data.items || [], side);
         win.appendChild(box);
         return sub;
     }
 
     _openTradeWindow() {
         if (this._tradeWin) return this._tradeWin;
-        const win = this._window('交易', 120, 120, 314, 250, 385,
-            () => this._send('tradeCancel'));
+        // 原版 DDealRemoteDlg(Prguse390 220×175) + DDealDlg(Prguse389 236×175)，
+        // 分别贴屏幕左上/右上（FState.pas:1581-1604），不用自绘窗口外壳。
+        const win = this._track(this._mk(
+            'position:absolute;left:344px;top:0;width:456px;height:175px;'
+            + 'pointer-events:none;z-index:30;font-family:SimSun,serif;color:#fff;'));
         this._tradeWin = win;
-
-        const info = document.createElement('div');
-        info.style.cssText = 'position:absolute;left:6px;top:200px;width:302px;'
-            + 'font-size:11px;color:#c9b98f;text-align:center;';
-        info.textContent = '点自己格子取回物品；点「放金币」设置交易金额；双方锁定后成交';
-        win.appendChild(info);
-
+        for (const [idx, x] of [[390, 0], [389, 220]]) {
+            this.libUrl('prguse', idx).then((url) => {
+                if (url && win.isConnected) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = `position:absolute;left:${x}px;top:0;`
+                        + 'pointer-events:none;';
+                    win.insertBefore(im, win.firstChild);
+                }
+            });
+        }
+        // DDGold(Prguse28) 金币图标 + 点击热区（原版 :1597-1599）
+        this.libUrl('prguse', 28).then((url) => {
+            if (url && win.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:231px;top:137px;pointer-events:none;';
+                win.insertBefore(im, win.firstChild);
+            }
+        });
         const goldBtn = document.createElement('div');
-        goldBtn.style.cssText = 'position:absolute;left:24px;top:220px;width:120px;height:22px;'
-            + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
-            + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
-        goldBtn.textContent = '放金币';
+        goldBtn.style.cssText = 'position:absolute;left:231px;top:137px;width:36px;height:21px;'
+            + 'cursor:pointer;pointer-events:auto;';
+        goldBtn.title = '设置交易金币';
         goldBtn.onclick = () => this._showGoldDialog();
         win.appendChild(goldBtn);
-
+        // DDealOk(Prguse391)：图片自带「锁定」字样，不另画按钮
         const lockBtn = document.createElement('div');
-        lockBtn.style.cssText = 'position:absolute;left:168px;top:220px;width:120px;height:22px;'
-            + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
-            + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
-        lockBtn.textContent = '锁定 / 确认';
+        lockBtn.style.cssText = 'position:absolute;left:375px;top:128px;width:44px;height:16px;'
+            + 'cursor:pointer;pointer-events:auto;';
+        lockBtn.title = '锁定 / 确认';
         lockBtn.onclick = () => this._send('tradeConfirm');
         this._tradeLockBtn = lockBtn;
+        this.libUrl('prguse', 391).then((url) => {
+            if (url && lockBtn.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                lockBtn.appendChild(im);
+            }
+        });
         win.appendChild(lockBtn);
+        // DDealClose(Prguse64)：原版在卖出方窗口 (220,42)
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:440px;top:42px;width:16px;height:23px;'
+            + 'cursor:pointer;pointer-events:auto;';
+        close.title = '取消交易';
+        close.onclick = () => this._send('tradeCancel');
+        this.libUrl('prguse', 64).then((url) => {
+            if (url && close.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                close.appendChild(im);
+            }
+        });
+        win.appendChild(close);
         return win;
     }
 
@@ -276,12 +313,14 @@ export class TradePartyUI {
             holder.querySelectorAll('*').forEach((c) => {
                 if (c.tagName === 'IMG' || c.style.cursor === 'pointer') c.style.pointerEvents = 'auto';
             });
-            win.insertBefore(holder, win.firstChild);
+            win.appendChild(holder);
             parts.push(holder);
         }
         if (this._tradeLockBtn) {
-            this._tradeLockBtn.textContent = state.self.confirm ? '已锁定' : '锁定 / 确认';
-            this._tradeLockBtn.style.color = state.self.confirm ? '#9fe08a' : '#ffe9a8';
+            // 原版 DDealOk 图片自带文字，只改提示与轻微着色，不覆盖子节点
+            this._tradeLockBtn.title = state.self.confirm ? '已锁定' : '锁定 / 确认';
+            this._tradeLockBtn.style.filter = state.self.confirm
+                ? 'brightness(1.35) saturate(.6)' : '';
         }
     }
 
@@ -289,12 +328,15 @@ export class TradePartyUI {
         if (this._goldDlg) return;
         const dlg = this._window('放入金币', 250, 250, 220, 110, 385,
             () => { this._goldDlg.remove(); this._goldDlg = null; });
+        // 交易窗口的格子层在每次 tradeState 刷新时都会 re-insert，弹窗必须
+        // 显式高于它，否则输入框会被交易面板盖住点不到（用户 2026-11-18）。
+        dlg.style.zIndex = '60';
         this._goldDlg = dlg;
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = '金币总额';
         input.style.cssText = 'position:absolute;left:16px;top:36px;width:120px;height:20px;'
-            + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+            + 'z-index:1;font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
         const submit = () => {
             const n = parseInt(input.value.replace(/[^0-9]/g, ''), 10);
             if (Number.isFinite(n) && n >= 0) this._send('tradeSetGold', { amount: n });
@@ -302,6 +344,7 @@ export class TradePartyUI {
         };
         this._bindInput(input, submit);
         dlg.appendChild(input);
+        input.focus();
         const ok = document.createElement('div');
         ok.style.cssText = 'position:absolute;left:146px;top:36px;width:60px;height:20px;'
             + 'cursor:pointer;text-align:center;line-height:20px;font-size:12px;'
@@ -359,50 +402,85 @@ export class TradePartyUI {
 
     _openPartyWindow() {
         if (this._partyWin && this._partyWin.isConnected) return this._partyWin;
-        const win = this._window('组队', 250, 120, 300, 300, 385,
-            () => { win.remove(); this._partyWin = null; });
+        // 原版 DGroupDlg：Prguse[120] 276×242，居中（FState.pas:1553-1561）
+        const win = this._track(this._mk(
+            'position:absolute;left:262px;top:179px;width:276px;height:242px;'
+            + 'pointer-events:none;z-index:30;font-family:SimSun,serif;color:#e8d9b0;'));
         this._partyWin = win;
+        this.libUrl('prguse', 120).then((url) => {
+            if (url && win.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                win.insertBefore(im, win.firstChild);
+            }
+        });
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:260px;top:0;width:16px;height:23px;'
+            + 'cursor:pointer;pointer-events:auto;';
+        close.title = '关闭组队窗口';
+        close.onclick = () => { win.remove(); this._partyWin = null; this._partyList = null; };
+        this.libUrl('prguse', 64).then((url) => {
+            if (url && close.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                close.appendChild(im);
+            }
+        });
+        win.appendChild(close);
+
         const list = document.createElement('div');
-        list.style.cssText = 'position:absolute;left:10px;top:30px;width:280px;height:150px;'
-            + 'overflow:auto;background:rgba(0,0,0,.25);border:1px solid #4a3f28;';
+        list.style.cssText = 'position:absolute;left:16px;top:42px;width:244px;height:88px;'
+            + 'overflow:auto;pointer-events:auto;';
         win.appendChild(list);
         this._partyList = list;
 
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = '输入玩家名邀请入队';
-        input.style.cssText = 'position:absolute;left:10px;top:190px;width:180px;height:22px;'
-            + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+        input.style.cssText = 'position:absolute;left:20px;top:136px;width:150px;height:20px;'
+            + 'pointer-events:auto;font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
         const submit = () => { this.inviteParty(input.value.trim()); input.value = ''; };
         this._bindInput(input, submit);
         win.appendChild(input);
-        const inv = document.createElement('div');
-        inv.style.cssText = 'position:absolute;left:198px;top:190px;width:92px;height:22px;'
-            + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
-            + 'background:#4a3d24;border:1px solid #8a7343;color:#ffe9a8;';
-        inv.textContent = '邀请';
-        inv.onclick = submit;
-        win.appendChild(inv);
+        // 原版 DGrpAddMem(Prguse124)：邀请按钮热区 (97,203)
+        this._partyButton(win, 124, 97, 203, submit, '邀请入队');
 
-        const leave = document.createElement('div');
-        leave.style.cssText = 'position:absolute;left:10px;top:262px;width:92px;height:22px;'
-            + 'cursor:pointer;text-align:center;line-height:22px;font-size:12px;'
-            + 'background:#4a3d24;border:1px solid #8a7343;color:#ff9a8a;';
-        leave.textContent = '退出队伍';
-        leave.onclick = () => this._send('partyLeave');
-        win.appendChild(leave);
+        // 原版 DGrpDelMem(Prguse125)：退出队伍热区 (172,203)
+        this._partyButton(win, 125, 172, 203,
+                          () => this._send('partyLeave'), '退出队伍');
 
         const chat = document.createElement('input');
         chat.type = 'text';
         chat.placeholder = '队伍聊天 (回车发送)';
-        chat.style.cssText = 'position:absolute;left:110px;top:262px;width:180px;height:22px;'
-            + 'font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
+        chat.style.cssText = 'position:absolute;left:20px;top:160px;width:236px;height:20px;'
+            + 'pointer-events:auto;font-size:12px;color:#000;background:#d8d8d8;border:1px solid #888;';
         this._bindInput(chat, () => {
             if (chat.value.trim()) this._send('partyChat', { text: chat.value.trim() });
             chat.value = ''; chat.blur();
         });
         win.appendChild(chat);
         return win;
+    }
+
+    /** 原版组队按钮：贴图 + 透明热区（不另画边框）。 */
+    _partyButton(win, idx, x, y, onclick, title) {
+        const b = document.createElement('div');
+        b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:72px;height:19px;`
+            + 'cursor:pointer;pointer-events:auto;';
+        b.title = title;
+        b.onclick = onclick;
+        this.libUrl('prguse', idx).then((url) => {
+            if (url && b.isConnected) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;';
+                b.appendChild(im);
+            }
+        });
+        win.appendChild(b);
+        return b;
     }
 
     _renderParty(data) {
