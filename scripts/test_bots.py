@@ -137,6 +137,57 @@ def main() -> int:
                                      or "拾取" in pilot.status or "挖肉" in pilot.status),
               pilot.status if pilot else "")
 
+        # 被怪打立刻换手：打得再远、经验再高也不能压住正在打自己的怪
+        from pyserver.autopilot import PRESETS
+        attacker = next((a for a in fight.p.map.actors.values()
+                         if isinstance(a, Monster) and a.alive and a.template
+                         and a.master_id < 0
+                         and fight.p.distance_to(a) <= 6), None)
+        if attacker is None:
+            tmpl = (srv.world.monster_templates.get("稻草人")
+                    or next(t for t in srv.world.monster_templates.values()
+                            if t.dc <= 12))
+            attacker = Monster(id=srv.world.new_id(), name=tmpl.name,
+                               x=fight.p.x + 3, y=fight.p.y,
+                               hp=tmpl.hp, max_hp=tmpl.hp, level=tmpl.level,
+                               exp=tmpl.exp, race=tmpl.race,
+                               race_img=tmpl.raceImg, appr=tmpl.appr,
+                               template=tmpl, spawn_x=fight.p.x + 3,
+                               spawn_y=fight.p.y, spawn_map=fight.p.map)
+            srv.world.add_actor(attacker, fight.p.map)
+        if attacker is not None:
+            attacker.target_id = fight.p.id
+            pilot.target_id = 0
+            pilot.last_scan_at = 0
+            chosen = pilot._choose_target(srv.world, fight.p, PRESETS["balanced"],
+                                          {"monsters": []}, now)
+            check("Bot 被打换手到攻击者", chosen is not None
+                  and chosen.target_id == fight.p.id,
+                  f"{chosen.name if chosen else None}")
+            # 换手检查不能退化成每 tick 全图扫描：nearby() 遍历整张地图 actor，
+            # 此前 CPU 32% 的根因就是无节流的 O(N) 扫描。
+            orig_nearby = srv.world.nearby
+            calls = []
+            def counted_nearby(*args, **kwargs):
+                calls.append(1)
+                return orig_nearby(*args, **kwargs)
+            srv.world.nearby = counted_nearby
+            try:
+                attacker.target_id = 0     # 让缓存目标不再是攻击者
+                pilot.target_id = chosen.id  # 模拟 _tick 调用方写入目标锁
+                pilot._choose_target(srv.world, fight.p, PRESETS["balanced"],
+                                     {"monsters": []}, now)
+                before = len(calls)
+                pilot._choose_target(srv.world, fight.p, PRESETS["balanced"],
+                                     {"monsters": []}, now)
+                check("换手检查 600ms 节流（同 tick 不重复全图扫描）",
+                      len(calls) == before,
+                      f"calls +{len(calls) - before} now={now} "
+                      f"scan={pilot.last_scan_at} threat={pilot.last_threat_scan_at} "
+                      f"tid={pilot.target_id}")
+            finally:
+                srv.world.nearby = orig_nearby
+
         print("\n=== 4. 决不抢真人目标 ===")
         w = srv.world
         # 把真人放去矿区，锁定一只怪

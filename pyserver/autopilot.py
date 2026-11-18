@@ -252,6 +252,7 @@ class AutoPilot:
     last_potion_at: int = 0
     last_mp_potion_at: int = 0
     last_scan_at: int = 0
+    last_threat_scan_at: int = 0   # Bot 换手检查节流（nearby 是 O(全图 actor)）
     last_state_at: int = 0
     pushed_status: str = ""
     target_id: int = 0
@@ -1015,14 +1016,30 @@ class AutoPilot:
 
     def _choose_target(self, w, p, cfg, route, now: int):
         cached = w.actor(self.target_id)
+        # Bot 被怪打必须「换手」：600ms 目标缓存不能压住正在攻击自己的怪，
+        # 否则 Bot 会继续打远处高经验怪而站着挨打（用户 2026-11-18 反馈）。
+        # nearby() 是 O(全图 actor)，换手检查独立节流到 600ms，避免退化成
+        # 每 tick 全图扫描（此前 CPU 32% 的根因正是这类无节流扫描）。
+        cached_is_attacker = (isinstance(cached, Monster)
+                              and cached.target_id == p.id)
         if (isinstance(cached, Monster) and cached.alive and cached.master_id < 0
                 and cached.map is p.map
                 and p.distance_to(cached) <= cfg["sight"] + 2
                 and self.unreachable.get(cached.id, 0) <= now
                 and now - self.last_scan_at < 600):
+            if (self.avoid_real_targets and not cached_is_attacker
+                    and now - self.last_threat_scan_at >= 600):
+                self.last_threat_scan_at = now
+                for a in w.nearby(p.map, p.x, p.y, cfg["sight"]):
+                    if (isinstance(a, Monster) and a.alive and a.master_id < 0
+                            and a.target_id == p.id
+                            and self.unreachable.get(a.id, 0) <= now):
+                        self.target_id = a.id
+                        return a
             return cached
         self.last_scan_at = now
         best, best_score = None, -1.0
+        attacker = None
         for a in w.nearby(p.map, p.x, p.y, cfg["sight"]):
             if not isinstance(a, Monster) or not a.alive:
                 continue
@@ -1054,9 +1071,11 @@ class AutoPilot:
                 score *= 0.8
             if a.target_id == p.id:
                 score *= 1.2
+                if self.avoid_real_targets and attacker is None:
+                    attacker = a       # Bot 换手：正在打自己的怪优先级最高
             if score > best_score:
                 best, best_score = a, score
-        return best
+        return attacker or best
 
     def _nearest_monster(self, w, p, cfg, now: int):
         best, best_d = None, 10 ** 9
