@@ -28,6 +28,8 @@ const NAV_DIRS = [
     [0, -1], [1, -1], [1, 0], [1, 1],
     [0, 1], [-1, 1], [-1, 0], [-1, -1],
 ];
+const NAV_STUCK_MS = 900;    // 卡步判定：发出一步后等这么久没动才算被挡（需大于网络往返）
+const NAV_REPATH_MAX = 3;    // 被挡时原地重算路径的最大次数，超过才放弃导航
 
 // 移动动作间隔（ms/步）：走慢跑快，动作之间必须有间隔
 // 对齐动画周期：walk 动画 6 帧×90ms=540ms；run 动画 6 帧×120ms=720ms 覆盖 2 格 → 360ms/格
@@ -241,10 +243,12 @@ export class PlayScene extends Scene {
         this._pendingStep = false;   // 单击待发的一步（受节流约束，快速连点不会堆积成瞬移）
         // 大地图普通点击自动导航（GM Ctrl+点击传送是另一条独立链路，两者互斥）
         this._navPath = null;        // 剩余方向序列（A* 算出，0..7）
+        this._navCells = null;       // 剩余路径格序列（与 _navPath 同步消费，画大地图路线用）
         this._navGoal = null;        // {x,y} 目标格
         this._navLastAt = 0;         // 上次发步的时间（与 _lastMoveAt 共用节流）
-        this._navStuck = 0;          // 连续未移动步数（被怪/NPC 挡路时放弃）
+        this._navStuck = 0;          // 重算路径次数（被怪/NPC 挡路时原地重寻路，超限才放弃）
         this._navPrev = null;        // 上一步发出时期望的 self 坐标
+        this._navStepAt = 0;         // 上一步发出时刻（卡步判定：等 echo 落地再算，不按帧）
         this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
         this._dirAttackHolding = false;  // shift+左键 方向攻击持续状态（按住持续挥刀，松开停止）
         this._dirAttackDir = -1;         // 方向攻击方向（鼠标相对人物，0-7）
@@ -2762,6 +2766,29 @@ export class PlayScene extends Scene {
             else dot(e.x, e.y, '#7dd3fc');
         }
         dot(this.self.x, this.self.y, '#ffffff');
+        // 自动导航路线：当前位置 → 剩余 A* 路径画绿折线，终点画圆圈标记。
+        // 导航中途按 Tab 打开大地图也能看到剩余路线（导航继续跑，不中断）。
+        if (this._navCells && this._navCells.length && this._navGoal) {
+            ctx.strokeStyle = '#4ade80';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(Math.round(bx + this.self.x * kx * k),
+                       Math.round(by + this.self.y * ky * k));
+            for (const c of this._navCells) {
+                ctx.lineTo(Math.round(bx + c.x * kx * k),
+                           Math.round(by + c.y * ky * k));
+            }
+            ctx.stroke();
+            ctx.lineWidth = 1;
+            const gx0 = Math.round(bx + this._navGoal.x * kx * k);
+            const gy0 = Math.round(by + this._navGoal.y * ky * k);
+            ctx.fillStyle = 'rgba(74, 222, 128, 0.9)';
+            ctx.beginPath();
+            ctx.arc(gx0, gy0, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#166534';
+            ctx.stroke();
+        }
         // 地图入口标注（MapInfo.txt 连接行 src x,y -> dst）：画黄色门点 +
         // 「→ 下张地图名」。原版客户端大地图没有此标注，属本项目增强。
         const gates = (sm0 && sm0.gates) || [];
@@ -2802,9 +2829,11 @@ export class PlayScene extends Scene {
     _cancelNav(silent = false) {
         if (this._navPath) {
             this._navPath = null;
+            this._navCells = null;
             this._navGoal = null;
             this._navStuck = 0;
             this._navPrev = null;
+            this._navStepAt = 0;
             if (!silent) this._log('[导航] 已停止', '#9fb08a');
         }
     }
@@ -2855,12 +2884,27 @@ export class PlayScene extends Scene {
         this._dirAttackHolding = false;
         this.chaseTargetId = null;
         this._navPath = path;
+        this._navCells = this._navDirsToCells(sx, sy, path);
         this._navGoal = landing;
         this._navLastAt = 0;           // 下一帧立即发第一步
         this._navStuck = 0;
         this._navPrev = null;
+        this._navStepAt = 0;
         this._closeBigMap();           // 开始走就关掉地图，露出游戏画面
         this._log(`[导航] 前往 (${landing.x}, ${landing.y})，共 ${path.length} 步`, '#9fb08a');
+    }
+
+    /** 方向序列还原成格坐标序列（大地图画路线用；起点不含，终点含）。 */
+    _navDirsToCells(sx, sy, dirs) {
+        const cells = [];
+        let x = sx, y = sy;
+        for (const d of dirs) {
+            const v = NAV_DIRS[d];
+            if (!v) break;
+            x += v[0]; y += v[1];
+            cells.push({ x, y });
+        }
+        return cells;
     }
 
     /** 主循环调用：按跑速节流，沿 A* 路径一步一步发 move；到达/卡住/手动操作即停。 */
@@ -2868,32 +2912,48 @@ export class PlayScene extends Scene {
         if (!this._navPath || !this.self || this._selfDead) return;
         if (!this._navPath.length) {
             const g = this._navGoal;
-            this._navPath = null; this._navGoal = null;
+            this._navPath = null; this._navCells = null; this._navGoal = null;
             this._log(`[导航] 已到达${g ? ` (${g.x}, ${g.y})` : ''}`, '#9fb08a');
             return;
         }
         // 手动按键/点画面/追击目标接管时让位
         if (this._holding || this.chaseTargetId != null) { this._cancelNav(true); return; }
-        // 上一步是否真的推动了 self（服务端 move 回包会更新 self.x/y）；连续未动则放弃
-        if (this._navPrev) {
-            const moved = this.self.x !== this._navPrev.x || this.self.y !== this._navPrev.y;
-            if (!moved) {
+        // 卡步判定（按步不按帧）：发出一步后等服务端 echo 落地（NAV_STUCK_MS）
+        // 再核对位置——60fps 下 3 帧仅 ~50ms，网络往返稍大就会被误判「前方受阻」
+        // 中断导航（旧实现按帧计数，正是「寻路很容易中断」的主因）。挡路是瞬态
+        // 的（怪走开/可绕行）：原地重算 A*，重算 NAV_REPATH_MAX 次仍无路才放弃。
+        if (this._navStepAt && now - this._navStepAt >= NAV_STUCK_MS) {
+            const moved = this.self.x !== this._navPrev?.x
+                || this.self.y !== this._navPrev?.y;
+            if (!moved && this._navGoal && this.mapActor && this.mapActor.map) {
+                let repath = null;
+                try {
+                    repath = findPath(this.mapActor.map, this.self.x, this.self.y,
+                                      this._navGoal.x, this._navGoal.y);
+                } catch (_) { repath = null; }
                 this._navStuck++;
-                if (this._navStuck >= 3) {
-                    this._log('[导航] 前方受阻，已停止', '#e0a060');
+                if (repath && repath.length && this._navStuck <= NAV_REPATH_MAX) {
+                    this._navPath = repath;
+                    this._navCells = this._navDirsToCells(this.self.x, this.self.y, repath);
+                    this._log('[导航] 前方受阻，重算路径', '#e0a060');
+                } else if (this._navStuck > NAV_REPATH_MAX) {
+                    this._log('[导航] 多次受阻，已停止', '#e0a060');
                     this._cancelNav(true);
                     return;
                 }
-            } else {
+            } else if (moved) {
                 this._navStuck = 0;
             }
+            this._navStepAt = 0;   // 本步判定完毕（发出下一步时重新计时）
         }
         if (now - this._navLastAt < RUN_INTERVAL) return;
         const dir = this._navPath.shift();
+        this._navCells && this._navCells.shift();
         const d = NAV_DIRS[dir];
         if (!d) { this._cancelNav(true); return; }
         this._navPrev = { x: this.self.x, y: this.self.y };
         this._navLastAt = now;
+        this._navStepAt = now;
         this._mouseDir = dir;         // 让角色朝向与移动动画一致
         this._mouseRun = true;
         this.conn.send('move', { dir, run: true });
@@ -4658,6 +4718,7 @@ export class PlayScene extends Scene {
                 offsetX: ox, offsetY: oy,
                 // 尸体不显示名字/血条（原版 DrawScrn.pas:306 `not m_boDeath`）
                 name: e._corpse ? '' : e.name, isSelf,
+                level: e.level,                      // 怪物名字带 Lv 等级（用户 2026-11-18）
                 hp: e.hp, maxHp: e._corpse ? 0 : e.maxHp, type: e.type,
                 dead: !!e._corpse,
                 // 悬停目标（原版 g_FocusCret / g_MagicTarget）只让 sprite 变亮，不画框；

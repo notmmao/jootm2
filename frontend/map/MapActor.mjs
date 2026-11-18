@@ -1366,14 +1366,19 @@ export class MapActor {
 
         // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
         // hoverNamesOnly 打开时对齐原版：只画悬停目标 + 悬停/移动中的自己。
-        if (e.name && !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf)) {
+        // 怪物名字后缀 Lv 等级（用户 2026-11-18；玩家/NPC 不加，保持原版）。
+        let dispName = e.name;
+        if (e.name && e.type === 'monster' && e.level > 0) {
+            dispName = `${e.name} Lv${e.level}`;
+        }
+        if (dispName && !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf)) {
             ctx.font = '11px SimSun,serif';
             ctx.textAlign = 'center';
-            let tw = this._nameW.get(e.name);
+            let tw = this._nameW.get(dispName);
             if (tw == null) {
-                tw = ctx.measureText(e.name).width;
+                tw = ctx.measureText(dispName).width;
                 if (this._nameW.size > 400) this._nameW.clear();   // 防无敌名字撑爆
-                this._nameW.set(e.name, tw);
+                this._nameW.set(dispName, tw);
             }
             const nx = anchorX + TILE_W / 2;
             const ny = anchorY - 71;
@@ -1396,7 +1401,7 @@ export class MapActor {
                 }
             }
             ctx.fillStyle = nameFill;
-            ctx.fillText(e.name, nx, ny);
+            ctx.fillText(dispName, nx, ny);
         }
 
         // 头顶说话气泡（原版 DrawScrn.pas:331-352 / Actor.pas:2365-2420 TActor.Say）：
