@@ -17,7 +17,6 @@ from typing import Any
 
 from .afk import NullSession
 from .autopilot import (AutoPilot, WALK_INTERVAL_MS, _walkable, normalize_preset)
-from .util import U_WEAPON
 from .world import Player, direction_delta, direction_toward, now_ms
 
 DEFAULT_CHAT_EVERY = (180, 420)      # 台词间隔区间（秒）
@@ -173,20 +172,24 @@ class BotManager:
         return p
 
     def _dress(self, p: Player, cfg: dict) -> None:
-        """给打怪 Bot 发基础装备（木剑/布衣级别），直接进背包再自动穿武器。"""
-        items = cfg.get("items") or []
+        """给 Bot 发基础装备并**全槽位**自动穿戴（用户 2026-11-18 反馈 Bot 全裸）。
+
+        旧实现只自动穿武器，衣服躺在背包没人穿；城里 Bot 的配置甚至没配
+        items。逐槽位从背包挑能穿的（等级/性别等硬门槛由 takeOnItem handler
+        统一校验，穿不上就留背包，不绕过校验）。"""
+        items = cfg.get("items")
         if not items:
-            return
+            items = ["木剑", "布衣(男)" if p.sex == 0 else "布衣(女)"]
         w = self.service.world
         for name in items:
             w.give_item(p, str(name), 1)
-        # 自动穿第一件能用的武器（Bot 无 GUI，直接走 takeOnItem handler）
         from .autopilot import _best_wearable
-        cand = _best_wearable(w, p, U_WEAPON, lambda t: t.stdMode in (5, 6))
-        if cand is not None:
-            self.service._take_on_item(p.session, {
-                "type": "takeOnItem", "slot": U_WEAPON,
-                "makeIndex": int(cand.get("makeIndex", 0))})
+        for slot in range(13):
+            cand = _best_wearable(w, p, slot, lambda t: True)
+            if cand is not None:
+                self.service._take_on_item(p.session, {
+                    "type": "takeOnItem", "slot": slot,
+                    "makeIndex": int(cand.get("makeIndex", 0))})
 
     def remove(self, p: Player) -> None:
         pilot = self.service.autopilot.get(p)

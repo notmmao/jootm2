@@ -10,6 +10,7 @@
     "x": 285,
     "y": 618,
     "wanderRadius": 10,
+    "items": ["乌木剑", "布衣(男)"],
     "chatEvery": [180, 420],
     "lines": {
       "idle": [
@@ -32,6 +33,7 @@
     "x": 292,
     "y": 604,
     "wanderRadius": 8,
+    "items": ["木剑", "布衣(女)"],
     "chatEvery": [240, 540],
     "lines": {
       "idle": [
