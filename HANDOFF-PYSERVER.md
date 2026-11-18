@@ -763,3 +763,37 @@ tick 重构：bots.tick 并入 autopilot manager（四段式 offline→bots→�
 **验证**：`test_spell_fx` 13/13（新增 [5] 命中广播断言）；`test_all_messages`
 95/95、`test_amulet_depletion` 9/9、`test_autopilot_taoist` 18/18、
 `test_slave_protection` 22/22 零退化。
+
+## §115 用户实测反馈批量修复（2026-11-18 晚，8 项）
+
+**前端**：①大地图导航路线绘制（_navCells 折线+终点圈，导航中开图也显示剩余
+路径）；②「寻路容易中断」根因=卡步判定按帧计数（3 帧≈50ms < 网络往返，误判
+「前方受阻」）→ 改按步判定（NAV_STUCK_MS=900 等 echo 落地）+ 被挡原地重算
+A* 至多 NAV_REPATH_MAX=3 次才放弃；③怪物名字显示 `Lv等级`（仅怪物，玩家/NPC
+保持原版；MapActor dispName）。
+
+**托管**：④满包不再回城停机（autopilot.bagFullStop=0 新默认：停止拾取继续
+打怪，金币照捡；=1 保留旧行为）——根因是「满包→拾取→再满→再停」循环
+（沃玛爆一堆装备把托管停了，再按 P 还停）；OfflinePilot 的 v1 回退
+（补给关闭）仍固定停机（bag_full_stop_override=1）；⑤太阳水垫底：血/蓝药
+选择改 shape==0 优先、特殊药(shape>=1)最后喝（用户：太阳水比较有用）；
+⑥施法视线预检：新增 _magic_los_blocked（对齐原版 MagCanHitTarget
+ObjBase.pas:7144，CanFireFly 逐格），托管法师/道士对躲在树后的目标不再
+浪费 MP 拉黑 3s 换目标——「隔着树打树上」原版本就如此（Magic.pas:550/859
+特效照放无伤害），修的是托管浪费。
+
+**机器人**：⑦Bot 全裸修复——_dress 只穿武器不穿衣服、城里 Bot 没配 items；
+改逐槽位 _best_wearable 自动穿（门槛仍走 takeOnItem 校验），bots.json 城里
+两 Bot 补 乌木剑/布衣。
+
+**经济/原版对齐**：⑧玛法领路人新增每日金币补助（afk.goldPerDay=5000 可配，
+character_afk 加 gold_claim_date 列+ALTER 迁移；save_afk 空串=保留旧值防
+误清；NPC 脚本 @afkgold 分支 checkafk gold/givegold）；⑨回城点对齐原版
+CheckHomePos（ObjBase.pas:13103-13121，Run 每 3s）：新增 parse_start_points
+解析全部出生点，玩家站在任一登记点 ±50 格内即把家搬过去，回城卷（shape 3）
+回动态家点——此前 home 永远是建号出生点所以「回城卷回边界村」。
+
+**验证**：test_afk_offline 50/50（金币补助 4 项）、test_afk_supply 34/34、
+test_bots 19/19、test_autopilot 39/39（首跑 3 FAIL 复跑消失，既有挖肉
+timing 抖动与本次无关）、test_autopilot_taoist 18/18、test_spell_fx 13/13、
+test_all_messages 95/95、test_slave_protection 22/22。
