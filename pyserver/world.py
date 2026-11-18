@@ -690,12 +690,14 @@ class Player(Actor):
         return total
 
     def max_wear_weight(self) -> int:
+        # 原版 ObjBase.pas:4101/4117/4131：15 + Round((Level/div)*Level)
         div = (20, 100, 50)[self.job if self.job in (0, 1, 2) else 0]
-        return 15 + (self.level // div) * self.level
+        return 15 + int(self.level / div * self.level + 0.5)
 
     def max_hand_weight(self) -> int:
+        # 同上：12 + Round((Level/div)*Level)，战士 255 封顶
         div = (13, 90, 42)[self.job if self.job in (0, 1, 2) else 0]
-        return min(255, 12 + (self.level // div) * self.level)
+        return min(255, 12 + int(self.level / div * self.level + 0.5))
 
     def instance_json(self, world: "GameWorld", it: dict) -> dict:
         t = self._template(world, it)
@@ -776,9 +778,14 @@ class Player(Actor):
 
     @property
     def max_weight(self) -> int:
-        """最大负重（原版 ``m_Abil.MaxWeight``：战士 /3、法师 /5、道士 /4）。"""
+        """最大负重（原版 ``m_Abil.MaxWeight``：战士 /3、法师 /5、道士 /4）。
+
+        原版 ObjBase.pas:4101/4117/4131 是 ``50 + Round((Level/div)*Level)``
+        （Delphi Round 四舍五入、远离零），旧代码用整除导致中低等级系统性偏严
+        ——14 级法师魔法头盔被误判「过重」即由此而起。正数统一 +0.5 取整。
+        """
         div = (3, 5, 4)[self.job if self.job in (0, 1, 2) else 0]
-        return 50 + (self.level // div) * self.level
+        return 50 + int(self.level / div * self.level + 0.5)
 
     def to_player_json(self, world: "GameWorld") -> dict:
         c = self.combat
