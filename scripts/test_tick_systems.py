@@ -307,9 +307,10 @@ def test_ranged(w, p, sess):
     check("魔法盾不减物理伤害（只作用于 GetMagStruckDamage）", p.hp == 1000 - raw,
           f"raw={raw} hp={p.hp}")
     p.combat["macMin"] = p.combat["macMax"] = 0
-    want = delphi_round(raw / 100 * (3 + 2) * 8)
+    # 官服口径（BV1nQrkYYEM7）：魔法盾 15/30/45/60%，3 级折成 60%。
+    want = delphi_round(raw * 15 * (3 + 1) / 100)
     got = mag_struck_damage(p, raw, now)
-    check("3 级魔法盾把魔法伤害折成 Round(dmg/100*(3+2)*8)", got == want,
+    check("3 级魔法盾把魔法伤害折成官服 60%（BV1nQrkYYEM7）", got == want,
           f"raw={raw} expect={want} got={got}")
     p.shield_until = 0
     p.hp = 1000
