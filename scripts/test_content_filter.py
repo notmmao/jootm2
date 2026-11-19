@@ -102,6 +102,31 @@ def main():
     check("名单内高爆怪换回指定基线", out["僵尸10"] == base and "僵尸10" in changed)
     check("名单外高爆表不被算法误伤", out["未知高爆怪"] == hot and "未知高爆怪" not in changed)
 
+    # wiki 生成器（gen_website.py）必须复用同一策略：默认剥离，--no-policy 回全集
+    from dataclasses import replace
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import gen_website as G
+    tree = ROOT / "gamedata"
+    if (tree / "mud2" / "DB" / "StdItems.csv").is_file():
+        wd = G.Data(tree)
+        ws = wd.policy_stat
+        check("wiki 策略已开启", ws["policy"] == "on")
+        check("wiki 私服怪不展示", "驽马勇士" not in wd.mon_by_name and "驽马法王" not in wd.mon_by_name)
+        check("wiki 私服道具不展示", not any("蓝灵" in r["Name"] for r in wd.items))
+        check("wiki 私服图不展示", not any(m.startswith("D205") for m in wd.map_title))
+        check("wiki 私服 NPC 不展示", not any(r["name"] == "老渔翁" for r in wd.npcs))
+        check("wiki 刷怪表无驽马", not any("驽马" in s[1] for s in wd.spawns))
+        check("wiki 高爆怪换基线表",
+              wd.drops.get("僵尸10") == wd.drops.get("僵尸1")
+              and "僵尸10" in ws["high_drop"])
+        check("wiki 官服 BOSS 保留", "赤月恶魔" in wd.mon_by_name)
+        raw = G.Data(tree, replace(policy, enabled=False,
+                                   high_drop=replace(policy.high_drop, enabled=False)))
+        check("wiki --no-policy 回全集", "驽马勇士" in raw.mon_by_name
+              and raw.drops.get("僵尸10") != raw.drops.get("僵尸1"))
+    else:
+        print("  SKIP wiki 断言（无 gamedata 树）")
+
     print(f"\n结果：{passed} PASS / {failed} FAIL")
     return 0 if failed == 0 else 1
 
