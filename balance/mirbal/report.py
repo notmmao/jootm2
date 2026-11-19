@@ -70,6 +70,7 @@ def collect(ds, arena, world, label=None):
                                for L in levels}
         gear[job] = an.gear_acquire(job)
     skills = an.skill_training()
+    skillbooks = an.skill_books()
     server = an.server_scale()
     equip = {f"{c['job']}-{c['level']}-{c['tier']}": dict(equip=c["equip"], stats=c["stats"],
                                                           hp=c["hp_potion"], mp=c["mp_potion"]) for c in arena}
@@ -94,10 +95,10 @@ def collect(ds, arena, world, label=None):
             e["count"] += v
             e["where"].add(f"{r.get('map_title')} N={r.get('n')}")
     errors = [dict(error=k, count=v["count"], where=sorted(v["where"])[:12]) for k, v in errors.items()]
-    findings = gm.run(ds, an, jprog, jecon, jgear, skills, an.eta_rows, server, errors)
+    findings = gm.run(ds, an, jprog, jecon, jgear, skills, an.eta_rows, server, errors, skillbooks)
     return dict(label=label or ds.tree, prog=jprog, econ=jecon, gear=jgear, heat=heat, best=best,
-                skills=skills, server=server, equip=equip, monsters=mons, world=an.eta_rows,
-                eta=an.eta, findings=findings, errors=errors)
+                skills=skills, skillbooks=skillbooks, server=server, equip=equip, monsters=mons,
+                world=an.eta_rows, eta=an.eta, findings=findings, errors=errors)
 
 
 def build(ds, arena, world, compare=None, out_dir: Path = Path("out"), log=print):

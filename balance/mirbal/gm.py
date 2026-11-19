@@ -17,7 +17,7 @@ def _f(kind, sev, title, detail, scale, chart, remedy):
                 scale=scale, chart=chart, remedy=remedy)
 
 
-def run(ds, an, prog, econ, gear, skills, world_rows, server, errors=()):
+def run(ds, an, prog, econ, gear, skills, world_rows, server, errors=(), skillbooks=()):
     out = []
     for e in errors:
         out.append(_f("代码", 3, "模拟中服务端抛异常：" + e["error"].split(" @ ")[0][:80],
@@ -124,6 +124,37 @@ def run(ds, an, prog, econ, gear, skills, world_rows, server, errors=()):
         if s["hours"] >= 10:
             out.append(_f("技能", 1, f"{s['job']}「{s['skill']}」{s['lv']} 级纯修炼需 {s['hours']:.0f} 小时",
                           f"需求人物 {s['need_level']} 级，{s['points']} 点。", "全规模", "skill", "调 magicTrain 或该技能 Train 点数"))
+    # 9b. 技能书获取：死书 / 等级错配 / 获取断崖
+    if skillbooks:
+        dead = [b for b in skillbooks if b["dead"]]
+        if dead:
+            out.append(_f("技能书", 3, f"{len(dead)} 本技能书「死书」：无怪掉落且无商店出售",
+                          "、".join(f"{b['book']}({b['job'] or '?'}需{b['need_level']}级)" for b in dead[:10])
+                          + "。玩家没有任何正规途径拿到，技能等于不可学。",
+                          "全规模", "skillbook", "核对 MonItems / NPC 脚本：给该技能书补一个掉落源或商店条目"))
+        real = [b for b in skillbooks if not b["orphan"]]
+        mism = [b for b in real if b["mismatch"]]
+        if mism:
+            noshop = [b for b in mism if not b["shop"]]
+            sev = 2 if noshop else 1
+            out.append(_f("技能书", sev, f"{len(mism)} 本技能书「等级错配」：掉落怪高于学习等级（其中 {len(noshop)} 本无商店兜底）",
+                          "；".join(f"{b['book']}(需{b['need_level']}级,掉自{b['mon_level_min']}-{b['mon_level_max']}级怪"
+                                   + ("" if b["shop"] else ",无商店") + ")" for b in (noshop or mism)[:8])
+                          + "。玩家到学习等级时打不到掉书的怪；有商店的可买，无商店的只能越级。",
+                          "1-30 人（前期最痛）", "skillbook", "下放掉落怪等级或让低级怪也掉该书"))
+        hard = [b for b in real if b["p50_hours"] and b["p50_hours"] >= 40 and not b["shop"]]
+        if hard:
+            out.append(_f("技能书", 2, f"{len(hard)} 本技能书无商店且单人刷到 P50 ≥40 小时",
+                          "；".join(f"{b['book']}(需{b['need_level']}级,P50 {b['p50_hours']:.0f}h,{b['sources']}种怪)"
+                                   for b in hard[:8])
+                          + "。纯打怪玩家在该技能解锁窗口内大概率拿不到书。",
+                          "1-10 人（无人带）", "skillbook", "提高掉率/降怪等级，或加入商店/任务保底"))
+        orphans = [b for b in skillbooks if b["orphan"] and not b["dead"]]
+        if orphans:
+            out.append(_f("技能书", 1, f"{len(orphans)} 个 StdMode=4 物品无同名技能（疑似私服残留）",
+                          "、".join(b["book"] for b in orphans[:10])
+                          + "。按名字学习与魔法匹配，这些书点下去只会提示「无效的技能书」。",
+                          "全规模", "skillbook", "核对是否私服内容，按需剥离或补对应魔法"))
     # 10. 数据异常：武器上下限颠倒
     bad = [f"{t.name}(DC {t.dcMin}-{t.dcMax})" for t in ds.items.values()
            if t.stdMode in (5, 6) and (t.dcMin > t.dcMax or t.mcMin > t.mcMax or t.scMin > t.scMax)]

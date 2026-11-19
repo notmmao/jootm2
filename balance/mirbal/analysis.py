@@ -273,6 +273,74 @@ class Analyzer:
                                 need_level=lvl_req, points=need, hours=hrs))
         return out
 
+    # ---------- 技能书获取难度（GM 分析技能爆率是否合理） ----------
+    def skill_books(self):
+        """每本技能书（StdMode=4）的获取途径与难度，供 GM 判断技能爆率合理性。
+
+        三个核心维度：
+          1. 获取难度：全服每小时产出、单人 P50 刷到小时；死书 = 无怪掉落且无商店出售。
+          2. 怪物分布：书由哪些等级段的怪掉落、覆盖多少种怪、掉落怪等级区间。
+          3. 等级错配：掉落怪的最低等级 vs 该技能学习等级——若「学技能的等级还打不到掉书的怪」，
+             说明玩家在需要该技能的时点拿不到书，只能越级打怪或靠商店，记为 mismatch。
+        P50 = ln2 / (单人可独占的每小时掉率)；单人独占按 band_share 折算（同段抢怪）。
+        """
+        import math as _m
+        ds = self.ds
+        w = ds.w
+        share = max(1.0, self.band_share.get("default", 0.25))
+        magic_by_name = {m.name: m for m in w.magic_templates.values()}
+        books = [t for t in w.item_templates.values() if getattr(t, "stdMode", 0) == 4]
+        out = []
+        for t in books:
+            name = t.name
+            m = magic_by_name.get(name)
+            need_level = m.needLevel[0] if m else None
+            job = JOBS.get(m.job, m.job) if m else None
+            # 商店出售：shop_price 键为物品名，shop_where 记录「地图·NPC」
+            shops = sorted(set(ds.shop_where.get(name, [])))
+            shop_price = ds.shop_price.get(name)
+            has_shop = name in ds.shop_price
+            # 怪物掉落来源
+            sources = ds.drop_sources(name)
+            src_rows = []
+            for monster, p in sources:
+                mi = ds.monsters.get(monster)
+                if mi is None or p <= 0:
+                    continue
+                sp = mi.supply_per_hour()
+                src_rows.append(dict(monster=monster, level=mi.level, p=p,
+                                     supply_h=sp, out_h=sp * p))
+            # 全服产出与单人独占掉率
+            total_rate_h = sum(r["out_h"] for r in src_rows)
+            solo_rate_h = total_rate_h / share
+            p50_hours = (_m.log(2) / solo_rate_h) if solo_rate_h > 0 else None
+            levels = sorted({r["level"] for r in src_rows})
+            dead = (not has_shop) and total_rate_h <= 0
+            mismatch = None
+            if need_level is not None and levels:
+                # 学习等级时够不到最低级掉书怪 → 在需要技能的时点拿不到书
+                mismatch = min(levels) > need_level
+            # 怪等级分布（按 10 级一档聚合，便于看「20 级书掉自哪些等级怪」）
+            band_dist = defaultdict(int)
+            for r in src_rows:
+                band_dist[(r["level"] // 10) * 10] += 1
+            out.append(dict(
+                book=name, job=job, need_level=need_level,
+                price=t.price, shop=has_shop, shop_price=shop_price, shop_npc=shops,
+                sources=len(src_rows), dead=dead,
+                mon_levels=levels,
+                mon_level_min=min(levels) if levels else None,
+                mon_level_max=max(levels) if levels else None,
+                level_bands=dict(sorted(band_dist.items())),
+                out_h=total_rate_h, p50_hours=p50_hours,
+                mismatch=mismatch,
+                # 无对应技能：StdMode=4 但 magic_templates 里没有同名技能（如「天尊之兽」）
+                orphan=(m is None),
+                monsters=sorted({r["monster"] for r in src_rows}),
+            ))
+        out.sort(key=lambda r: (r["need_level"] is None, r["need_level"] or 0, r["book"]))
+        return out
+
     # ---------- 全服规模：稀有物品与金币总量 ----------
     def server_scale(self, job_mix=(0.34, 0.33, 0.33), tier="shop"):
         """N 人在线（按等级段 4 段均分）时：全服每日产出的金币净流入、主要物品产出量。"""

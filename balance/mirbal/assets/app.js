@@ -39,7 +39,7 @@
   on(() => {
     const kk = $("gmKind").value;
     const rows = D.findings.filter(x => kk === "全部" || x.kind === kk);
-    table($("gmTable"), [["sev", "级别", (v, r) => `<span class="sev sev${v}">${r.sevName}</span>`], ["kind", "类别"], ["title", "现象"], ["detail", "证据"], ["scale", "影响规模"], ["remedy", "方向", v => esc(v)], ["chart", "图", v => `<a href="#${{ exp: "exp", prog: "prog", heat: "heat", world: "world", econ: "econ", gear: "gear", skill: "skill", data: "gear", monsters: "mons", server: "server" }[v] || v}">→</a>`]], rows);
+    table($("gmTable"), [["sev", "级别", (v, r) => `<span class="sev sev${v}">${r.sevName}</span>`], ["kind", "类别"], ["title", "现象"], ["detail", "证据"], ["scale", "影响规模"], ["remedy", "方向", v => esc(v)], ["chart", "图", v => `<a href="#${{ exp: "exp", prog: "prog", heat: "heat", world: "world", econ: "econ", gear: "gear", skill: "skill", data: "gear", skillbook: "skillbook", monsters: "mons", server: "server" }[v] || v}">→</a>`]], rows);
   }, "gmKind");
 
   // ---- 经验表 ----
@@ -111,6 +111,35 @@
     const names = [...new Set(rows.map(r => r.skill))];
     Viz.bar($("cSkill"), { x: names, series: [1, 2, 3].map((l, i) => ({ name: l + " 级", ci: i, values: names.map(n => { const r = rows.find(x => x.skill === n && x.lv === l); return r ? r.hours : 0; }) })), notes: names.map(n => rows.filter(x => x.skill === n).map(x => `${x.lv}级需人物${x.need_level}级/${x.points}点`).join(" · ")), yLabel: "纯修炼小时", height: 280, xRot: names.length > 8 });
   }, "sJob");
+
+  // ---- 技能书获取 ----
+  const BK = D.skillbooks || [];
+  opt($("bkJob"), [["all", "全部职业"], ...jobOpts], "all");
+  const flag = (v, on, text) => on ? `<span class="sev sev${v}">${text}</span>` : "—";
+  on(() => {
+    const j = $("bkJob").value, flt = $("bkFilter").value;
+    let rows = BK.filter(b => j === "all" || b.job === j);
+    if (flt === "dead") rows = rows.filter(b => b.dead);
+    else if (flt === "mismatch") rows = rows.filter(b => b.mismatch);
+    else if (flt === "noshop") rows = rows.filter(b => !b.shop);
+    else if (flt === "orphan") rows = rows.filter(b => b.orphan);
+    const bands = b => Object.entries(b.level_bands || {}).map(([lv, n]) => `${lv}+级×${n}`).join(" ") || "—";
+    table($("bkTable"), [
+      ["book", "技能书"],
+      ["job", "职业"],
+      ["need_level", "学习级", v => v == null ? "—" : v],
+      ["price", "标价", v => f(v)],
+      ["shop", "商店", (v, r) => v ? `有 ${f(r.shop_price)}（${(r.shop_npc || []).length} 处）` : "—"],
+      ["sources", "掉源数"],
+      ["mon_level_min", "掉落怪等级", (v, r) => v == null ? "—" : `${v}-${r.mon_level_max}`],
+      ["level_bands", "怪等级分布", (v, r) => bands(r)],
+      ["out_h", "全服产出/h", v => f(v)],
+      ["p50_hours", "单人P50(h)", v => v == null ? "—" : f(v)],
+      ["dead", "死书", (v, r) => flag(3, r.dead, r.orphan ? "无技能" : "死书")],
+      ["mismatch", "等级错配", (v, r) => flag(2, !!v, "错配")],
+      ["monsters", "掉落怪", (v) => (v || []).slice(0, 6).join("、") + ((v || []).length > 6 ? ` 等${v.length}种` : "")],
+    ], rows);
+  }, "bkJob", "bkFilter");
 
   // ---- 世界 ----
   const W = D.world;

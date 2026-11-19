@@ -54,7 +54,7 @@ code{font-size:12px;background:var(--surface-2);padding:0 4px;border-radius:3px}
 <body>
 <header><h1>jootm2 数据可玩性分析 <span class="sub" id="hdr"></span></h1><div class="sub" id="meta"></div></header>
 <nav>
-<a href="#overview">总览</a><a href="#gm">GM 体检</a><a href="#exp">经验表</a><a href="#prog">升级时间线</a><a href="#heat">练级点热力</a><a href="#mons">怪物性价比</a><a href="#econ">经济收支</a><a href="#gear">装备获取</a><a href="#skill">技能修炼</a><a href="#world">真实地图</a><a href="#server">全服规模</a><a href="#cmp">A/B 对比</a><a href="#method">口径</a>
+<a href="#overview">总览</a><a href="#gm">GM 体检</a><a href="#exp">经验表</a><a href="#prog">升级时间线</a><a href="#heat">练级点热力</a><a href="#mons">怪物性价比</a><a href="#econ">经济收支</a><a href="#gear">装备获取</a><a href="#skill">技能修炼</a><a href="#skillbook">技能书获取</a><a href="#world">真实地图</a><a href="#server">全服规模</a><a href="#cmp">A/B 对比</a><a href="#method">口径</a>
 </nav>
 <main>
 <section id="overview"><h2>总览</h2><p class="desc">商店装、单人、真实地图效率系数 η 已计入。数据随 <code>python balance/run.py all</code> 重算。</p><div class="kpis" id="kpis"></div></section>
@@ -72,6 +72,9 @@ code{font-size:12px;background:var(--surface-2);padding:0 4px;border-radius:3px}
 <section id="gear"><h2>装备获取时间（「本级最强」那一套）</h2><p class="desc">商店件 = 价格 ÷ 商店装练级的每小时净收入；掉落件 = 在单挑能稳定刷的怪里挑掉率×击杀速度最高的去专刷，P50 / P90 = 一半 / 九成玩家拿到所需小时（指数分布）。</p>
 <div class="ctrl">职业 <select id="gJob"></select> 等级 <select id="gLv"></select></div><div class="chart" id="cGear"></div><div class="scroll" id="gearTable"></div><h3>配装明细</h3><div id="equipBox" class="note"></div></section>
 <section id="skill"><h2>技能修炼</h2><p class="desc">持续使用该技能（主动技能每个施法节拍一次、剑术每次命中）练到下一级的纯修炼小时数，与人物需求等级对照。</p><div class="ctrl">职业 <select id="sJob"></select></div><div class="chart" id="cSkill"></div></section>
+<section id="skillbook"><h2>技能书获取（爆率合理性）</h2><p class="desc">StdMode=4 技能书的获取途径与难度。<b>死书</b> = 无怪掉落且无商店出售；<b>等级错配</b> = 掉落怪等级高于该技能学习等级（到该级时打不到掉书的怪）；<b>P50</b> = 单人按同段供给份额刷到一本的中位小时（ln2÷独占掉率）。全服产出 = Σ 怪供给/h × 掉率。</p>
+<div class="ctrl">职业 <select id="bkJob"></select> 仅看 <select id="bkFilter"><option value="all">全部</option><option value="dead">死书</option><option value="mismatch">等级错配</option><option value="noshop">无商店</option><option value="orphan">无对应技能</option></select></div>
+<div class="scroll" id="bkTable"></div></section>
 <section id="world"><h2>真实地图效率（引擎 B）</h2><p class="desc">真实地图 + MonGen 刷新 + N 个托管角色同图（寻路、找怪、抢怪、喝药都走服务端）。η = 纯战斗时间占比，用于把单挑结果折算成真实效率。</p>
 <div class="grid2"><div class="chart" id="cWorldExp"></div><div class="chart" id="cWorldDeath"></div></div><div class="scroll" id="worldTable"></div></section>
 <section id="server"><h2>全服规模（1 / 10 / 100 / 1000 人同时在线）</h2><p class="desc">按等级均匀分布、三职业均分、24 小时在线估算；同段人数越多，刷怪供给越不够分，人均效率下降、全服总产出趋于饱和。</p>
