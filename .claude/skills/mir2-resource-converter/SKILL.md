@@ -79,8 +79,8 @@ preview <lib> [--layout ... --race ...] [--indices a-b] [--out x.html]
 
 ## 在 jootm2 仓库内使用（仅此节依赖仓库）
 
-- 短库名兜底目录是仓库的 `resources/Data/`；服务端启动自动重建 `resources/resources.json`（`pyserver/gamedata.py` 扫 `Data/*.WIX`，key = 小写文件名），新库落盘即被索引。
-- 新怪物/装备/NPC 接线：`gamedata/mud2/DB/Monster.csv`（race 选 MA 表、appr 外观号）、StdItems.csv（shape/looks）；客户端帧契约实现见仓库 `frontend/actor/ActorSprite.mjs`（与本 skill 快照同源）。
+- 短库名兜底目录是仓库的 `resources/Data/`；服务端启动自动重建 `resources/resources.json`（`pyserver/gamedata.py` 扫 `Data/*.WIX`，key = 文件名按第一个点截断后小写，如 `Deco..wix` → `deco`），新库落盘即被索引。
+- 新怪物/装备/NPC 接线：`gamedata/mud2/DB/Monster.csv`（**`raceImg` 决定客户端 MA 动作表，`race` 只决定 AI、`appr` 决定图库与帧偏移**；三者别混）、StdItems.csv（shape/looks）；客户端帧契约实现见仓库 `frontend/actor/ActorSprite.mjs`（与本 skill 快照同源）。
 - 动作表若有更新：`--tables frontend/actor/actorData.mjs` 实时解析，并同步刷新 `references/tables.json` 与 `upstream/` 快照。
 - merge 进原版库后跑资源体检 `python scripts/verify_resources.py resources`。
 - 浏览器测试 **Ctrl+F5** 硬刷新（ES module 有缓存）；收尾按项目规则跑回归并更新 HANDOFF。
