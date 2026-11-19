@@ -7,13 +7,17 @@ import multiprocessing as mp
 from pyserver.util import calc_get_exp
 
 from . import boot
-from .batch import fingerprint
+from .batch import fingerprint, _mp_context
 
 LEVELS = (7, 13, 19, 25, 31)
 NS = (1, 5, 15, 40)
 
 
 def pick_maps(ds, arena, levels):
+    # 只考虑本机真正有 .map 资源的图：get_or_load_map 对不在 available_maps
+    # 的 id 返回 None，worldsim 会整场抛 AttributeError（如 T0003 兽人古战场
+    # 在部分检出里没有 .map）。旧 Linux 沙箱有该图所以没暴露，本机跑要跳过。
+    available = ds.w.available_maps
     plans = []
     for L in levels:
         best = None
@@ -24,6 +28,10 @@ def pick_maps(ds, arena, levels):
                 m = ds.monsters.get(f["monster"])
                 if not f["ttk"] or m is None or f["deaths"] > 0:
                     continue
+                # 该怪所有的可刷图都被排除时，这只怪不能用来跑真实地图
+                usable = [s for s in m.spawns if s.map_id in available]
+                if not usable:
+                    continue
                 v = calc_get_exp(L, m.level, m.exp) / f["ttk"]
                 if best is None or v > best[0]:
                     best = (v, m)
@@ -32,7 +40,11 @@ def pick_maps(ds, arena, levels):
         m = best[1]
         by_map = {}
         for s in m.spawns:
+            if s.map_id not in available:
+                continue
             by_map[s.map_id] = by_map.get(s.map_id, 0) + s.count
+        if not by_map:
+            continue
         map_id = max(by_map, key=by_map.get)
         plans.append(dict(level=L, map_id=map_id, monster=m.name))
     return plans
@@ -66,7 +78,7 @@ def run_all(tree, ds, arena, quick=False, log=print, budget_s=None, cached_only=
     elif tasks:
         log(f"[world] 待跑 {len(tasks)}/{len(allt)} 场景（每场 {minutes} 游戏分钟）…")
         t0 = time.time()
-        pool = mp.get_context("fork").Pool(2)
+        pool = _mp_context().Pool(2)
         try:
             for i, r in enumerate(pool.imap_unordered(_work, tasks)):
                 key((None, None, r["level"], r["n"])).write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")

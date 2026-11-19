@@ -15,6 +15,19 @@ TIERS = ("none", "shop", "best")
 LEVEL_WINDOW = (-14, 12)
 
 
+def _mp_context():
+    """Linux 用 fork（继承父进程已装好的虚拟时钟），Windows 无 fork 回退 spawn。
+
+    spawn 下每个 worker 重新 import mirbal.batch，boot 顶层会重新 clock.install()
+    并注入 sys.path；_work 是模块级函数可 pickle，单场模拟自己推进虚拟时钟，
+    与 fork 口径一致。原实现写死 fork，在本机（Windows）直接 ValueError。
+    """
+    try:
+        return mp.get_context("fork")
+    except ValueError:
+        return mp.get_context("spawn")
+
+
 def fingerprint(tree: str | None) -> str:
     """数据树 + 倍率表 + pyserver 代码 的内容指纹：任何一处变化缓存就失效。"""
     root = boot.tree_path(tree) or (boot.ROOT / "gamedata")
@@ -67,7 +80,7 @@ def run_arena(tree, ds, fights=8, procs=None, levels=LEVELS, log=print, budget_s
         procs = procs or max(1, (os.cpu_count() or 2))
         log(f"[arena] 待跑 {len(tasks)}/{total} 组合 × ≤{fights} 场，{procs} 进程 …")
         t0 = time.time()
-        pool = mp.get_context("fork").Pool(procs)
+        pool = _mp_context().Pool(procs)
         try:
             for i, r in enumerate(pool.imap_unordered(_work, tasks, chunksize=1)):
                 (cdir / f"{r['job']}-{r['level']}-{r['tier']}.json").write_text(
