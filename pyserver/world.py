@@ -1099,6 +1099,15 @@ class GameWorld(WorldExtra):
         self.notice_lines = parse_notice(config.notice_file)
         self.spawn_monsters(self.default_map)
         self.init_extra()
+        # 我本沉默私服内容剥离（config/content_policy.json）
+        from .content_filter import ContentPolicy, filter_world
+        self.content_policy = ContentPolicy.load(config.root)
+        self.content_filter_stat = filter_world(self.content_policy, self)
+        if self.content_policy.enabled:
+            s = self.content_filter_stat
+            # items/monsters 在 db 层已从源头过滤（这里为 0 是正常的，看 db 日志）
+            print(f"[world] content policy: -maps={s['maps']} -spawns={s['mon_gen']} "
+                  f"-npcs={s['npcs']} high_drop_reset={len(s['high_drop'])}")
 
     # ---- id / 生命周期 -------------------------------------------------
 

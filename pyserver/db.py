@@ -175,6 +175,15 @@ class Database:
             items = read_csv_rows(mud2_dir / "StdItems.csv")
             monsters = read_csv_rows(mud2_dir / "Monster.csv")
             magics = read_csv_rows(mud2_dir / "Magic.csv")
+            # 我本沉默私服内容剥离（config/content_policy.json，默认可关）
+            from .content_filter import ContentPolicy, filter_csv_rows
+            policy = ContentPolicy.load(Path(__file__).resolve().parent.parent)
+            n_items, n_mons = len(items), len(monsters)
+            items = filter_csv_rows(policy, "item", items)
+            monsters = filter_csv_rows(policy, "monster", monsters)
+            if n_items != len(items) or n_mons != len(monsters):
+                print(f"[db] content policy: -items={n_items - len(items)} "
+                      f"-monsters={n_mons - len(monsters)}")
             if not items:
                 return False
             with self.conn:
