@@ -12,6 +12,7 @@
 - 每树一份：current 与 176 各存一份产物，切换数据树时 `/site` 跟随切换（见 §62）。
 - 图标与地图全部本地生成：物品帧、技能帧、怪物/NPC 立绘、地图渲染图（含刷怪点），**不使用第三方站的图片**（有 watermark 的图一律不借）。
 - 不做：在线数据库后端 / 搜索服务、玩家账号相关页面、上传与编辑、多语言。
+- **剥离跟随（2026-11-19）**：wiki 与服务端/balance 同源读 `config/content_policy.json`——`gen_website.py::Data._apply_policy()` 在装载末尾过滤 items/monsters/maps/npcs/刷怪/掉落表，`high_drop.reset` 命中的怪照常展示但掉落表换基线。默认跟随剥离；`--no-policy` 生成原始全集（对比私服内容时用）。生成日志首行打印剥离统计。
 
 ## 数据源与口径（硬约束）
 - 数据树 = `gamedata.root`（默认 `gamedata`，副本树 `data/gamedata/<name>`）；素材 = `resources/`（两树共享）。
@@ -22,7 +23,7 @@
 - 刷怪点 = `MonGen.txt`，图标规则与客户端 `actorData.mjs` 一致（`getMonImgLib` / `getMonOffset` / 站姿 dir=4），带 1px 黑色描边保证浅色地面上可见。
 
 ## 产物与结构
-- `scripts/gen_website.py`：主流程（`--tree` 裸树名或路径、`--out`、`--skip-existing-maps`、`--open`）；默认读生效指针。
+- `scripts/gen_website.py`：主流程（`--tree` 裸树名或路径、`--out`、`--skip-existing-maps`、`--no-policy`、`--open`）；默认读生效指针。
 - `scripts/website_assets.py`：CSS / 搜索 JS / 导航 / 页面壳（改样式只动这里）。
 - `scripts/render_maps.py`：大地图 1px/格（even-sample 背景 + mid/fr/area 全分辨率 + 颜色查找表）与小图真实合成（阈值 `SMALL_TILES = 4000`）、怪物图标。
 - `scripts/wil_extract.py`：WIL/WIX 帧解码（8 位索引色 + 共享调色板 / RGB565），零第三方依赖。

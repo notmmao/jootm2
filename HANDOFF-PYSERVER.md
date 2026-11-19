@@ -1128,3 +1128,40 @@ DPS 略降属保真。观感**仍需用户实机自测**（公网真实延迟）
    - `items/monsters/maps/npcs` 清单 = **不再刷新**（模板/刷怪项/地图/NPC 从内存删除）；
    - `high_drop.reset` 黑名单 = **照常刷新，只换掉落表**（僵尸10 仍在模板表、仍在刷怪，但掉落表换成僵尸1 的，死了不掉私服高价值装备）。
 4. 实测与回归：黑名单回退 35 只（与旧算法结果一致）；僵尸10 itemval 7245→45、黑野猪0 8995→22，官服 BOSS（赤月恶魔 32692、祖玛教主 66510）保留。`test_content_filter.py` 扩到 32/32（新增"私服怪不刷新 vs 高爆怪照常刷新"及"名单外高爆表不被算法误伤"断言）；核心 128/180/4/22 全过。仍**未重跑 balance 全量、未发布 list2**。
+
+## §130 黑名单按稀有度收敛 + 死怪刷新调研（2026-11-19）
+
+**① `high_drop.reset` 从 35 条缩到 13 条**（依据 `balance/RARE-MOBS-ANALYSIS.md`）：22 只稀有怪（供给<30/h 的精英）移出黑名单、保留高爆——稀有怪掉好装备是合理设计，且 `analysis.py:150 k_h=min(cap,supply)` 已约束供给，造不出经济断崖。断崖根源是 13 只高频普通怪（骷髅战士0 供给901/h、白野猪623/h 等），只清这些。
+- 配置里新增两段**纯描述性**字段（不参与代码判定）：`_稀有特性判定(描述性,不参与代码)` 说明"稀有≠高爆是两个维度"，`_稀有怪清单(...仅供扩展参考)` 列 22 只。代码 `content_filter.py` 未改，仍是"名单驱动"极简规则。
+- 实测：实际回退 13 只（僵尸10/20/30/40/50、骷髅0、骷髅战士0、掷斧骷髅0、白野猪、红野猪0、黑野猪0、黑锷蜘蛛0、黑色恶蛆0）；邪恶蝎蛇/花吻蜘蛛0 等稀有怪不再被回退。`test_content_filter.py` 32/32 全过。
+
+**② 死怪刷新：本轮调研后用户决定暂不配置**（待办，非已实施）。全量扫描 supply=0 共 **55 只**，但只有 **23 只真战斗怪**（exp≥10、hp≥50、lv<100、非建筑/守卫/宝宝），其余 32 只是沙巴克城墙/城门(appr900+)、卫士/弓箭手/护卫、神兽/变异骷髅召唤兽、lv255 异常数据、exp≤1 残缺条目——全配会在地图里刷出城门和守卫。23 只里多数原本就无刷怪点（非剥离所致），约 17 只可找到"同类基名怪"地图（毒蜘蛛1→比奇、天狼蜘蛛3→12 图等），6 只(残尸/腐尸/触龙神/牛魔教主0/1 等)无同类地图。若日后要配：按 lv 映射 0.5~2 只/h（interval 30~120 分钟）、往 `mon_gen_entries` 注入 `MonGen(...count=1...)` 即可，DataSet 与 spawn 都读该表。
+
+## §131 balance 是否认 content_policy.json + 缓存指纹补漏（2026-11-19）
+
+**结论：认，但有缓存坑（本轮已修）。** balance 没有自己的数据加载器：`boot.make_service()` 走 `pyserver.db.Database.seed_game_data()` + `GameService`，两处挂载点（`db._import_csv` 的 `filter_csv_rows`、`world.__init__` 末尾的 `filter_world`）都会执行，`DataSet` 读的是过滤后的 `srv.world`。实测（3.10）：`policy=on`、maps -30 / mon_gen -448 / npcs -2、`high_drop` 回退 13 只；驽马勇士/法王 `in_ds=False`；僵尸10 itemval 7245→45.2、黑野猪0 8995→21.6；赤月恶魔 32692 保留。所以**经济/掉落/供给/物品价值（DataSet 实时算）认配置**。
+
+**坑**：`balance/mirbal/batch.py::fingerprint()` 原先没纳入 `config/content_policy.json`，且 arena 缓存文件名 `{job}-{lv}-{tier}.json`、worldsim `{level}-{n}.json` 都不含怪名——改配置后战斗/升级/同图模拟仍命中旧缓存。本轮已把 `content_policy.json` 加入指纹路径。新指纹 `6d200ec0e394`（旧 `ca5e85d73b82`），旧缓存目录不再匹配，下次 `run.py all` 会重建。**仍未重跑 balance 全量、未发布 list2。**
+
+## §132 wiki 生成器接入 content_policy 剥离（2026-11-19）
+
+`scripts/gen_website.py` 原来自带一套 `Data` 直读原始 CSV/MonGen/MonItems/Npcs，**绕过 content_filter**，所以 wiki 站仍展示私服内容（驽马系、蓝灵/域类、D205 图、老渔翁、僵尸10 私服高爆表）。本轮接入：
+
+- `Data.__init__(tree, policy=None)` 加载 `ContentPolicy.load(ROOT)`，装载末尾新增 `_apply_policy()`：过滤 items/monsters/maps/npcs、刷怪表去掉被剥离的怪与图、掉落表按 `high_drop.reset` 换基线并剔除私服物品条目（直接复用 `filter_drop_tables`，单一事实源）。NPC 商品自动跟随（`goods()` 对已剥离物品因缺模板跳过）。所有派生索引（gates/map_npcs/mon_spawn/item_dropped_by 等）重建。
+- 新增 `--no-policy` 开关（传 disabled policy）用于生成原始全集对比；默认跟随剥离。生成日志首行打印剥离统计。
+- 实测（3.10，`Data()` 不渲染全站）：items -96 / monsters -41 / maps -30 / spawns -420 / npcs -2 / 高爆换表 13 只，与服务端口径一致；`--no-policy` 下驽马勇士恢复、僵尸10 掉落表不再等于僵尸1。`test_content_filter.py` 扩到 **41/41**（新增 8 条 wiki 断言）。
+- 文档：`docs/WIKI-PLAN.md` 功能定义与产物结构同步更新。
+- **未重新生成 wiki 产物、未发布 list2**。下次生成需重跑 `gen_website.py`（地图渲染含刷怪点，不能用 `--skip-existing-maps` 跳过剥离后的图）。
+
+## §133 wiki 重新生成 + 无损压缩 + list2 发布 + 专用专家（2026-11-19）
+
+**发布已完成（用户检查后再定是否提交 jootm2）**：
+- 重新生成（3.10）：备份旧产物到 `data/website.bak-prepolicy`，清空 `data/website/*` 后全量重建。`内容策略: 剥离 物品96 怪物41 地图30 刷怪420 NPC2，高爆换表13`；物品445/技能33/怪物232/地图415/NPC112/掉落表200，页面 761（旧 1072）。
+- 新增可复用脚本 `scripts/compress_website.py`：**精确调色板无损压缩**（`sorted(实际RGB集合)` 造表，禁止 ADAPTIVE；转 P 后 `tobytes()` 与原 RGB 逐字节校验，不一致回退），只对全不透明且颜色 ≤256 的图转换。1577 文件 64.6MB→47.0MB，转 229 张、原样 585 张，无空文件。
+- 压缩踩坑：脚本末尾清孤儿 ≥50 个触发 `SAFE_DELETE_BULK_CONFIRM_REQUIRED` 中断；手动补删 292 个孤儿（只删 `data/website-list2` 下、源无对应的文件）后重跑，`清理孤儿文件 0 个`。
+- 发布：加载 list2-publish 技能，dry-run 后正式发布 `--name mir2-wiki`，commit `2a8febb`，变更 437 文件，push 成功，逐页 HTTP 200；`git -C D:/work/me/list2 diff --name-only HEAD^ HEAD | grep -v '^mir2-wiki/'` 为空（零越界）。WebFetch 抽查首页统计为剥离后数值。
+- **已知边界**：发布脚本是更新发布、不删目标目录既有文件，旧私服专属 HTML 页（D2051、驽马系等）仍作直链孤儿留在 CDN（导航/首页已无链接）；彻底清除需用户确认后显式删除。
+
+**专用专家**：用户要求「创建 Agent 专门发布 mir2-wiki」。已在 `~/.workbuddy/plugins/marketplaces/my-experts/plugins/mir2-wiki-publisher/` 建并注册 Agent 型专家「传奇 Wiki 发布官」，分类 02-Engineering。含 6 步 SOP（前置检查→生成→无损压缩→发布→线上验证→用户确认后提交）、把 Python3.10 / content_policy 单一事实源 / `--skip-existing-maps` 禁用 / 孤儿删除保护 / core.quotepath / 不自动提交等坑全固化；自带 `skills/mir2-wiki-release` 运行手册；头像已生成（512×512/397KB）。校验零警告、注册成功。**未打包分享**（需要时用 `package_expert.py`）。
+
+**仍未提交**：jootm2 工作区的 `config/content_policy.json`、`gen_website.py`、`compress_website.py`、`test_content_filter.py`、`WIKI-PLAN.md`、HANDOFF 等改动均未 commit，等用户检查通过后提交（标签 `[文档]`/`[构建]`）。
