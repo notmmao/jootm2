@@ -1,12 +1,16 @@
 """我本沉默私服内容过滤：加载期剥离，原始数据文件零改动。
 
 配置见 ``config/content_policy.json``：
-- items/monsters/maps/npcs：glob 清单，命中的模板/刷怪/地图/NPC 不加载；
-- high_drop：按掉落表结构识别"高爆变体"，把它的表换回同显示名的官服基线变体表。
+- items/monsters/maps/npcs：glob 清单，命中的模板/刷怪/地图/NPC 不加载（不再刷新）；
+- high_drop.reset：显式黑名单 {高爆怪名: 官服基线怪名}，命中者掉落表换成基线表
+  （怪照常刷新，只是不再掉私服高价值装备）。
 
-判据不用 itemval 排序：赤月恶魔/祖玛教主等官服 BOSS 的无后缀表本身 itemval
-就极高（7 万+），按数值排序会误伤。改用「装备类且概率≥1/10 的条目数」，
-私服高爆表普遍 15~37 条，官服基线变体 0~5 条；再用 keep_boss 白名单兜底。
+两类"剔除"语义不同，别混：
+- items/monsters/maps/npcs = 不刷新（模板/刷怪项从内存删除）；
+- high_drop.reset = 照常刷新，只换掉落表（清掉高爆产出）。
+
+不再使用旧的启发式算法（同显示名变体对比 + 装备概率条目数阈值 + keep_boss
+白名单）：那种做法会随数据变动误伤官服 BOSS，也不直观。改成名单驱动后可预期。
 """
 from __future__ import annotations
 
@@ -27,9 +31,8 @@ def _show_name(name: str) -> str:
 @dataclass(frozen=True)
 class HighDropRule:
     enabled: bool = True
-    min_high_prob_items: int = 8
-    min_prob: float = 0.1
-    keep_boss: tuple[str, ...] = field(default_factory=tuple)
+    # 显式黑名单：高爆怪名 -> 官服基线怪名（掉落表整体换成基线表）
+    reset: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -59,9 +62,7 @@ class ContentPolicy:
             npcs=tuple(d.get("npcs") or ()),
             high_drop=HighDropRule(
                 enabled=bool(h.get("enabled", True)),
-                min_high_prob_items=int(h.get("min_high_prob_items", 8)),
-                min_prob=float(h.get("min_prob", 0.1)),
-                keep_boss=tuple(h.get("keep_boss") or ()),
+                reset={str(k): str(v) for k, v in (h.get("reset") or {}).items()},
             ),
         )
 
@@ -104,45 +105,25 @@ def filter_csv_rows(policy: ContentPolicy, kind: str, rows: list[list[str]]) -> 
     return rows
 
 
-def _high_prob_count(entries, std_mode: dict[str, int], min_prob: float) -> int:
-    """掉落表里「装备类(stdMode!=0) 且概率≥min_prob」的条目数。"""
-    n = 0
-    for e in entries:
-        if std_mode.get(e.item_name, 0) == 0:
-            continue
-        if (e.sel_point + 1) / max(1, e.max_point) >= min_prob:
-            n += 1
-    return n
+def filter_drop_tables(policy: ContentPolicy, tables: dict,
+                       std_mode: dict[str, int] | None = None) -> tuple[dict, list[str]]:
+    """按显式黑名单把高爆怪的掉落表换成官服基线表（怪仍刷新）。
 
-
-def filter_drop_tables(policy: ContentPolicy, tables: dict, std_mode: dict[str, int]) -> tuple[dict, list[str]]:
-    """识别高爆变体表，替换为同显示名官服基线变体的表。
-
-    返回 (新表, 被处理的怪名列表)。官服 BOSS 白名单内的怪一律不动。
+    std_mode 保留为可选参数只为兼容旧调用，不再参与判定。
+    返回 (新表, 被处理的怪名列表)；名单外的怪一律不动。
     """
     rule = policy.high_drop
-    if not policy.enabled or not rule.enabled:
+    if not policy.enabled or not rule.enabled or not rule.reset:
         return tables, []
-    keep = set(rule.keep_boss)
-    heat = {name: _high_prob_count(ents, std_mode, rule.min_prob) for name, ents in tables.items()}
-    groups: dict[str, list[str]] = {}
-    for name in tables:
-        groups.setdefault(_show_name(name), []).append(name)
-
-    changed: list[str] = []
     out = dict(tables)
-    for base, names in groups.items():
-        if base in keep:
-            continue
-        # 基线 = 高概率装备条目最少的变体（官服表通常 0~5 条）
-        baseline = min(names, key=lambda n: (heat[n], n))
-        if heat[baseline] >= rule.min_high_prob_items:
-            continue  # 整组都是高爆，没有可信基线，保持原样
-        for name in names:
-            if name == baseline or heat[name] < rule.min_high_prob_items:
-                continue
-            out[name] = list(tables[baseline])
-            changed.append(name)
+    changed: list[str] = []
+    for name, baseline in rule.reset.items():
+        if name not in tables:
+            continue  # 该怪已被 monsters 清单剥离，不在掉落表里
+        if baseline not in tables:
+            continue  # 基线怪不存在（数据变动），保守跳过，不硬改
+        out[name] = list(tables[baseline])
+        changed.append(name)
     return out, changed
 
 
@@ -199,11 +180,10 @@ def filter_world(policy: ContentPolicy, world) -> dict:
             world.npcs_by_map[npc.map_name] = [x for x in world.npcs_by_map[npc.map_name] if x.id != i]
     stat["npcs"] = len(drop_npc_ids)
 
-    # 4) 高爆掉落表（清表已剥离怪的条目 + 变体回退）
-    std_mode = {t.name: t.stdMode for t in world.item_templates.values()}
+    # 4) 高爆掉落表（黑名单驱动：先剔除已剥离怪，再按 reset 名单换回官服基线表）
     tables = {n: e for n, e in world.drop_tables.items()
               if n in world.monster_templates and n not in drop_mon}
-    world.drop_tables, changed = filter_drop_tables(policy, tables, std_mode)
+    world.drop_tables, changed = filter_drop_tables(policy, tables)
     stat["high_drop"] = changed
     stat["policy"] = "on"
     return stat

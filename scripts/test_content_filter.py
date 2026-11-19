@@ -1,9 +1,9 @@
 """我本沉默内容剥离回归测试。
 
-断言：
-1. 私服道具/怪/地图/NPC 不加载到内存模板与刷怪表；
-2. 官服 BOSS（赤月恶魔/祖玛教主等）仍然存在；
-3. 高爆变体掉落表回退到基线（僵尸10≈僵尸1、黑野猪0≈黑野猪）；
+两类"剔除"语义必须区分：
+1. items/monsters/maps/npcs 清单 = 不再刷新（模板/刷怪项/地图/NPC 从内存删除）；
+2. high_drop.reset 黑名单 = 照常刷新，只把掉落表换成官服基线（死了不掉私服高价值）；
+3. 官服 BOSS（赤月恶魔/祖玛教主等）仍然存在且掉落表不被改；
 4. 关掉开关（enabled=false）后全集恢复——用一个临时配置验证。
 """
 import sys
@@ -69,6 +69,14 @@ def main():
         check("月崕岛(5) 不刷怪", not any(e.map_id == "5" for e in w.mon_gen_entries))
         check("官服地图 D501(祖玛) 仍刷怪", any(e.map_id == "D501" for e in w.mon_gen_entries))
 
+        # 两类剔除的行为差异：私服怪不刷新，高爆怪照常刷新只换掉落表
+        check("私服怪驽马勇士不再刷新",
+              not any(e.monster_name == "驽马勇士" for e in w.mon_gen_entries))
+        check("高爆怪僵尸10照常刷新", "僵尸10" in w.monster_templates and
+              any(e.monster_name == "僵尸10" for e in w.mon_gen_entries))
+        check("高爆怪黑野猪0照常刷新", "黑野猪0" in w.monster_templates and
+              any(e.monster_name == "黑野猪0" for e in w.mon_gen_entries))
+
         # 高爆回退用 DataSet 的回收价口径（间接：比较掉落表条目）
         jz = w.drop_tables.get("僵尸10", [])
         jz1 = w.drop_tables.get("僵尸1", [])
@@ -83,15 +91,16 @@ def main():
         check("官服 BOSS 未被回退", "赤月恶魔" not in w.content_filter_stat["high_drop"])
         db.close()
 
-    # filter_drop_tables 单测：白名单保护
-    rule = policy.high_drop
-    std = {"裁决之杖": 5, "八荒": 5, "金创药(小量)": 0}
+    # filter_drop_tables 单测：显式黑名单，名单外一律不动（不再有自动识别算法）
     hot = [DropEntry(i, 5, "八荒") for i in range(10)]
     base = [DropEntry(0, 100, "裁决之杖")]
-    tables = {"赤月恶魔": hot, "赤月恶魔1": base, "僵尸10": hot, "僵尸1": base}
-    out, changed = filter_drop_tables(policy, tables, std)
-    check("白名单 BOSS 表不动", out["赤月恶魔"] == hot)
-    check("非白名单高爆回退", out["僵尸10"] == base and "僵尸10" in changed)
+    tables = {"赤月恶魔": hot, "赤月恶魔1": base,
+              "僵尸10": hot, "僵尸1": base,
+              "未知高爆怪": hot}  # 高概率条目多但不在名单 → 不应被自动识别
+    out, changed = filter_drop_tables(policy, tables)
+    check("名单外 BOSS 表不动", out["赤月恶魔"] == hot and "赤月恶魔" not in changed)
+    check("名单内高爆怪换回指定基线", out["僵尸10"] == base and "僵尸10" in changed)
+    check("名单外高爆表不被算法误伤", out["未知高爆怪"] == hot and "未知高爆怪" not in changed)
 
     print(f"\n结果：{passed} PASS / {failed} FAIL")
     return 0 if failed == 0 else 1
