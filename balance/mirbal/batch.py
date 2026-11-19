@@ -36,6 +36,7 @@ def fingerprint(tree: str | None) -> str:
     env = root / "Mir200" / "Envir"
     paths += [env / "MonGen.txt", env / "MonItems", env / "Market_Def", env / "MapInfo.txt"]
     paths += [boot.rates_file(), boot.ROOT / "pyserver", boot.ROOT / "config" / "server.properties",
+              boot.ROOT / "config" / "content_policy.json",
               *(boot.BAL / "mirbal" / f for f in ("arena.py", "gear.py", "worldsim.py", "boot.py"))]
     for p in paths:
         files = [p] if p.is_file() else sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else []
