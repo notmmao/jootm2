@@ -19,6 +19,8 @@
 | B 站 BV1Dxxs6QE3e（丨Leng少丨） | 战士 8 个技能 0~3 级伤害与机制 | [BILIBILI-BV1Dxxs6QE3e-warrior-skills.md](./BILIBILI-BV1Dxxs6QE3e-warrior-skills.md) | 996 引擎，官方表单，技能数据零改动 | 2026-11-16 |
 | B 站 BV1YFxv6nEsC（丨Leng少丨） | 道士主要技能：治疗/施毒/火符/噬血/防魔 | [BILIBILI-BV1YFxv6nEsC-taoist-skills.md](./BILIBILI-BV1YFxv6nEsC-taoist-skills.md) | 996 三端引擎；绿毒机制与官服不同 | 2026-11-16 |
 | B 站 BV1xE4F65Efa（丨Leng少丨） | 法师主要技能：雷电/疾光/地狱雷光/火墙/灭天火/流星火雨/冰咆哮/魔法盾 | [BILIBILI-BV1xE4F65Efa-mage-skills.md](./BILIBILI-BV1xE4F65Efa-mage-skills.md) | 同系列推断 996；只测常用技能 | 2026-11-16 |
+| B 站 BV1nQrkYYEM7（小道士的传奇） | 法师 14 技能全解 + **与项目实现逐项对比** | [BILIBILI-BV1nQrkYYEM7-mage-classic-official.md](./BILIBILI-BV1nQrkYYEM7-mage-classic-official.md) | **热血传奇官服**；幸运 9、目标魔御 0；含私服数值对照 | 2026-11-19 |
+| B 站 BV1LwrCYdEFJ（小道士的传奇） | 战士 6 技能全解 + **与项目实现逐项对比** | [BILIBILI-BV1LwrCYdEFJ-warrior-classic-official.md](./BILIBILI-BV1LwrCYdEFJ-warrior-classic-official.md) | **热血传奇官服**；总攻击 37/40/53 分别测刺杀/半月/烈火 | 2026-11-19 |
 
 ## 命名约定
 
