@@ -923,9 +923,11 @@ class WorldExtra:
             # 攻击也已结算（下次再动手会重新置位）。
             killer.illegal_attack_until = 0
             p.illegal_attack_until = 0
-        summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
-        if summon is not None and summon.alive:
-            self.remove_summon(summon)
+        for sid in list(p.summon_ids):
+            summon = self.actor(sid)
+            if summon is not None and summon.alive:
+                self.remove_summon(summon)
+        p.summon_ids.clear()
         p.hp, p.mp, p.dir = 0, 0, 4
         p.dead = True
         # 原版 m_boDeath 是**独立于「还在不在图上」**的死亡标志，但所有目标搜索都
@@ -1070,8 +1072,8 @@ class WorldExtra:
         m.alive = False
         m.pending_respawn = False
         master = self.actor(m.master_id) if m.master_id >= 0 else None
-        if master is not None and getattr(master, "summon_id", -1) == m.id:
-            master.summon_id = -1
+        if master is not None and m.id in getattr(master, "summon_ids", ()):
+            master.summon_ids.remove(m.id)
         self.combat_state.get("pets", {}).pop(m.id, None)
         self.remove_actor(m.id)
         self.broadcast_around(m.map, {"type": "death", "id": m.id}, m.x, m.y)

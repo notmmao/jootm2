@@ -374,7 +374,8 @@ class Player(Actor):
     paralysis_weapon: bool = False
     revival_ring: bool = False
     teleport_ring: bool = False
-    summon_id: int = -1
+    # 诱惑之光可带 2/3/4/5 只（官服口径，lv+2）；骷髅/神兽仍只占第一只。
+    summon_ids: list[int] = field(default_factory=list)
     target_id: int = -1
     inc_healing: int = 0
     # 吃药写入的回血/回蓝池：原版不吃即时血，药水的 AC/MAC 写进
@@ -449,6 +450,21 @@ class Player(Actor):
             if t is not None:
                 total += t.weight
         return total
+
+    @property
+    def summon_id(self) -> int:
+        """兼容视图：第一只召唤物，无则 -1（原字段语义）。
+
+        真正的状态在 ``summon_ids``（诱惑之光官服可带 lv+2 只）。
+        """
+        return self.summon_ids[0] if self.summon_ids else -1
+
+    @summon_id.setter
+    def summon_id(self, value: int) -> None:
+        if value < 0:
+            self.summon_ids.clear()
+        elif value not in self.summon_ids:
+            self.summon_ids.append(value)
 
     def light_level(self) -> int:
         """原版 ObjBase.pas:3387-3392 ``RecalcAbilitys`` 末尾的 m_nLight。
@@ -978,8 +994,10 @@ def mag_struck_damage(target, dmg: int, now: int | None = None) -> int:
       nDamage := Round((nDamage/100) * (btMagBubbleDefenceLevel+2) * 8);
     ```
 
-    两条要点：**MAC 只减伤不闪避**；魔法盾把伤害折成
-    ``Round(dmg/100*(等级+2)*8)``（0 级 16%、3 级 40%），且**只作用于魔法伤害**
+    火炬源码是 16/24/32/40%（私服口径）；本项目按热血传奇**官服**
+    （BV1nQrkYYEM7）取 15×（等级+1）= 15/30/45/60%。
+
+    两条要点：**MAC 只减伤不闪避**；魔法盾只作用于魔法伤害
     —— 物理路径 ``_apply_hit_to_player`` 不过这一步。
 
     火墙的 ``RM_MAGSTRUCK_MINE``、火球/雷电的 ``RM_MAGSTRUCK``、
@@ -993,7 +1011,8 @@ def mag_struck_damage(target, dmg: int, now: int | None = None) -> int:
         hi = int(compat.get("macMax", 0))
         dmg = max(0, dmg - (lo + delphi_random(hi - lo + 1)))
         if dmg > 0 and getattr(target, "shield_until", 0) > now:
-            dmg = delphi_round(dmg / 100 * (getattr(target, "shield_level", 0) + 2) * 8)
+            # 官服 15/30/45/60%（BV1nQrkYYEM7）；火炬私服口径为 (lv+2)*8。
+            dmg = delphi_round(dmg * 15 * (getattr(target, "shield_level", 0) + 1) / 100)
         return dmg
     tpl = getattr(target, "template", None)
     mac = getattr(tpl, "mac", 0) if tpl is not None else 0
@@ -1113,10 +1132,12 @@ class GameWorld(WorldExtra):
 
     def remove_player(self, p: Player) -> None:
         # 主人登出 = 原版 m_boGhost：宝宝 1 秒后 MakeGhost（ObjBase.pas:3986），
-        # 不清理的话骷髅会永远留在原地，主人下次上线还带着旧的 summon_id。
-        summon = self.actor(p.summon_id) if p.summon_id >= 0 else None
-        if isinstance(summon, Monster) and summon.alive:
-            self.remove_summon(summon)
+        # 不清理的话骷髅会永远留在原地，主人下次上线还带着旧的召唤 id。
+        for sid in list(p.summon_ids):
+            summon = self.actor(sid)
+            if isinstance(summon, Monster) and summon.alive:
+                self.remove_summon(summon)
+        p.summon_ids.clear()
         self.actors.pop(p.id, None)
         self.players_by_name.pop(p.name, None)
         self._home_check.pop(p.id, None)

@@ -406,7 +406,9 @@ class CombatHandlers:
         w = self.world
         if p.fire_hit_on:
             lv = skill_level(p, 26)
-            bonus = java_div(dam_ref * (4 + lv * 4), 10)
+            # 原版 ObjBase.pas:5372 `dam + Round(dam/100*(HitDouble*10))`，
+            # HitDouble=4+lv*4；这里必须用 Round，截断会让 2/3 级各少 1 点。
+            bonus = delphi_round(dam_ref * (4 + lv * 4) / 10)
             p.fire_hit_on = False
             w.send_system(p, "烈火！")
             return 26, bonus
@@ -843,14 +845,14 @@ class CombatHandlers:
 
         每格取该格的移动对象，命中闸门是 ``Random(10) >= m_nAntiMagic``（不是
         按 MAC 闪避），伤害走 ``RM_MAGSTRUCK`` 直接结算（扣 MAC，不除 1.2）。
-        疾光电影（10）的 undeadattack 在原版是「每命中一个 ×1.5 并累乘」。
+        疾光电影（10）的 undeadattack 在火炬源码是「每个目标固定 ×1.5」：
+        ``ObjBase.pas:7126`` 的 ``magpwr`` 是值参数，循环内不变。
         """
         hit = 0
         # 调用方先 GetNextPosition(..., rng) 得到终点格，再由此往回逐格走
         dx, dy = direction_delta(ndir)
         ex, ey = p.x + dx * rng, p.y + dy * rng
         x, y = p.x, p.y
-        cur_pwr = pwr
         for _ in range(13):
             step = direction_toward(x, y, ex, ey, 0)
             sdx, sdy = direction_delta(step)
@@ -859,12 +861,9 @@ class CombatHandlers:
                 break
             a = self._find_target_at(p.map, x, y)
             if isinstance(a, Monster) and a.alive and magic_hits(a):
-                # 原版这里是把 magpwr 变量本身 ×1.5（ObjBase.pas:2550-2552）：
-                # 不分目标是否不死系，而且**逐次累乘**（3 个目标 = 1.5³）。看着像
-                # 原版的笔误，但疾光电影（10）穿过一排怪越打越疼就是这个原因，
-                # 按「还原原版」的要求照抄。
-                if undead_attack:
-                    cur_pwr = delphi_round(cur_pwr * 1.5)
+                # 每个目标都从原始 pwr 重新算，不能沿用上一个目标的结果累乘
+                # （旧实现写成 cur_pwr *= 1.5，第 n 个目标变成 1.5ⁿ，已修正）。
+                cur_pwr = delphi_round(pwr * 1.5) if undead_attack else pwr
                 if self._direct_magic(p, a, cur_pwr, magic_id, now) > 0:
                     hit += 1
             if x == ex and y == ey:
@@ -889,10 +888,21 @@ class CombatHandlers:
         return False
 
     def _push_around(self, p, level: int) -> int:
+        """原版 ``MagPushArround``（Magic.pas:61-84）：周围 1 格的**低等级
+        玩家和怪**都推，不是只推怪。同级/高级无效，安全区与队友另按
+        IsProperTarget 过滤。
+        """
         pushed = 0
         for a in self.world.nearby(p.map, p.x, p.y, 1):
-            if (not isinstance(a, Monster) or not a.alive
-                    or p.level <= a.level or a.master_id == p.id):
+            if not a.alive or a is p or p.level <= a.level:
+                continue
+            if isinstance(a, Player):
+                if p.attack_mode == 0 or self._pvp_block_reason(p, a):
+                    continue
+            elif isinstance(a, Monster):
+                if a.master_id == p.id:
+                    continue
+            else:
                 continue
             gap = p.level - a.level
             if random.random() * 20 >= 6 + level * 3 + gap:
@@ -903,23 +913,45 @@ class CombatHandlers:
         return pushed
 
     def _rush_rush(self, p, dir_value: int, lv: int) -> bool:
+        """原版 ``CharRushRush``（ObjBase.pas:5754-5860）。
+
+        - 循环 ``for i:=0 to _MAX(2,rushlevel+1)`` 实际走 **3/3/4/5** 格；
+        - 可撞对象包括**等级低于自己的玩家**（CanPush 只判 IProperTarget）；
+        - 满级（rushlevel>=3）先推前方第 2 格的目标，再推第 1 格。
+        """
         w = self.world
         ndir = dir_value if 0 <= dir_value <= 7 else p.dir
         p.dir = ndir
         damage_level = lv + 1
         attack_cret = None
         pushed = 0
-        max_steps = max(2, lv + 1)
+        max_steps = max(2, lv + 1) + 1
         dx, dy = direction_delta(ndir)
+
+        def can_push(a) -> bool:
+            if a is None or not a.alive or a is p or p.level <= a.level:
+                return False
+            if isinstance(a, Monster):
+                if a.master_id == p.id:
+                    return False
+            elif isinstance(a, Player):
+                if p.attack_mode == 0 or self._pvp_block_reason(p, a):
+                    return False
+            else:
+                return False
+            return random.random() * 20 < 6 + lv * 3 + (p.level - a.level)
+
         for _ in range(max_steps):
             cx, cy = p.x + dx, p.y + dy
             a = self._find_target_at(p.map, cx, cy)
-            if (not isinstance(a, Monster) or not a.alive
-                    or p.level <= a.level or a.master_id == p.id):
+            if not can_push(a):
                 break
-            gap = p.level - a.level
-            if random.random() * 20 >= 6 + lv * 3 + gap:
-                break
+            if lv >= 3:
+                # 原版 :5788-5796：满级先撞开前方第 2 格的目标
+                bx, by = p.x + dx * 2, p.y + dy * 2
+                second = self._find_target_at(p.map, bx, by)
+                if can_push(second):
+                    self._push_creature(second, ndir, 1)
             attack_cret = a
             if not self._push_creature(a, ndir, 1):
                 break
@@ -938,10 +970,26 @@ class CombatHandlers:
             damage_level = max(0, damage_level)
             damage = ((1 + damage_level) * 4
                       + int(random.random() * ((1 + damage_level) * 5)))
-            damage = max(1, damage - (attack_cret.template.ac if attack_cret.template else 0))
+            if isinstance(attack_cret, Monster):
+                ac = attack_cret.template.ac if attack_cret.template else 0
+            else:
+                ac = attack_cret.combat.get("acMax", 0)
+            damage = max(1, damage - ac)
             attack_cret.hp = max(0, attack_cret.hp - damage)
-            self._broadcast_struck(p, attack_cret, damage)
-            self._kill_if_dead(p, attack_cret, now_ms())
+            if isinstance(attack_cret, Player):
+                w.wear_struck(attack_cret, damage, attacker=p)
+                w.broadcast_around(attack_cret.map, {
+                    "type": "attack", "attackerId": p.id,
+                    "targetId": attack_cret.id, "damage": damage,
+                    "noAttackAnim": True,
+                    "x": attack_cret.x, "y": attack_cret.y},
+                    attack_cret.x, attack_cret.y, SIGHT_RANGE)
+                w.send_stats(attack_cret)
+                if attack_cret.hp <= 0:
+                    w.kill_player(attack_cret, p)
+            else:
+                self._broadcast_struck(p, attack_cret, damage)
+                self._kill_if_dead(p, attack_cret, now_ms())
         w.send_system(p, f"野蛮冲撞击退了 {pushed} 格。" if attack_cret is not None
                       else "你向前冲撞。")
         return True
@@ -1185,17 +1233,23 @@ class CombatHandlers:
         return int(a.combat.get("antiPoison", 0)) if isinstance(a, Player) else 0
 
     def _delayed_magic(self, p, target, pwr: int, magic_id: int, now: int) -> int:
-        """``RM_DELAYMAGIC`` 结算（ObjBase.pas:4565）。
+        """``RM_DELAYMAGIC`` 结算（ObjBase.pas:7393-7410）。
 
-        先按怪物 1.2 折减（``if race >= RC_ANIMAL then nPower := Round(nPower/1.2)``），
-        再进 ``RM_MAGSTRUCK`` → ``GetMagStruckDamage``（扣 MAC / 过魔法盾）。
+        原版是**两步**：先用原始 magpwr 调一次 ``GetMagStruckDamage`` 当门槛
+        （``n > 0`` 才继续），然后对 ``RaceServer >= RC_ANIMAL`` 把**原始**
+        magpwr ×1.2，最后 RM_MAGSTRUCK 用放大后的值再扣一次 MAC / 过魔法盾。
+        两处调用都掷 MAC 随机，这是原版行为，照抄。
         """
         if target is None or not target.alive:
             return 0
-        # 只有 race >= RC_ANIMAL(50) 的**动物/怪物**才吃 1.2 折减；
-        # 玩家 race=0（RC_PLAYOBJECT），照原版不受这条影响。
-        pwr = delphi_round(pwr / 1.2) if getattr(target, "race", 0) >= RC_ANIMAL else pwr
-        dmg = mag_struck_damage(target, pwr)
+        # 门槛：原版 :7400 `n := target.GetMagStruckDamage(self, magpwr)`，
+        # 只看结果是否 >0，不把 n 作为后续伤害。
+        if mag_struck_damage(target, pwr, now) <= 0:
+            return 0
+        # 原版 :7403 对动物/怪物 ×1.2（怪比玩家多掉血），玩家 race=0 不受影响。
+        if getattr(target, "race", 0) >= RC_ANIMAL:
+            pwr = delphi_round(pwr * 1.2)
+        dmg = mag_struck_damage(target, pwr, now)
         if dmg <= 0:
             return 0
         target.hp = max(0, target.hp - dmg)
@@ -1535,7 +1589,9 @@ class CombatHandlers:
                 return False
             self._hate(target, p)
             if (random.randrange(2) + (p.level - 1)) > target.level:
-                if target.level < 50:
+                # 官服口径上限 55（BV1nQrkYYEM7）；火炬 ObjBase/Magic.pas:182
+                # 写的是 MAXLEVEL-1=50，这里按用户选定的官服手感取 55。
+                if target.level < 55:
                     gap = p.level - target.level
                     if random.randrange(100) < (lv * 8 - lv + 15 + gap):
                         target.hp = 0
@@ -1582,10 +1638,19 @@ class CombatHandlers:
         1. ``Random(4-lv)=0`` 才进入判定（0 级 25%，3 级 100%）；
         2. ``Random(2)`` 一半概率「被定住」（OpenHolySeizeMode）；
         3. 等级 ≤ 自己+2、``RandomRange(自身等级, 自身等级+20)+lv*5 > 目标等级+10``
-           才有机会；再受 50 级上限、5 只上限、非不死系、未被训过 限制；
+           才有机会；再受 50 级上限、宝宝数上限（官服 lv+2 = 2/3/4/5 只）、
+           非不死系、未被训过 限制；
         4. 成功概率 = 1/n14（n14 由目标最大 HP/100 决定，低于 2 取 2，否则 ×2）。
         """
         w = self.world
+        # 原版 m_SlaveList 只统计存活宝宝；这里先剔掉已死/失效的 id，
+        # 否则宝宝被打死后 id 残留会永久占住名额。
+        live_ids = []
+        for sid in p.summon_ids:
+            a = w.actor(sid)
+            if isinstance(a, Monster) and a.alive:
+                live_ids.append(sid)
+        p.summon_ids[:] = live_ids
         if lv >= 4 or random.randrange(4 - lv) != 0:
             # 原版 else 分支：Random(2)=0 也返回 True（算「施法成功」）
             return random.randrange(2) == 0
@@ -1596,13 +1661,11 @@ class CombatHandlers:
                 if roll > target.level + 10:
                     undead = target.template.undead if target.template else 0
                     if (target.level <= 50 and undead != 1
-                            and target.master_id < 0 and p.summon_id < 0):
+                            and target.master_id < 0 and len(p.summon_ids) < lv + 2):
                         hp_rate = max(2, target.max_hp // 100)
                         n14 = hp_rate * 2
                         if random.randrange(n14) == 0:
-                            old = w.actor(p.summon_id) if p.summon_id >= 0 else None
-                            if isinstance(old, Monster) and old.alive:
-                                w.remove_summon(old)
+                            # 官服可同时带多只，不再替换旧宝宝
                             target.master_id = p.id
                             target.slave_make_level = lv
                             target.target_id = -1
