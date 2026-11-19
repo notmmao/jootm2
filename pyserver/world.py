@@ -2422,7 +2422,18 @@ class GameWorld(WorldExtra):
                                               "x": target.x, "y": target.y},
                                       m.x, m.y)
             else:
-                self._apply_hit_to_player(m, target, dmg)
+                if isinstance(target, Player):
+                    self._apply_hit_to_player(m, target, dmg)
+                else:
+                    # 食人花够得着的也可能是道士宝宝（Monster，master_id>=0）；
+                    # 和 _monster_ai 近战 / _tick_pending_ranged_hits 同款走通用
+                    # 怪打怪结算。此前直接调 _apply_hit_to_player 会读
+                    # target.mana_to_health（仅 Player 有）抛 AttributeError，
+                    # 让这一轮 tick 后面的逻辑全被跳过（GM-ANALYSIS §0.1）。
+                    target.hp = max(0, target.hp - dmg)
+                    self._send_hits(m, target, dmg)
+                    if target.hp <= 0:
+                        self.kill_monster(target, now, None)
 
     def _summon_ai(self, m: Monster, now: int) -> None:
         """宠物跟随 / 协助攻击 / 神兽变身 / 升级（``GameWorld.summonAi``）。"""
