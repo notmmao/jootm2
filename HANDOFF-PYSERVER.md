@@ -1103,3 +1103,17 @@ DPS 略降属保真。观感**仍需用户实机自测**（公网真实延迟）
 **⑤ 报告只出 main**：`balance/run.py report` 默认不带 `--compare`，产出 `balance/out/main-20261119-1710/index.html`（纯 main，snapshot 无 cmp 字段）。**新指纹 `ca5e85d73b82`**（world.py 修复进入指纹），arena 225 组合用修复后代码真跑完；world 因本机 Windows 无 fork、改 spawn 后 40 人场景慢到卡死（Lv19 N=40 跑 13 分钟无果），终止后复用旧归档 19 场完整缓存（0.1 只影响 arena 的食人花场景，对 world η 可忽略），放入新指纹目录。**验证 `errors: []`**——旧报告 158 次食人花异常归零，findings 20→21。附带修工具跨平台：`batch.py`/`worldsim_batch.py` 的 `mp.get_context("fork")` 改为 fork 不可用回退 spawn；`worldsim_batch.pick_maps` 过滤本机无 `.map` 资源的图（旧 Linux 沙箱有 T0003 故没暴露）。
 
 **发布**：用户要求「不要自动发布」，本轮新报告只落地本地、**未推 list2**。上一轮已发布的 `https://list.notmmao.com/mir2-balance/`（commit `972c352`，含 176 对比的旧版）保留不动；后续如需用纯 main 版替换，走 list2-publish 技能手动发。
+
+
+## §128 我本沉默内容剥离 + 1.76 官服资料对比（2026-11-19）
+
+**① 1.76 资料对比**（`balance/CLIENT-176-COMPARE.md`）：整理盛大官网一手资料（mir2.sdo.com id=11493/11503/15382——封顶口径：怒斩/龙牙/六重装/赤月套/地图至赤月）+ B 级民间攻略（无度游/百科/公众号，只作交叉验证）。实测对比：项目数据里**怒斩/龙牙/六重装 6 件全缺**，赤月套/裁决系/特戒在 → 血统是「我本沉默 2002 原始版」而非盛大 1.76 官服表（从 1.76 前分叉，自有装备体系）。修正旧归类：虹魔系是官服 1.50+ 血统但被本项目设成 lv99 高爆，属"官服怪私服数值化"，与纯私服新增区分。
+
+**② 剥离方案实施**（用户拍板：清空高爆掉落表、不写死 45 封顶、去掉高级私服怪）：
+- `config/content_policy.json`（极简：4 个 glob 清单 + 1 个开关 + high_drop 子配置）、`pyserver/content_filter.py`（`filter_csv_rows`/`filter_world`/`filter_drop_tables`）。
+- 挂载两处收敛点：`db._import_csv`（CSV 三表源头过滤）、`world.__init__` 末尾（`filter_world` 过滤地图/刷怪/NPC + 高爆表回退）。**enabled=true 已生效**（保持现状关掉即改 false）。
+- 实测：道具 542→462（-80）、怪 -78、地图 -30、刷怪项 2983→2535（-448）、高爆变体表回退 37 个（僵尸10 7245→49、黑野猪0 8995→25、骷髅0 2486→25）——经济断崖根源清除。
+- **高爆判据**：用「同显示名变体对比 + 装备类概率≥1/10 条目数≥8」而非 itemval 排序（赤月恶魔/祖玛教主无后缀表 itemval 7 万+，按数值会误伤官服 BOSS）；keep_boss 白名单 11 个官服 BOSS 整组豁免。
+- 回归：`scripts/test_content_filter.py` 28/28 + 核心 128/180/4/22/18 全过。**未重跑 balance 全量**（新指纹需 spawn 模式 225 组合太慢）；断崖清除已由 DataSet itemval 实测证明，待需要报告时再重跑。
+
+**未自动发布**：list2 保持旧版（commit `972c352`）。
