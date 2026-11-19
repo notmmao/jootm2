@@ -1087,3 +1087,19 @@ test_all_messages --live 95/95（「1 处异常」= 脚本消息清单未覆盖 
 
 **代价**：托管每次「走一步后立刻出刀」会多等到步长走完（≤360/540ms），与原版手动节奏一致；
 DPS 略降属保真。观感**仍需用户实机自测**（公网真实延迟）。
+
+## §127 balance 分析三修：食人花打宝宝 tick 异常 / 武器数值正名 / 驽马系溯源（2026-11-19）
+
+紧接 claude 的 `727008d`（balance 工具）与 `120f539`（首次全量产出归档），本轮处置 GM-ANALYSIS §0 的问题并重出纯 main 报告。
+
+**① 0.1 食人花打宝宝 tick 异常（真 bug，已修）**：`pyserver/world.py::_stick_ai` 命中分支直接调 `_apply_hit_to_player`，后者读 `target.mana_to_health`（仅 Player 有），目标是道士宝宝（Monster）时抛 `AttributeError`，模拟触发 158 次、线上会让整轮 tick 后续逻辑被跳过。修法：命中分支加 `isinstance(target, Player)` 分流，非 Player 走通用怪打怪结算（与 `_monster_ai:2310` 近战、`_tick_pending_ranged_hits:2050` 远程同款）。新增回归 `scripts/test_stick_monster_pet.py`（4/4：宝宝掉血不抛异常 + Player 分支未退化）；`test_tick_systems.py` 180/180。
+
+**② 0.3 武器「下限>上限」是误报，不改**：罗刹 DC 15-0、赤血魔剑 DC 15-10 经盛大官网（mir2.sdo.com 百区珍藏品）+ 17173 多篇核实，是原版刻意设计：罗刹为「诅咒武器」，赤血魔剑由罗刹+六大神水合成，下限高于上限用于让输出稳定。`roll` 在 `hi<=lo` 取 `lo` 固定下限伤害正合原版意图。StdItems.csv 数值正确（两棵数据树一致也印证）。已回写 `balance/GM-ANALYSIS.md` §0 表格改正结论。
+
+**③ 0.2 托管道士不召唤宝宝**：属 AutoPilot「新增能力」而非 bug——原版宝宝是玩家手动施法召唤，托管自动召唤需产品决策，**本轮未改**。引擎 A 已在模拟侧补召（`arena._ensure_summon`），引擎 B 用原样内核，两者口径不同是已知局限。
+
+**④ 驽马系怪溯源**（详见 `balance/NUMA-MOBS-CHECK.md`）：11 只驽马怪（战士/勇士/弓箭手/精灵/法王及 0/1 变种）刷新地图、MonGen、MonItems、StdItems、地图资源五者齐全无悬空引用；主树与 176 树掉落逐行几乎一致；火炬 Delphi 与 1.76/1.80 原始客户端无「驽马」字样。结论：**是「我本沉默」私服体系引入的地图/怪包（相对盛大官方属新增内容），非本移植项目魔改**。但其掉落含 `1/1 强效太阳水` 重复、域类套装高爆、产金离群（驽马战士0 ×33、精灵 ×25、法王0 ×23）属上游私服数值，是 GM §1.1 产金怪来源，清理与否是玩法取舍，按「无权威依据不硬改」只记录。
+
+**⑤ 报告只出 main**：`balance/run.py report` 默认不带 `--compare`，产出 `balance/out/main-20261119-1710/index.html`（纯 main，snapshot 无 cmp 字段）。**新指纹 `ca5e85d73b82`**（world.py 修复进入指纹），arena 225 组合用修复后代码真跑完；world 因本机 Windows 无 fork、改 spawn 后 40 人场景慢到卡死（Lv19 N=40 跑 13 分钟无果），终止后复用旧归档 19 场完整缓存（0.1 只影响 arena 的食人花场景，对 world η 可忽略），放入新指纹目录。**验证 `errors: []`**——旧报告 158 次食人花异常归零，findings 20→21。附带修工具跨平台：`batch.py`/`worldsim_batch.py` 的 `mp.get_context("fork")` 改为 fork 不可用回退 spawn；`worldsim_batch.pick_maps` 过滤本机无 `.map` 资源的图（旧 Linux 沙箱有 T0003 故没暴露）。
+
+**发布**：用户要求「不要自动发布」，本轮新报告只落地本地、**未推 list2**。上一轮已发布的 `https://list.notmmao.com/mir2-balance/`（commit `972c352`，含 176 对比的旧版）保留不动；后续如需用纯 main 版替换，走 list2-publish 技能手动发。
