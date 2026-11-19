@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>jootm2 数据可玩性分析</title>
+<style>
+:root{color-scheme:light;
+--surface-1:#fcfcfb;--surface-2:#efeeea;--surface-0:#f5f4f1;--border:#dddcd6;
+--text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7974;
+--series-1:#2a78d6;--series-2:#eb6834;--series-3:#1baf7a;--series-4:#eda100;--series-5:#e87ba4;--series-6:#008300;--series-7:#6250d6;--series-8:#e34948;
+--seq-100:#cde2fb;--seq-200:#9ec5f4;--seq-300:#6da7ec;--seq-400:#3987e5;--seq-500:#256abf;--seq-600:#184f95;--seq-700:#0d366b;
+--crit:#c62828;--warn:#b26a00;--info:#2a78d6}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;
+--surface-1:#1a1a19;--surface-2:#2a2a28;--surface-0:#121211;--border:#3a3a37;
+--text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8e8d86;
+--series-1:#3987e5;--series-2:#d95926;--series-3:#199e70;--series-4:#c98500;--series-5:#d55181;--series-6:#0ca30c;--series-7:#9085e9;--series-8:#e66767;
+--seq-100:#104281;--seq-200:#184f95;--seq-300:#256abf;--seq-400:#2a78d6;--seq-500:#5598e7;--seq-600:#86b6ef;--seq-700:#cde2fb;
+--crit:#ef6b6b;--warn:#e0a030;--info:#6da7ec}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-0);color:var(--text-primary);font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+header{padding:18px 28px 6px}h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--text-secondary);font-size:13px}
+nav{position:sticky;top:0;z-index:5;background:var(--surface-0);border-bottom:1px solid var(--border);padding:8px 28px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
+nav a{color:var(--text-secondary);text-decoration:none}nav a:hover{color:var(--text-primary)}
+main{padding:10px 28px 60px;max-width:1280px}
+section{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin:16px 0}
+h2{font-size:17px;margin:0 0 4px}h3{font-size:14px;margin:16px 0 4px}
+.desc{color:var(--text-secondary);font-size:13px;margin:0 0 10px}
+.ctrl{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 10px;align-items:center;font-size:13px;color:var(--text-secondary)}
+.ctrl select{font:inherit;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface-1);color:var(--text-primary)}
+.chart{width:100%;min-height:120px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.kpi{background:var(--surface-0);border-radius:8px;padding:10px 12px}.kpi b{display:block;font-size:22px;font-weight:600}.kpi span{color:var(--text-secondary);font-size:12px}
+svg.viz{display:block;overflow:visible}
+svg .grid{stroke:var(--border);stroke-width:1}svg .zero{stroke:var(--text-muted);stroke-width:1}
+svg .tick{fill:var(--text-muted);font-size:11px}svg .axl{fill:var(--text-secondary);font-size:11px}svg .lbl{fill:var(--text-secondary);font-size:11px}
+svg .cross{stroke:var(--text-muted);stroke-dasharray:3 3}svg .mark{stroke:var(--crit);stroke-dasharray:4 3}
+.viz-legend{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px}
+.viz-legend .lg{font:12px inherit;border:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);border-radius:12px;padding:2px 9px;cursor:pointer}
+.viz-legend .lg.off{opacity:.4}.viz-legend i,.viz-tip i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:0}
+.viz-tip{position:fixed;z-index:50;pointer-events:none;background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-width:380px;display:none}
+.viz-tip .mut,.mut{color:var(--text-muted)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}th,td{padding:5px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{color:var(--text-secondary);font-weight:600;cursor:pointer;white-space:nowrap;position:sticky;top:0;background:var(--surface-1)}td.n{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{max-height:440px;overflow:auto;border:1px solid var(--border);border-radius:6px}
+.sev{display:inline-block;font-size:11px;border-radius:4px;padding:1px 6px;font-weight:600;white-space:nowrap}
+.sev3{background:color-mix(in srgb,var(--crit) 15%,transparent);color:var(--crit)}.sev2{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}.sev1{background:color-mix(in srgb,var(--info) 15%,transparent);color:var(--info)}
+.note{font-size:12px;color:var(--text-muted);margin-top:6px}
+code{font-size:12px;background:var(--surface-2);padding:0 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<header><h1>jootm2 数据可玩性分析 <span class="sub" id="hdr"></span></h1><div class="sub" id="meta"></div></header>
+<nav>
+<a href="#overview">总览</a><a href="#gm">GM 体检</a><a href="#exp">经验表</a><a href="#prog">升级时间线</a><a href="#heat">练级点热力</a><a href="#mons">怪物性价比</a><a href="#econ">经济收支</a><a href="#gear">装备获取</a><a href="#skill">技能修炼</a><a href="#world">真实地图</a><a href="#server">全服规模</a><a href="#cmp">A/B 对比</a><a href="#method">口径</a>
+</nav>
+<main>
+<section id="overview"><h2>总览</h2><p class="desc">商店装、单人、真实地图效率系数 η 已计入。数据随 <code>python balance/run.py all</code> 重算。</p><div class="kpis" id="kpis"></div></section>
+<section id="gm"><h2>GM 体检（自动规则）</h2><p class="desc">每条都是当前数据跑出来的现象，不改任何数据；完整补救方案见 <code>balance/GM-ANALYSIS.md</code>。</p><div class="ctrl">筛选 <select id="gmKind"></select></div><div class="scroll" id="gmTable"></div></section>
+<section id="exp"><h2>经验表</h2><p class="desc">每级升级所需经验（对数轴）与相邻级增幅。增幅柱越高，断崖越陡。</p><div class="grid2"><div class="chart" id="cExp"></div><div class="chart" id="cExpRatio"></div></div></section>
+<section id="prog"><h2>升级时间线</h2><p class="desc">每级取「死亡率 ≤10% 里每小时经验最高的怪」。N = 全服同时在线人数，同等级段按 25% 抢同一批怪（供给上限 = MonGen 数量 × 3600 / 刷新间隔）。</p>
+<div class="ctrl">装备 <select id="pTier"></select> 在线 N <select id="pN"></select> 指标 <select id="pMetric"><option value="hours">单级用时（小时）</option><option value="cum_hours">累计用时（小时）</option><option value="exp_h">每小时经验</option></select></div>
+<div class="chart" id="cProg"></div><h3>各等级最优练级点（当前职业）</h3><div class="ctrl">职业 <select id="bJob"></select></div><div class="scroll" id="bestTable"></div></section>
+<section id="heat"><h2>练级点热力：等级 × 怪物 → 每小时经验</h2><p class="desc">引擎 A 单挑（真实服务端战斗 + 托管内核）× η。灰格 = 打不过（死亡率 >10%）或不在 ±等级窗口。悬停看单挑用时与金币。</p>
+<div class="ctrl">职业 <select id="hJob"></select> 装备 <select id="hTier"></select></div><div class="chart" id="cHeat"></div></section>
+<section id="mons"><h2>怪物性价比</h2><p class="desc">每个可刷怪：横轴等级、纵轴「经验 / 血量」（对数）；离群点 = 天然热门点。下表可排序。</p><div class="chart" id="cMon"></div><div class="scroll" id="monTable"></div></section>
+<section id="econ"><h2>经济收支（每小时）</h2><p class="desc">正值 = 收入（爆金 + 掉落按 NPC 回收价），负值 = 支出（药水、修理、护身符）；黑线 = 净收入。策略：练级 = 选经验最高的怪；打钱 = 选净收入最高的怪。</p>
+<div class="ctrl">职业 <select id="eJob"></select> 装备 <select id="eTier"></select> 策略 <select id="eStrat"><option value="exp_h">练级</option><option value="net_h">打钱</option></select></div><div class="chart" id="cEcon"></div>
+<h3>三职业净收入对比</h3><div class="chart" id="cEconJobs"></div></section>
+<section id="gear"><h2>装备获取时间（「本级最强」那一套）</h2><p class="desc">商店件 = 价格 ÷ 商店装练级的每小时净收入；掉落件 = 在单挑能稳定刷的怪里挑掉率×击杀速度最高的去专刷，P50 / P90 = 一半 / 九成玩家拿到所需小时（指数分布）。</p>
+<div class="ctrl">职业 <select id="gJob"></select> 等级 <select id="gLv"></select></div><div class="chart" id="cGear"></div><div class="scroll" id="gearTable"></div><h3>配装明细</h3><div id="equipBox" class="note"></div></section>
+<section id="skill"><h2>技能修炼</h2><p class="desc">持续使用该技能（主动技能每个施法节拍一次、剑术每次命中）练到下一级的纯修炼小时数，与人物需求等级对照。</p><div class="ctrl">职业 <select id="sJob"></select></div><div class="chart" id="cSkill"></div></section>
+<section id="world"><h2>真实地图效率（引擎 B）</h2><p class="desc">真实地图 + MonGen 刷新 + N 个托管角色同图（寻路、找怪、抢怪、喝药都走服务端）。η = 纯战斗时间占比，用于把单挑结果折算成真实效率。</p>
+<div class="grid2"><div class="chart" id="cWorldExp"></div><div class="chart" id="cWorldDeath"></div></div><div class="scroll" id="worldTable"></div></section>
+<section id="server"><h2>全服规模（1 / 10 / 100 / 1000 人同时在线）</h2><p class="desc">按等级均匀分布、三职业均分、24 小时在线估算；同段人数越多，刷怪供给越不够分，人均效率下降、全服总产出趋于饱和。</p>
+<div class="grid2"><div class="chart" id="cSrvGold"></div><div class="chart" id="cSrvExp"></div></div><h3>每日掉落物品产出 Top（选择在线人数）</h3><div class="ctrl">N <select id="srvN"></select></div><div class="scroll" id="srvItems"></div></section>
+<section id="cmp"><h2>A/B 数据树对比</h2><div id="cmpBox" class="desc"></div><div class="ctrl">职业 <select id="cJob"></select></div><div class="chart" id="cCmp"></div></section>
+<section id="method"><h2>口径与局限</h2><div class="desc" id="methodBox"></div></section>
+</main>
+<script>/*CHARTS_JS*/</script>
+<script>const DATA = "__DATA__";</script>
+<script>/*APP_JS*/</script>
+</body>
+</html>

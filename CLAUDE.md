@@ -42,6 +42,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `测试` | 仅回归脚本与测试设施 |
 | `文档` | HANDOFF / 计划 / 本文件 / skill / README |
 | `构建` | 部署、镜像、版本号、依赖与运行命令 |
+| `分析` | GM 数据可玩性分析工具 `balance/`（独立于游戏代码，不进镜像，只读调用 pyserver）：模拟引擎、报告、GM 分析文档 |
 | `修复` | 兜底：跨多类且不便拆分的小型 bug 修复 |
 
 选取原则：按**主体改动**选一个；一个提交同时含多类性质时优先拆成多个提交，
