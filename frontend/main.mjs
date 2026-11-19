@@ -12,7 +12,8 @@ import { scheduler } from './gfx/scheduler.mjs';
 import { assetCache } from './gfx/assetCache.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
-import { fitStage, setUiScale } from './core/viewport.mjs';
+import { fitStage, setUiScale, onStageFit } from './core/viewport.mjs';
+import { Presenter } from './core/present.mjs';
 import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState,
          warmMapBytes, getBootInfo } from './core/boot.mjs';
 import { perf } from './core/perf.mjs';
@@ -29,15 +30,22 @@ window.__setUiScale = (k) => setUiScale(k);
 const canvas = document.getElementById('screen');
 canvas.width = SCREEN_WIDTH;
 canvas.height = SCREEN_HEIGHT;
-const ctx = canvas.getContext('2d');
 
 // 离屏双缓冲：整帧先画在 back buffer 上，全部完成后一次性贴到可见 canvas。
 // 直接在可见 canvas 上「清屏 → 逐块重绘」时，GPU 合成可能把中间态呈现出来，
 // 表现为整屏发黑/抖动（尤其在每帧要画 200+ 瓦片 + 动画帧的游戏场景）。
+// back buffer 保持 800×600 逻辑分辨率；可见 canvas 位图按物理像素设定，
+// 由 Presenter 负责清晰放大 + 文字按物理分辨率重画（core/present.mjs）。
 const backCanvas = document.createElement('canvas');
 backCanvas.width = SCREEN_WIDTH;
 backCanvas.height = SCREEN_HEIGHT;
-const backCtx = backCanvas.getContext('2d', { alpha: false });
+const presenter = new Presenter(canvas, backCanvas);
+const backCtx = presenter.backCtx;
+onStageFit(({ devW, devH }) => presenter.resize(devW, devH));
+window.__presenter = presenter;
+// 调试/设置：__setScaleFilter('sharp'|'pixel'|'smooth')、__setHiText(true|false)
+window.__setScaleFilter = (f) => presenter.setFilter(f);
+window.__setHiText = (on) => presenter.setHiText(on);
 
 // 全局屏蔽浏览器右键菜单（右键用于游戏跑动，任何界面包括 NPC 对话框都不弹菜单）
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -167,8 +175,8 @@ async function init() {
         const b = performance.now();
         sceneManager.render(backCtx);
         const c = performance.now();
-        // 一次 blit = 一帧，浏览器永远只看到完整画面
-        ctx.drawImage(backCanvas, 0, 0);
+        // 一次呈现 = 一帧，浏览器永远只看到完整画面（放大 + 高清文字层）
+        presenter.present();
         const d = performance.now();
         perf.add('update', b - a);
         perf.add('render', c - b);

@@ -30,9 +30,11 @@
             flex: none;
             width: 800px;
             height: 600px;
-            /* 内部逻辑坐标恒为 800×600；由 main.mjs 按窗口等比 scale */
-            transform-origin: center center;
-            will-change: transform;
+            /* 内部逻辑坐标恒为 800×600；由 viewport.fitStage 按窗口等比 scale，
+               并把倍率/左上角对齐到整数物理像素（position/left/top 由 JS 写入）。
+               不要加 will-change: transform——Chrome 会把整层按旧倍率缓存成位图，
+               窗口缩放/F11 后 DOM 文字一直发糊。 */
+            transform-origin: 0 0;
         }
         /* 移动端触屏：禁长按选择/高亮与页面回弹；画布与摇杆各自 touch-action:none */
         body.touch { -webkit-user-select: none; user-select: none;
@@ -54,6 +56,9 @@
             position: absolute;
             left: 0;
             top: 0;
+            /* 位图是物理像素尺寸（core/present.mjs），CSS 尺寸固定逻辑 800×600 */
+            width: 800px;
+            height: 600px;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
         }

@@ -11,7 +11,11 @@ import { perf } from '../core/perf.mjs';
 import { cancelWarm } from '../core/boot.mjs';
 import { cancelPreload } from '../core/mapPreload.mjs';
 import { scheduler } from '../gfx/scheduler.mjs';
-import { toLocal } from '../core/viewport.mjs';
+import { toLocal, fitCanvasToDevice } from '../core/viewport.mjs';
+
+// 大地图画布逻辑尺寸（位图按物理像素分辨率设置，见 fitCanvasToDevice）
+const BIGMAP_W = 580;
+const BIGMAP_H = 350;
 import { sound, itemClickSound, itemUseSound, SFX } from '../audio/SoundManager.mjs';
 import { toggleFogTunePanel } from '../ui/FogTunePanel.mjs';
 import { TradePartyUI } from '../ui/TradePartyUI.mjs';
@@ -2547,11 +2551,18 @@ export class PlayScene extends Scene {
         if (!this._miniMapStyle || !this.self || !this._miniMapTex) {
             cv.style.display = 'none';
             // 关掉时顺手清空，避免下次显示的第一帧还留着旧地图/旧坐标的点
-            cv.getContext('2d').clearRect(0, 0, 120, 120);
+            const c0 = cv.getContext('2d');
+            c0.setTransform(1, 0, 0, 1, 0, 0);
+            c0.clearRect(0, 0, cv.width, cv.height);
             return;
         }
         cv.style.display = 'block';
         const ctx = cv.getContext('2d');
+        const ds = fitCanvasToDevice(cv, 120, 120);   // 物理像素分辨率，逻辑坐标不变
+        ctx.setTransform(ds, 0, 0, ds, 0, 0);
+        // 非整数倍放大时最近邻会一列宽一列窄；底图是缩略画，线性插值更自然
+        ctx.imageSmoothingEnabled = Math.abs(ds - Math.round(ds)) > 1e-3;
+        ctx.imageSmoothingQuality = 'high';
         const tex = this._miniMapTex;
         const p = this.self;
         const VIEW = 120;
@@ -2689,7 +2700,7 @@ export class PlayScene extends Scene {
             const g = this._bigMapGeom;
             if (!g || !this.self) return;
             const rect = cv.getBoundingClientRect();
-            const scale = cv.width / rect.width;   // CSS 缩放后也要换算回画布像素
+            const scale = BIGMAP_W / rect.width;   // 屏幕像素 → 大地图逻辑像素（位图是物理分辨率）
             const px = (e.clientX - rect.left) * scale;
             const py = (e.clientY - rect.top) * scale;
             const gx = Math.max(0, Math.min(g.mapW - 1,
@@ -2724,8 +2735,11 @@ export class PlayScene extends Scene {
         const cv = this._bigMapCanvas;
         if (!cv) return;
         const ctx = cv.getContext('2d');
+        // 按物理像素分辨率绘制（入口文字/点位/底图都清晰），下面全部用逻辑坐标。
+        const ds = fitCanvasToDevice(cv, BIGMAP_W, BIGMAP_H);
+        ctx.setTransform(ds, 0, 0, ds, 0, 0);
         ctx.fillStyle = '#0b0d0a';
-        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.fillRect(0, 0, BIGMAP_W, BIGMAP_H);
         const tex = this._miniMapTex;
         if (!tex || !this.self) {
             ctx.fillStyle = '#c9b98a';
@@ -2742,17 +2756,20 @@ export class PlayScene extends Scene {
         const ky = this._miniMapKy || 1.0;
         const mapW = Math.max(1, tex.width / kx);
         const mapH = Math.max(1, tex.height / ky);
-        const k = Math.min((cv.width - 16) / tex.width, (cv.height - 16) / tex.height);
+        const k = Math.min((BIGMAP_W - 16) / tex.width, (BIGMAP_H - 16) / tex.height);
         const w = Math.max(1, Math.floor(tex.width * k));
         const h = Math.max(1, Math.floor(tex.height * k));
-        const bx = Math.floor((cv.width - w) / 2);
-        const by = Math.floor((cv.height - h) / 2);
+        const bx = Math.floor((BIGMAP_W - w) / 2);
+        const by = Math.floor((BIGMAP_H - h) / 2);
         // 记录几何信息供 Ctrl+点击传送逆变换使用
         this._bigMapGeom = {
             bx, by, w, h, mapW, mapH, k, kx, ky,
             mapName: sm0.name || (this.mapActor && this.mapActor.map && this.mapActor.map.name) || '',
         };
-        ctx.imageSmoothingEnabled = false;
+        // 底图在物理像素上通常是缩小（k·ds < 1）：用高质量插值，避免最近邻缩小的锯齿/丢线；
+        // 室内小图会被放大，此时保持最近邻的硬边。
+        ctx.imageSmoothingEnabled = k * ds < 1;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(tex, 0, 0, tex.width, tex.height, bx, by, w, h);
         const dot = (gx, gy, color) => {
             const dx = Math.round(bx + gx * kx * k);
@@ -2807,10 +2824,14 @@ export class PlayScene extends Scene {
                 const tw = ctx.measureText(label).width;
                 // 标签默认画在门点右侧，超出画布右缘时改画左侧
                 let lx = dx + 10, ly = dy - 6;
-                if (lx + tw > cv.width - 4) lx = dx - 10 - tw;
-                ly = Math.max(2, Math.min(cv.height - 16, ly));
-                ctx.fillStyle = 'rgba(0,0,0,0.55)';
+                if (lx + tw > BIGMAP_W - 4) lx = dx - 10 - tw;
+                ly = Math.max(2, Math.min(BIGMAP_H - 16, ly));
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
                 ctx.fillRect(lx - 2, ly - 1, tw + 4, 14);
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+                ctx.strokeText(label, lx, ly);
                 ctx.fillStyle = '#ffe9a8';
                 ctx.fillText(label, lx, ly);
             }

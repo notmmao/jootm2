@@ -95,6 +95,48 @@ export function openFogTunePanel() {
     scaleNote.style.cssText = 'font-size:10px;color:#7a8a6a;margin-top:4px;line-height:1.4;';
     scaleNote.textContent = '不缩放 = 800×600 原始像素，画面最锐利但四周留黑边（窗口越大黑边越多）。';
     scaleBox.appendChild(scaleNote);
+
+    // ---- 放大模式 + 高清文字（core/present.mjs） ----
+    const pr = window.__presenter;
+    if (pr) {
+        const fTitle = document.createElement('div');
+        fTitle.style.cssText = 'color:#ffe9a8;margin:8px 0 4px;';
+        fTitle.textContent = '放大模式 / 文字';
+        scaleBox.appendChild(fTitle);
+        const fRow = document.createElement('div');
+        fRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;';
+        const fBtns = [];
+        const paint = (b, active) => {
+            b.style.background = active ? '#5a4826' : '#241d12';
+            b.style.color = active ? '#8ef58e' : '#ffe9a8';
+            b.style.borderColor = active ? '#9fe08a' : '#5c4d30';
+        };
+        const refreshF = () => {
+            for (const b of fBtns) {
+                paint(b, b._f ? pr.filter === b._f : pr.hiText);
+            }
+        };
+        for (const [f, label] of [['sharp', '锐利(推荐)'], ['pixel', '像素'], ['smooth', '柔和']]) {
+            const b = makeBtn(label, () => { pr.setFilter(f); refreshF(); });
+            b._f = f;
+            b.style.flex = 'none';
+            b.style.padding = '4px 6px';
+            fRow.appendChild(b);
+            fBtns.push(b);
+        }
+        const tb = makeBtn('高清文字', () => { pr.setHiText(!pr.hiText); refreshF(); });
+        tb.style.flex = 'none';
+        tb.style.padding = '4px 6px';
+        fRow.appendChild(tb);
+        fBtns.push(tb);
+        refreshF();
+        scaleBox.appendChild(fRow);
+        const fNote = document.createElement('div');
+        fNote.style.cssText = 'font-size:10px;color:#7a8a6a;margin-top:4px;line-height:1.4;';
+        fNote.textContent = '锐利=整数倍放大后再细调，像素块均匀；像素=纯最近邻（非整数倍时块大小不一）；'
+            + '柔和=线性插值。高清文字：名字/喊话/飘字按屏幕物理分辨率绘制。';
+        scaleBox.appendChild(fNote);
+    }
     el.appendChild(scaleBox);
 
     const current = document.createElement('div');

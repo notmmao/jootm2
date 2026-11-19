@@ -969,3 +969,44 @@ test_mage_flee 8/8、test_slave_protection 22/22、test_npc_mafa_guide 20/20。
 
 **注意**：改 `config/server.properties` 时同样要单独 scp（gamedata/config 挂载遮镜像），
 只改缺省值则无需动配置文件。
+
+## §124 画面放大发糊：物理像素呈现 + 高清文字层（2026-11-19）
+
+用户反馈：800×600 等比放大后画面糊，**字体尤其糊**（此前多轮 CSS 调整无效）。
+
+**根因（三层叠加）**：
+1. 可见 canvas 位图恒为 800×600，靠 `#stage` 的 CSS `transform: scale(k)` 放大，
+   实际倍率 = k × devicePixelRatio（1080p 全屏 1.8；1536×864@125% 也是 1.8）。
+   场景文字（名字/喊话/伤害飘字/地面物品名/选角名字）先按 11~14px 栅格化进 800×600
+   再被拉伸——字形信息已丢失，**任何 CSS 方案都救不回来**，这是前几轮无效的原因。
+2. `image-rendering: pixelated` 做非整数倍最近邻（1.8×）→ 像素列一宽一窄、发虚发抖。
+3. `#stage` 有 `will-change: transform`（Chrome 按旧倍率缓存整层位图，窗口缩放/F11
+   后不重新栅格化）且 flex 居中 + `transform-origin:center` 常把舞台放在 .5 像素处。
+
+**改动（仅前端，服务端零改动；场景绘制代码与坐标零改动）**：
+- `frontend/core/present.mjs`（新）`Presenter`：可见 canvas 位图 = 舞台物理像素尺寸；
+  back buffer 仍为 800×600。呈现默认 **sharp-bilinear**（最近邻放大到 ⌈s⌉ 整数倍中间层，
+  再高质量线性缩到目标），另有 `pixel`/`smooth` 两档。back buffer 的
+  `fillText/strokeText` 被拦截排队（记录 font/样式/对齐/alpha/变换），放大后按物理坐标、
+  字号 ×s 重画 → 字形在目标字号原生栅格化。s≤1 或关闭高清文字时直接画进 back buffer（旧行为）。
+  - 副作用（与原版一致，可接受）：场景文字统一画在场景最上层，不再被后排精灵/光照黑纱/
+    死亡灰度盖住。原版 DrawScrn 的名字本来就在 ObjSurface 与光照之后绘制。
+- `frontend/core/viewport.mjs`：`fitStage` 把 `800·k·dpr` 对齐到 4 的倍数整数
+  （4:3 高也为整数）、左上角对齐整数物理像素，`position:fixed + transform-origin:0 0`；
+  新增 `onStageFit(fn)` 订阅；监听 DPR 变化（跨显示器 / Ctrl±）。
+- `frontend/index.html`：去掉 `will-change: transform`；`#screen` CSS 尺寸固定 800×600
+  （位图尺寸由 JS 设物理像素，不能让 CSS 尺寸跟着位图变）。
+- `frontend/main.mjs`：用 `Presenter` 替代原 `ctx.drawImage(backCanvas)`；调试口
+  `__presenter` / `__setScaleFilter('sharp'|'pixel'|'smooth')` / `__setHiText(bool)`。
+- `frontend/ui/FogTunePanel.mjs`（Ctrl+F7）：新增「放大模式 / 文字」切换，localStorage
+  `jootm2.scaleFilter` / `jootm2.hiText` 持久化。
+
+**验证**（Playwright + Chrome，1536×864@1.25 进比奇省实测）：
+- 6 组视口/DPR（1536×864@1.25、1920×1080@1、1280×720@1.5、2560×1440@1、390×844@3、
+  700×500@1）下 canvas 位图宽高 == CSS 尺寸 × dpr 且左上角为整数物理像素，全部 1:1；
+- 鼠标换算：逻辑 (400,300) → PlayScene `_lastMouse` = (400,300)，无偏移；
+- 名字/喊话/选角文字像素对比由块状低清变为原生清晰字形；
+- 呈现耗时：无头 SwiftShader（软件 GPU）p50 ≈ 5ms，真实 GPU 应远低于此，**仍需用户实机确认帧率**。
+- 未覆盖：DOM GUI 里的 WIL 贴图（按钮/面板美术）仍由浏览器线性插值放大，属素材本身分辨率；
+  小地图等 DOM 内 canvas 的文字仍为低清（量少，未改）。观感**仍需用户自测确认**。
+
