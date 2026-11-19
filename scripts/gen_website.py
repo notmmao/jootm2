@@ -31,6 +31,7 @@ from wil_extract import WIL, _png               # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))                   # 供 compute_npc_goods 导入 pyserver
+from pyserver.content_filter import ContentPolicy, filter_drop_tables  # noqa: E402
 
 ITEM_CAT: dict[int, str] = {5: '武器', 6: '武器', 4: '书'}
 ITEM_SUB = {
@@ -82,9 +83,11 @@ def decode(p: Path) -> str:
 # ---------------------------------------------------------------- 数据装载
 
 class Data:
-    def __init__(self, tree: Path):
+    def __init__(self, tree: Path, policy=None):
         self.tree = tree
         self.envir = tree / 'Mir200' / 'Envir'
+        # 我本沉默剥离清单，与服务端/balance 同源；传 disabled policy 可看原始全集
+        self.policy = policy if policy is not None else ContentPolicy.load(ROOT)
         self.items = load_csv(tree / 'mud2' / 'DB' / 'StdItems.csv')
         self.skills = load_csv(tree / 'mud2' / 'DB' / 'Magic.csv')
         self.monsters = load_csv(tree / 'mud2' / 'DB' / 'Monster.csv')
@@ -92,8 +95,81 @@ class Data:
         self._load_gen()
         self._load_drops()
         self._load_npcs()
+        self._apply_policy()
         self.item_by_name = {norm_item(r['Name']): r for r in self.items}
         self.mon_by_name = {r['Name'].strip(): r for r in self.monsters}
+
+    def _apply_policy(self) -> None:
+        """按 content_policy.json 剥离私服内容（原始数据文件零改动）。
+
+        与 pyserver/world.py 的 filter_world 同口径：
+        - items/monsters/maps/npcs=不再出现；刷怪表去掉被剥离的怪与图；
+        - high_drop.reset=怪照常出现，只把掉落表换成基线怪的。
+        """
+        p = self.policy
+        if not p.enabled:
+            self.policy_stat = {'policy': 'off'}
+            return
+        stat = dict(policy='on', items=0, monsters=0, maps=0, spawns=0,
+                    npcs=0, high_drop=[])
+
+        before = len(self.items)
+        self.items = [r for r in self.items if not p.drop_item(r['Name'].strip())]
+        stat['items'] = before - len(self.items)
+        before = len(self.monsters)
+        self.monsters = [r for r in self.monsters if not p.drop_monster(r['Name'].strip())]
+        stat['monsters'] = before - len(self.monsters)
+
+        # 地图：图号 / 标题双判，同时清掉指向被剥离图的传送门
+        drop_maps = {mid for mid, title in self.map_title.items()
+                     if p.drop_map(mid, title)}
+        for mid in drop_maps:
+            self.map_title.pop(mid, None)
+        self.gates = [g for g in self.gates
+                      if g[0] not in drop_maps and g[3] not in drop_maps]
+        self.gates_from = collections.defaultdict(list)
+        self.gates_to = collections.defaultdict(list)
+        for g in self.gates:
+            self.gates_from[g[0]].append(g)
+            self.gates_to[g[3]].append(g)
+        stat['maps'] = len(drop_maps)
+
+        # 刷怪：去掉被剥离的怪 / 图，重建三张派生索引
+        before = len(self.spawns)
+        self.spawns = [s for s in self.spawns
+                       if s[0] not in drop_maps and not p.drop_monster(s[1])]
+        stat['spawns'] = before - len(self.spawns)
+        self.mon_spawn = collections.defaultdict(list)
+        self.mon_map_total = collections.defaultdict(lambda: collections.defaultdict(int))
+        self.map_spawn = collections.defaultdict(lambda: collections.defaultdict(int))
+        for mid, mon, cnt, x, y in self.spawns:
+            self.mon_spawn[mon].append((mid, x, y, cnt))
+            self.mon_map_total[mon][mid] += cnt
+            self.map_spawn[mid][mon] += cnt
+
+        # 掉落：先去被剥离怪，再按黑名单换基线表，最后过滤条目里的私服物品
+        self.drops = {m: es for m, es in self.drops.items() if not p.drop_monster(m)}
+        self.drops, stat['high_drop'] = filter_drop_tables(p, self.drops)
+        for mon, entries in list(self.drops.items()):
+            kept = [e for e in entries if not p.drop_item(e[1].strip())]
+            if len(kept) != len(entries):
+                self.drops[mon] = kept
+        self.drops = {m: es for m, es in self.drops.items() if es}
+        self.item_dropped_by = collections.defaultdict(list)
+        for mon, entries in self.drops.items():
+            for rate, item, _qty in entries:
+                self.item_dropped_by[norm_item(item)].append((mon, rate))
+
+        # NPC：重建两张派生索引
+        before = len(self.npcs)
+        self.npcs = [r for r in self.npcs if not p.drop_npc(r['name'], r['script'])]
+        stat['npcs'] = before - len(self.npcs)
+        self.map_npcs = collections.defaultdict(list)
+        self.npc_by_name = collections.defaultdict(list)
+        for r in self.npcs:
+            self.map_npcs[r['map']].append((r['name'], r['x'], r['y']))
+            self.npc_by_name[r['name']].append(r)
+        self.policy_stat = stat
 
     def _load_maps(self) -> None:
         self.map_title: dict[str, str] = {}
@@ -892,6 +968,8 @@ def main() -> None:
     ap.add_argument('--out', default='data/website', help='输出目录（默认 data/website）')
     ap.add_argument('--skip-existing-maps', action='store_true',
                     help='已有渲染图的地图跳过（快速重建页面时用）')
+    ap.add_argument('--no-policy', action='store_true',
+                    help='忽略 content_policy.json 剥离，生成原始全集（默认跟随剥离）')
     ap.add_argument('--open', action='store_true', help='生成后打开首页')
     a = ap.parse_args()
 
@@ -900,12 +978,25 @@ def main() -> None:
     out = p.resolve() if p.is_absolute() else (ROOT / p).resolve()
     if not (tree / 'mud2' / 'DB' / 'StdItems.csv').exists():
         sys.exit(f'不是有效的 gamedata 树: {tree}')
+    policy = None
+    if a.no_policy:
+        from dataclasses import replace
+        from pyserver.content_filter import HighDropRule
+        _loaded = ContentPolicy.load(ROOT)
+        policy = replace(_loaded, enabled=False,
+                         high_drop=replace(_loaded.high_drop, enabled=False))
     out.mkdir(parents=True, exist_ok=True)
     logs: list[str] = []
     log = logs.append
 
     log(f'数据树: {tree}')
-    d = Data(tree)
+    d = Data(tree, policy)
+    st = d.policy_stat
+    if st['policy'] == 'on':
+        log(f'内容策略: 剥离 物品{st["items"]} 怪物{st["monsters"]} 地图{st["maps"]} '
+            f'刷怪{st["spawns"]} NPC{st["npcs"]}，高爆换表 {len(st["high_drop"])} 只')
+    else:
+        log('内容策略: 关闭（原始全集）')
     log(f'物品 {len(d.items)} · 技能 {len(d.skills)} · 怪物 {len(d.monsters)} · '
         f'地图 {len(d.map_title)} · 刷怪行 {len(d.spawns)} · 掉落表 {len(d.drops)} · '
         f'NPC {sum(len(v) for v in d.map_npcs.values())}')
