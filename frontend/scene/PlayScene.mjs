@@ -63,6 +63,13 @@ const HIT_FRAME_MS = 170;
 // 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
 const MONSTER_MOVE_DUR = 720;
 
+// 玩家动作串行化（原版 actor 消息队列：走完一步才播下一个动作，Actor.pas
+// ProcMsg / ClMain CanNextAction→IsIdle）。动作/转向到达时人物画面还在走，
+// 先挂起；走完再播。挂起最长 PENDING_ACT_MAX_MS，超时强制播放（网络卡顿兜底）。
+const PENDING_ACT_MAX_MS = 400;
+// 自己有挂起动作时，镜头追赶加速倍数（把剩余的一小段滑行尽快走完再播动作）。
+const SELF_HURRY = 2.5;
+
 // 聊天板可见行数（原版 DrawScrn.pas VIEWCHATLINE = 9，行高 12px）
 const VIEWCHATLINE = 9;
 const CHAT_LINE_HEIGHT = 12;
@@ -1808,9 +1815,23 @@ export class PlayScene extends Scene {
                 const e = this.entities.get(msg.id);
                 if (e) {
                     const moved = (e.x !== msg.x || e.y !== msg.y);
+                    if (!moved) {
+                        // 纯转向（位置不变，如攻击/挖肉前转身）：人还在走就排队，
+                        // 否则会边滑边转身（托管「转向滑步」）。
+                        if (msg.dir != null && msg.dir !== e.dir) this._queueAction(e, { dir: msg.dir });
+                        break;
+                    }
                     // 记录移动起点（非 self 实体走动画过渡用：从旧格滑到新格）
                     e._fromX = e.x; e._fromY = e.y;
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
+                    if (e === this.self || (this.self && e.id === this.self.id)) {
+                        // 镜头追赶速度跟**这一步实际的步长**走。旧实现读 _mouseRun（玩家
+                        // 自己是否按右键），托管/自动寻路跑步时它恒为 false → 按走速
+                        // 540ms/格追 360ms/格的跑步，每步落后 1/3 格，实测最大落后 5.7 格，
+                        // 人早已站定挖肉，画面还在滑（HANDOFF §126）。
+                        this._selfStepDur = msg.rush ? RUSH_INTERVAL
+                            : (msg.run ? RUN_INTERVAL : WALK_INTERVAL);
+                    }
                     if (moved) {
                         // 冲撞（野蛮冲撞）用 rush 动画，普通移动用 run/walk
                         const action = msg.rush ? 'rush' : (msg.run ? 'run' : 'walk');
@@ -1922,52 +1943,25 @@ export class PlayScene extends Scene {
             }
             case 'attack': {
                 const a = this.entities.get(msg.attackerId);
+                const t = this.entities.get(msg.targetId);
+                // 目标受击/飘字/命中特效：挂在攻击者挥刀**真正开始**之后 HIT_FRAME_MS。
+                // 攻击者还在走时挥刀会排队（_queueAction），命中也跟着顺延，避免「先爆后砍」。
+                const startHit = () => {
+                    if (!t || msg.noDamage) return;
+                    setTimeout(() => this._attackHit(msg), HIT_FRAME_MS);
+                };
                 // noAttackAnim：冲撞等不触发攻击者攻击动作（只播目标受击，对齐原版 RM_STRUCK）
                 if (a && !msg.noAttackAnim) {
                     // dir 对齐原版 SM_HIT 的 wParam（= m_btDirection）：怪物攻击
                     // 前已转向目标（Attack(m_TargetCret, btDir)），玩家轻微位移后
                     // 下一刀必须面向新位置。
-                    if (msg.dir !== undefined) a.dir = msg.dir;
-                    a._action = 'attack'; a._actionAt = Date.now();
-                    // 神兽吐火（变身 raceImg=55）：攻击时在神兽位置喷火焰
-                    // （原版 AxeMon.pas TWarriorElfMonster.RunFrameAction：攻击第 5 帧触发 TMapEffect，帧=820+10*Dir+1 起 5 帧）
-                    if (a.raceImg === 55) {
-                        this._spawnFx({ kind: 'elfFire', dir: a.dir || 0, x: a.x, y: a.y });
-                    }
-                    // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）。
-                    // 延迟到命中帧（武器接触点）才点亮，避免“先爆后砍”。
-                    if (msg.swordHit && !msg.miss && SWORD_HIT_FX[msg.swordHit]) {
-                        a._swordHit = msg.swordHit; a._swordHitAt = Date.now() + HIT_FRAME_MS;
-                    }
-                }
-                const t = this.entities.get(msg.targetId);
-                // noDamage：怪物 DC 不足以破防（原版 nDamage<=0）——攻击方照播挥击，
-                // 目标不受击、不飘字（StruckDamage 直接 Exit）
-                if (t && !msg.noDamage) {
-                    // 命中帧对齐：原版在挥砍第 2~3 帧（武器接触点，约 170ms）才触发目标受击 /
-                    // 伤害飘字 / 命中特效，而非 attack 消息到达即触发，避免“先爆后砍”。
-                    setTimeout(() => {
-                        const cur = this.entities.get(msg.targetId);
-                        if (!cur) return;
-                        if (msg.miss) {
-                            // 未命中：原版在目标位置飘 MISS，目标不播受击动作（没被打中）
-                            this._spawnDamageNumber(cur.x, cur.y, 'MISS', 0, '#ff5050');
-                            return;
-                        }
-                        // 命中帧延迟 170ms，期间目标可能已经死了：尸体绝不能再播
-                        // 受击动作。否则渲染循环 ATTACK_ANIM_MS 后会把 'struck'
-                        // 归位成 'stand'，表现就是「怪死了又站起来」（托管攻速快
-                        // 时几乎必现）。伤害飘字与命中特效照常保留。
-                        if (!cur._corpse && cur.alive !== false) {
-                            cur._action = 'struck'; cur._actionAt = Date.now();
-                        }
-                        // 伤害飘字
-                        this._spawnDamageNumber(cur.x, cur.y, msg.damage, msg.magicId);
-                        // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
-                        if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
-                            this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: cur.x, y: cur.y });
-                        }
-                    }, HIT_FRAME_MS);
+                    this._queueAction(a, {
+                        action: 'attack',
+                        dir: msg.dir,
+                        fns: [() => this._attackStartFx(a, msg), startHit],
+                    });
+                } else {
+                    startHit();
                 }
                 break;
             }
@@ -2078,11 +2072,7 @@ export class PlayScene extends Scene {
                 // （ClMain.pas:4649），播放 HA.ActSitdown（456 / 2 帧 / 300ms）。
                 // 自己的动作由点击时本地播放（ClMain.pas:2840 同款预测），这里只管别人。
                 const a = this.entities.get(msg.actorId);
-                if (a) {
-                    if (msg.dir != null) a.dir = msg.dir;
-                    a._action = 'sitdown';
-                    a._actionAt = Date.now();
-                }
+                if (a) this._queueAction(a, { action: 'sitdown', dir: msg.dir });
                 // 出肉后尸体变骷髅（原版 RM_SKELETON → m_boSkeleton，尸体**不删**，
                 // 仍留到 makeGhost 时间）。骷髅帧 = ActDeath.start，不带方向。
                 const corpse = this.entities.get(msg.id);
@@ -2101,20 +2091,21 @@ export class PlayScene extends Scene {
                 // 施法动作（HA.spell 段，与普通攻击 hit 段不同）；怪物施法者不覆盖——
                 // 神兽吐火等由 attack 消息设置攻击动画（ActAttack 两足站立喷火），避免被 spell→stand 回退覆盖
                 if (c && c.type === 'player') {
-                    // 原版客户端按 actor 消息队列**串行**处理：走完一步才播施法。
-                    // 服务端托管「最后一格 move + spellCast」几乎同发，若走步位置
-                    // 插值（MONSTER_MOVE_DUR）还没播完就切 spell，会看到
-                    // 「一边走一边施法、最后一步滑步」。排队到插值结束再播。
-                    const stepLeft = MONSTER_MOVE_DUR - (Date.now() - (c._moveAt || 0));
-                    if (c.id !== this.self?.id && stepLeft > 0) {
-                        c._pendingSpellAt = Date.now();
-                    } else {
-                        c._action = 'spell'; c._actionAt = Date.now();
-                    }
+                    // 原版客户端按 actor 消息队列**串行**处理：走完一步才播施法
+                    // （§114 起源，§126 统一进 _queueAction，自己也排队）。
+                    this._queueAction(c, { action: 'spell', dir: msg.dir });
                 }
                 break;
             }
             case 'magicFire': {
+                {
+                    const c0 = this.entities.get(msg.casterId);
+                    if (c0 && c0._pendingAct && !msg.__deferred) {
+                        // 施法动作还在排队（人没走完这一步）：飞行/爆炸特效跟着动作一起放
+                        c0._pendingAct.fns.push(() => this.onMessage('magicFire', { ...msg, __deferred: true }));
+                        break;
+                    }
+                }
                 // 原版 RM_MAGICFIRE → UseMagicFire（ClMain.pas:2475）：施法特效，
                 // 只有服务端确认放出的技能才播（护身符缺失/没蓝走 spellFail）
                 const c = this.entities.get(msg.casterId);
@@ -2842,6 +2833,98 @@ export class PlayScene extends Scene {
         const name = sm.title || sm.name || '未知地图';
         if (this._bigMapTitle) {
             this._bigMapTitle.textContent = `${name}　(${this.self.x}, ${this.self.y})`;
+        }
+    }
+
+    // ---- 玩家动作串行化（HANDOFF §126）---------------------------------------
+
+    /** 画面上这个实体是否还在走（自己看镜头追赶，别人看位置插值）。 */
+    _isSliding(e, now) {
+        if (this.self && e.id === this.self.id) {
+            return this._viewX != null
+                && (Math.abs(e.x - this._viewX) > 0.02 || Math.abs(e.y - this._viewY) > 0.02);
+        }
+        return e._moveAt != null && e._fromX != null
+            && (e._fromX !== e.x || e._fromY !== e.y)
+            && now - e._moveAt < MONSTER_MOVE_DUR;
+    }
+
+    /**
+     * 播放一个原地动作 / 转向：act = { action?, dir?, fns?: [() => void] }。
+     * 原版客户端每个 actor 有消息队列，ProcMsg 只在当前动作（含走一步）播完、
+     * IsIdle 时才取下一条——走路中收到的 SM_HIT / SM_SITDOWN / SM_TURN 不会
+     * 把滑行中的人直接切成挥刀/蹲下/转身。旧实现到达即覆盖，托管 + 网络
+     * 抖动下就是「太空滑步」。只对玩家排队：怪物 AI 的出手节奏已由服务端
+     * 按走速控制，且怪物攻击若被延后会拖慢受击反馈。
+     * fns 是动作真正开始时才执行的回调（命中特效、魔法飞行特效），跟着顺延。
+     */
+    _queueAction(e, act) {
+        const now = Date.now();
+        if (e.type === 'player' && !e._corpse && this._isSliding(e, now)) {
+            const old = e._pendingAct;
+            if (old) {
+                // 一步之内又来一个：旧的回调照常执行（特效/伤害不能丢），动作取新的
+                for (const fn of old.fns || []) fn();
+                if (act.dir == null) act.dir = old.dir;
+                if (!act.action) act.action = old.action;
+            }
+            e._pendingAct = { action: act.action, dir: act.dir, fns: act.fns ? act.fns.slice() : [], at: now };
+            return;
+        }
+        this._applyAction(e, act, now);
+    }
+
+    _applyAction(e, act, now) {
+        if (act.dir != null) e.dir = act.dir;
+        if (act.action) { e._action = act.action; e._actionAt = now; }
+        for (const fn of act.fns || []) fn();
+    }
+
+    /** 每帧：挂起的动作在画面站定（或等待超时）后补播。 */
+    _flushPendingAction(e, now) {
+        const pa = e._pendingAct;
+        if (!pa) return;
+        if (this._isSliding(e, now) && now - pa.at < PENDING_ACT_MAX_MS) return;
+        e._pendingAct = null;
+        if (e._corpse) { for (const fn of pa.fns) fn(); return; }
+        this._applyAction(e, pa, now);
+    }
+
+    /** 挥刀起手的附加特效（神兽吐火 / 战士剑术光效），随挥刀动作开始。 */
+    _attackStartFx(a, msg) {
+        // 神兽吐火（变身 raceImg=55）：攻击时在神兽位置喷火焰
+        // （原版 AxeMon.pas TWarriorElfMonster.RunFrameAction：攻击第 5 帧触发 TMapEffect，帧=820+10*Dir+1 起 5 帧）
+        if (a.raceImg === 55) {
+            this._spawnFx({ kind: 'elfFire', dir: a.dir || 0, x: a.x, y: a.y });
+        }
+        // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）。
+        // 延迟到命中帧（武器接触点）才点亮，避免“先爆后砍”。
+        if (msg.swordHit && !msg.miss && SWORD_HIT_FX[msg.swordHit]) {
+            a._swordHit = msg.swordHit; a._swordHitAt = Date.now() + HIT_FRAME_MS;
+        }
+    }
+
+    /**
+     * 命中帧结算：原版在挥砍第 2~3 帧（武器接触点，约 170ms）才触发目标受击 /
+     * 伤害飘字 / 命中特效。noDamage（怪物 DC 不足以破防，原版 nDamage<=0）不进这里。
+     */
+    _attackHit(msg) {
+        const cur = this.entities.get(msg.targetId);
+        if (!cur) return;
+        if (msg.miss) {
+            // 未命中：原版在目标位置飘 MISS，目标不播受击动作（没被打中）
+            this._spawnDamageNumber(cur.x, cur.y, 'MISS', 0, '#ff5050');
+            return;
+        }
+        // 命中帧延迟期间目标可能已经死了：尸体绝不能再播受击动作，否则渲染循环
+        // ATTACK_ANIM_MS 后会把 'struck' 归位成 'stand'（「怪死了又站起来」）。
+        if (!cur._corpse && cur.alive !== false) {
+            cur._action = 'struck'; cur._actionAt = Date.now();
+        }
+        this._spawnDamageNumber(cur.x, cur.y, msg.damage, msg.magicId);
+        // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
+        if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
+            this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: cur.x, y: cur.y });
         }
     }
 
@@ -4658,10 +4741,18 @@ export class PlayScene extends Scene {
         this._lastFrame = now;
         // 冲撞(rush)用冲撞速度，其余用走/跑速度（每格耗时 ms）
         const selfRushing = this.self._action === 'rush';
-        const stepDur = selfRushing ? RUSH_INTERVAL : (this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL);
-        const maxStep = dt / stepDur;                                    // 本帧最大卷动（格）
+        // 步长取「最近一条自身 move 实际的走/跑/冲撞」（_selfStepDur），不再读
+        // _mouseRun——托管/寻路跑步时玩家没按右键，旧逻辑一直按走速追（§126）。
+        const stepDur = selfRushing ? RUSH_INTERVAL
+            : (this._selfStepDur || (this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL));
         const dx = this.self.x - this._viewX;
         const dy = this.self.y - this._viewY;
+        // 追赶加速：①有挂起动作（挖肉/出刀/转向在等）→ 剩下那点滑行尽快走完；
+        // ②网络抖动导致落后超过 1 格 → 按落后量线性加速（≤3 倍），不让偏差累积。
+        const lagCells = Math.max(Math.abs(dx), Math.abs(dy));
+        const boost = Math.max(this.self._pendingAct ? SELF_HURRY : 1,
+            lagCells > 1 ? Math.min(3, lagCells) : 1);
+        const maxStep = dt / stepDur * boost;                            // 本帧最大卷动（格）
         this._viewX += dx > maxStep ? maxStep : (dx < -maxStep ? -maxStep : dx);
         this._viewY += dy > maxStep ? maxStep : (dy < -maxStep ? -maxStep : dy);
         // 冲撞到位后回站立：rush 动画覆盖整个冲撞过程，而不是 600ms 超时提前结束（消除「走两步再平移」）
@@ -4704,15 +4795,8 @@ export class PlayScene extends Scene {
                 && (now - (e._lastMoveAt || 0)) > 600) {
                 e._action = 'stand';
             }
-            // spellCast 排队：走步插值结束后（站定）才补播施法动作。
-            // 只在 walk/run/stand 时生效，避免覆盖 attack/struck/death。
-            if (e._pendingSpellAt && e.id !== this.self?.id
-                && (e._action === 'walk' || e._action === 'run' || e._action === 'stand')
-                && (now - (e._moveAt || 0)) >= MONSTER_MOVE_DUR) {
-                e._action = 'spell';
-                e._actionAt = now;
-                e._pendingSpellAt = 0;
-            }
+            // 挂起的原地动作/转向：画面站定（或超时）后补播（§126，含 §114 施法排队）
+            if (e._pendingAct) this._flushPendingAction(e, now);
             // 攻击/施法/受击/挖肉动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击/施法）
             const animMs = e._action === 'sitdown' ? SITDOWN_ANIM_MS
                 : (e._action === 'spell' ? SPELL_ANIM_MS : ATTACK_ANIM_MS);

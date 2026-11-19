@@ -1037,3 +1037,53 @@ hum/mon/npc/objects/weapon/hair/tiles/smtiles/dnitems 库执行 `smoothDitherSha
 灯柱/屋檐/人物脚下阴影网格消失，栅栏边缘残留网点经边缘扩展后消除；人物本体深色轮廓未被误判。
 **仍需用户实机自测**：其他地图/怪物库（只抽样了 Hum/Mon1/Mon2/npc/Objects/Objects4）是否有
 被误判的深色细节。
+
+## §126 托管「太空滑步」：镜头追赶速度 + 移动→动作锁 + 玩家动作串行化（2026-11-19）
+
+**现象**（用户）：托管时人物还在位移就开始播挖肉蹲下，转向也有同样的滑步感；此前修过不能根治。
+
+**取证**（Playwright 开托管 75s，逐帧采样 self 画面位置 `_viewX/Y` 相对逻辑格的落后量与当前动作；
+抖动 = 前端按序给每条 WS 消息加 0~N ms 随机延迟）：
+
+| | 改前·无抖动 | 改前·抖动150 | 改后·无抖动 | 改后·抖动150 | 改后·抖动250 | 改后·抖动700 |
+|---|---|---|---|---|---|---|
+| 最大落后（格） | **5.66** | 5.14 | 0.97 | 1.20 | 1.38 | 1.91 |
+| 落后 ≥1 格帧占比 | 44% | 38% | 0 | 0.7% | 1.2% | 5.6% |
+| 滑行中播蹲下/出刀/受击帧 | **272** | 223 | **0** | **0** | **0** | **0** |
+| 移动→出刀间隔 min（ms） | **0** | 0 | — | 522 | 583 | 367 |
+| 伤害飘字 / 有伤害 attack | | | | | 16/16 | 23/23 |
+
+**根因（三层叠加；网络延迟只是放大器）**：
+1. **前端镜头追赶速度读错源**：`stepDur` 用 `this._mouseRun`（玩家是否按右键）。托管/自动寻路跑步
+   时它恒为 false → 按走速 540ms/格追 360ms/格的跑步，每步落后 1/3 格并累积（实测 5.7 格）。
+   人早已在服务端站定开挖，画面还要滑 1~2 秒。
+2. **服务端托管缺「移动→动作」锁**：`_action_busy` 只挡「出刀/施法→移动」。挖肉在移动后 ~100ms、
+   近战出刀在同一 tick（0ms）就发出。原版客户端 `CanNextAction` 要求 `IsIdle`（ClMain.pas:3975），
+   走一步的动作播完前不能出刀/施法/挖肉；托管直调服务端 handler 绕过了这层。
+3. **前端动作/转向到达即覆盖**：butch/attack/纯转向 move 立即改 `_action`/`dir`，不管人是否在走。
+   原版 actor 消息队列串行（Actor.pas ProcMsg）。§114 只给**远程玩家施法**补了排队，self 与挖肉/
+   出刀/转向未覆盖。
+
+**改动**：
+- `pyserver/autopilot.py`：新增 `last_move_dur`（三处移动点记录走 540/跑 360/风筝步长）与
+  `_step_busy()`；近战出刀、挖肉、治愈术、火符、法师单体在上一步步长内不发出（保持意图，下一拍再放）。
+- `frontend/scene/PlayScene.mjs`：
+  - self 的 move 记录 `_selfStepDur`（rush/run/walk），镜头按它追赶；有挂起动作时 ×2.5、落后 >1 格时
+    按落后量 ≤3 倍加速，不让偏差累积；
+  - 新增 `_queueAction/_applyAction/_flushPendingAction/_isSliding`：**玩家**（含 self）的挖肉、出刀、
+    施法、纯转向在画面仍在走时挂起，站定后补播，最长等 `PENDING_ACT_MAX_MS=400` 兜底；
+    出刀的命中结算（`_attackHit`）与起手特效（`_attackStartFx`）随挥刀真正开始再计时，
+    `magicFire` 特效随挂起的施法动作顺延；§114 的 `_pendingSpellAt` 收编进统一队列删除；
+  - 纯转向不再重置 `_fromX`（旧逻辑会把远程实体剩余的位移插值直接砍掉）；
+  - 怪物不排队（出手节奏由服务端按走速控制，延后会拖慢受击反馈）。
+
+**回归**（设备 VM Python 3.10.12）：test_autopilot 39/39、test_autopilot_taoist 18/18、
+test_autopilot_hosted_opt 36/36、test_hosted_fixes 14/14、test_mage_flee 8/8、test_bots 29/29
+（首跑 1 次漫游随机 FAIL，复跑 2 次与改前基线均 29/29）、test_afk_offline 50/50、
+test_afk_supply 37/37、test_slave_protection 22/22、test_pyserver 128/128、test_tick_systems 180/180、
+test_spell_fx 13/13、test_pet_drop_pickup 8/8、test_weekend_boost 31/31、
+test_all_messages --live 95/95（「1 处异常」= 脚本消息清单未覆盖 afk/onlineList/queryUserState，
+**改前基线同样存在**，与本轮无关，待补）。
+
+**代价**：托管每次「走一步后立刻出刀」会多等到步长走完（≤360/540ms），与原版手动节奏一致；
+DPS 略降属保真。观感**仍需用户实机自测**（公网真实延迟）。

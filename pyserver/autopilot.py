@@ -239,6 +239,7 @@ class AutoPilot:
     last_exp: int = 0
     last_progress_at: int = 0
     last_move_at: int = 0
+    last_move_dur: int = 0          # 上一步的动作时长（走 540 / 跑 360）：移动→动作锁
     last_attack_at: int = 0
     last_cast_at: int = 0           # 上次施法：原版客户端 500+200+Delay 节拍
     last_cast_beat: int = 0         # 上次施法对应的动作锁时长（ms）
@@ -571,6 +572,8 @@ class AutoPilot:
             return False
         if p.mp < spell_cost(t, skill_level(p, 2)):
             return False
+        if self._step_busy(now):
+            return False                 # 上一步没落地：本 tick 回落喝药/下拍再放
         exp_before = p.exp
         srv._cast_magic(p.session, {"type": "castMagic", "magicId": 2,
                                     "targetId": 0, "targetX": p.x,
@@ -615,6 +618,9 @@ class AutoPilot:
             self._ensure_amulet(srv, w, p, now)
             if srv._find_amulet(p, 1, 1) is None:
                 return False
+        if self._step_busy(now):
+            self.set_status(f"火符 · {target.name}", now)
+            return True                  # 上一步没落地：保持远程意图，下一拍再放
         exp_before = p.exp
         srv._cast_magic(p.session, {"type": "castMagic", "magicId": 13,
                                     "targetId": target.id,
@@ -663,6 +669,9 @@ class AutoPilot:
                 self.unreachable[target.id] = now + 3000
                 self.set_status(f"视线受阻 · {target.name}", now)
                 return False
+            if self._step_busy(now):
+                self.set_status(f"{t.name} · {target.name}", now)
+                return True             # 上一步没落地：保持站位意图，下一拍再放
             exp_before = p.exp
             srv._cast_magic(p.session, {"type": "castMagic",
                                         "magicId": magic_id, "targetId": target.id,
@@ -732,6 +741,7 @@ class AutoPilot:
         self.kite_target_id = target.id
         self.kite_until = now + 6_000
         self.last_move_at = now
+        self.last_move_dur = KITE_STEP_MS
         srv._move(p.session, {"type": "move", "dir": best_dir, "run": False})
         self.set_status(f"放风筝 · 拉开到 {KITE_SAFE_DIST} 格", now)
         return True
@@ -799,6 +809,7 @@ class AutoPilot:
         self.flee_target_id = target.id
         self.flee_until = now + FLEE_LOCK_MS
         self.last_move_at = now
+        self.last_move_dur = RUN_INTERVAL_MS
         srv._move(p.session, {"type": "move", "dir": best_dir, "run": True})
         self.set_status(f"偷跑 · 躲开 {target.name}", now)
         return True
@@ -879,7 +890,9 @@ class AutoPilot:
         if dist <= 8 and self._taoist_fire(srv, w, p, target, now):
             return
         if dist <= 1:
-            if now - self.last_attack_at >= attack_interval_ms(p.level):
+            if self._step_busy(now):
+                self.set_status(f"打怪中 · {target.name}", now)   # 上一步还没落地
+            elif now - self.last_attack_at >= attack_interval_ms(p.level):
                 self.last_attack_at = now
                 exp_before = p.exp
                 srv._attack(p.session, {"type": "attack", "targetId": target.id})
@@ -929,7 +942,7 @@ class AutoPilot:
             self._step_to(srv, w, p, corpse.x, corpse.y,
                           ("butch", corpse.id), f"挖肉 · {corpse.name}", now)
             return True
-        if now - self.last_butch_at < BUTCH_INTERVAL_MS:
+        if now - self.last_butch_at < BUTCH_INTERVAL_MS or self._step_busy(now):
             self.set_status(f"挖肉 · {corpse.name}", now)
             return True
         self.last_butch_at = now
@@ -1143,6 +1156,7 @@ class AutoPilot:
         d = self.path.pop(0)
         before = (p.x, p.y, p.map.name if p.map else "")
         self.last_move_at = now
+        self.last_move_dur = interval
         srv._move(p.session, {"type": "move", "dir": d, "run": running})
         after = (p.x, p.y, p.map.name if p.map else "")
         self.set_status(f"{label} · {dist}格{' · 跑' if running else ''}", now)
@@ -1180,6 +1194,17 @@ class AutoPilot:
             beat = attack_interval_ms(p.level)
             stamp = self.last_attack_at
         return beat > 0 and 0 <= now - stamp < beat
+
+    def _step_busy(self, now: int) -> bool:
+        """移动 → 动作锁（``_action_busy`` 的反方向）。
+
+        原版客户端 ``CanNextAction`` 要求 ``IsIdle``（ClMain.pas:3975）：走/跑
+        一步的动作（HA.ActWalk 6×90 / ActRun 6×60 ms）播完之前，不接受出刀、
+        施法、挖肉。托管直接调服务端 handler 绕过了这层，实测（HANDOFF §126）
+        移动后 0~110ms 就出刀/挖肉，前端人物还在滑行就切成挥刀/蹲下——
+        即「太空滑步」。这里要求上一步的步长走完才允许下一个原地动作。
+        """
+        return self.last_move_dur > 0 and 0 <= now - self.last_move_at < self.last_move_dur
 
     def _give_up_target(self, key: tuple, now: int) -> None:
         """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
@@ -1405,6 +1430,7 @@ class AutoPilotManager:
         pilot.last_progress_at = stamp
         pilot.last_exp = p.exp
         pilot.last_move_at = 0
+        pilot.last_move_dur = 0
         pilot.last_attack_at = 0
         pilot.last_cast_at = 0
         pilot.last_cast_beat = 0
