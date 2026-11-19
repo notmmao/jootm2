@@ -1165,3 +1165,43 @@ DPS 略降属保真。观感**仍需用户实机自测**（公网真实延迟）
 **专用专家**：用户要求「创建 Agent 专门发布 mir2-wiki」。已在 `~/.workbuddy/plugins/marketplaces/my-experts/plugins/mir2-wiki-publisher/` 建并注册 Agent 型专家「传奇 Wiki 发布官」，分类 02-Engineering。含 6 步 SOP（前置检查→生成→无损压缩→发布→线上验证→用户确认后提交）、把 Python3.10 / content_policy 单一事实源 / `--skip-existing-maps` 禁用 / 孤儿删除保护 / core.quotepath / 不自动提交等坑全固化；自带 `skills/mir2-wiki-release` 运行手册；头像已生成（512×512/397KB）。校验零警告、注册成功。**未打包分享**（需要时用 `package_expert.py`）。
 
 **仍未提交**：jootm2 工作区的 `config/content_policy.json`、`gen_website.py`、`compress_website.py`、`test_content_filter.py`、`WIKI-PLAN.md`、HANDOFF 等改动均未 commit，等用户检查通过后提交（标签 `[文档]`/`[构建]`）。
+
+## §134 盟重省多图进不去 + 大地图标注重叠（2026-11-19）
+
+用户报告两现象：①盟重省很多地图进不去（截图红框圈石墓入口 305,324，角色站 302,330 旁）；②大地图门点标注「两份重叠」（毒蛇山谷回盟重/比奇各画两份）。逐个排查后是**两个独立根因**：
+
+**根因 A：地图 id 大小写不匹配 → gate 整条被丢弃（进不去）**。
+`world.py:1078` gate 加载用 `g.dst_map not in self.available_maps` 精确集合匹配；`available_maps` 来自磁盘真实文件名（`scan_available_maps` 取 `p.name[:-4]`），而磁盘文件名大小写混用：`d710.map`/`d601.map`/`d501.map`… 是小写，`D701.map`/`D505.map`… 是大写。MapInfo 里写 `D710`/`D601`，小写磁盘名 → 匹配失败 → 门丢弃。Windows 文件系统大小写不敏感，所以 `map_size('D710')` 侥幸命中、`read_map('D710')` 也能读，问题在**集合精确匹配这一步**就发生了（与 §17.3 资源清单小写兜底是不同位置）。**Linux 部署更会全链路失败**。
+- 影响面：全部 2475 gate 中 302 条被丢；盟重省 74 条里丢 2 条：`D710 石墓入口`、`D601 地牢南一层`。祖玛 D501~D515、地牢 D601~D611、石墓 D710~D715、矿区 D421/D422 等整片进不去。
+- 修复：`gamedata.py` 新增 `map_file_path()`（大小写不敏感解析 + 缓存，`map_size`/`read_map` 都走它，保 Linux）；`world.py` 加 `self._available_lower`，gate 过滤与 `get_or_load_map` 存在性判断改小写集合。**保留 MapInfo 原始大小写作地图 key**（`map_titles`/`map_flags`/`map_mini_index`/`self.maps` 都按原样查），绝不小写化 id。修复后 gate 保留 2173→2259（+86）。
+- 验证：端到端 `GameWorld` 实测 D710(305,324) 可 `gate_at` 命中、大小写两种写法 `get_or_load_map('D710'/'d710')` 均成功、`change_map` 到 D710 成功。
+
+**根因 B：标注未去重 → 同一门口画多份（两份重叠）**。
+MapInfo 一个门口写成 8~14 行相邻坐标（原版用坐标片覆盖门口），`map_snapshot` 全量下发，前端 `PlayScene.mjs:2807` 每条 gate 画一个黄方块+文字 → 同处叠多份。
+- 修复：`world.py` 新增 `_dedup_gate_marks()`，按「目标图相同 + src 坐标切比雪夫距离 ≤3（簇内任一成员，兼容链式坐标）」聚类，每簇取坐标中位数发一个标注。**纯显示层**：`gates_by_src` 全量不动，`gate_at`/踩门换图不受影响，前端零改动。
+- 实测盟重省标注 37→6（毒蛇山谷 2、秘密通道 3、地牢南一层 1）。D710 因 max(w,h)=50<100 不进 cave_maps、不发标注，属预期（房间图不标，靠门点踩进去）。
+
+**回归（全 3.10，Playwright 用 3.9）**：`test_pyserver.py` 128/0、`test_tick_systems.py` 180/0、`test_bigmap_nav.py` 19/19 全过。临时诊断脚本已删。
+
+**未提交**：本轮改 `pyserver/gamedata.py`、`pyserver/world.py`（标签 `[修复]`），与 §133 那批未提交改动共存，等用户确认。8080 上旧进程需重启才生效。
+
+## §135 房间图小地图错位 + 大地图无标注：兜底纹理时序 bug（2026-11-19）
+
+用户报告「祖玛寺庙大殿(0157)、石墓入口(D710) 小地图不对，且大地图没有标注文字入口」。**两个现象是同一根因**，且不是配置缺失：
+
+- 0157/D710 在 MiniMap.txt **没登记**（176 基线也没有；mmap.wil 对应索引 32/46 本就是空帧，原版 `PEnvir.MiniMap<=0` 发「没有可用的地图」）→ 走前端兜底 `_buildMiniMapTexture()` 从 `mapActor.map.tiles` 现生成。
+- **根因：换图 (changeMap) 时序错**。`PlayScene.mjs` 旧代码在 `changeMap` 里先调 `_loadMiniMapTexture(-1)`（2361），**再** `mapActor.enter()`（2363，才加载新图 tiles）。兜底同步读 `mapActor.map.tiles` 时拿的还是**旧地图**数据 → 0157 纹理为 null、D710 拿到旧图残留 1050×1050 错图。而 `_renderBigMap()` 开头 `if(!tex||!self) return`（2734）→ tex 空则**连门点文字标注一个都不画**。所以「小地图不对」+「大地图无标注」是同一个 tex 空值的连锁反应。注意初次 `enterGame`（338-340）是先 enter 后加载小地图，时序正确，不受影响。
+- 修复：换图时 `miniMapIndex<=0`（需兜底）则先清 `this._miniMapTex=null`、跳过立即加载，改为在 `mapActor.enter().then()`（新地图 tiles 就绪后）再调 `_loadMiniMapTexture`；有正常 mmap 索引的仍立即换底图（避免旧底图配新格数点位偏移）。
+- 端到端实测（独立端口 + Playwright）：修复后 0157 tex 113×120/kx3.75、D710 tex 120×120/kx2.4（正确兜底）；单帧大地图标注 `0157: →盟重省 / →祖玛寺庙一层×2`、`D710: →盟重省 / →石墓一层`。`test_bigmap_nav.py` 19/19 通过。
+- **用户确认要「盟重省主图上也标注这两个入口」**：已加 `world.py` 的 `BIGMAP_EXTRA_ENTRIES = {D710, 0157}` 白名单，在 cave_maps 构建后显式纳入（要求两端 .map 存在）。原版大地图本无门点标注（本项目增强，无 Delphi 依据），所以用精确白名单而非泛判据——「房间图→cave 图」判据会误伤 30+ 民房/店铺（它们也回主城大图），实测会放出 101 个。验证盟重省大地图标注从 6→8，新增 `石墓入口(305,324)`、`祖玛寺庙大殿(863,174)`。
+- cave_maps 全项目只用于 `map_snapshot` 的 gates 显示过滤这一处，加入白名单不影响踩门换图。
+
+**回归**：`test_pyserver.py` 128/0、`test_tick_systems.py` 180/0、`test_bigmap_nav.py` 19/19 全过。
+**本轮改 `frontend/scene/PlayScene.mjs` + `pyserver/world.py`（标签 `[修复]`），未提交。** 8080 旧进程需重启 + Ctrl+F5 才生效。
+
+### §135 续：标注「两份重叠」二次修 + 秘密通道隐去（2026-11-19）
+
+- **用户重启后反馈毒蛇山谷标注仍两份重叠**。诊断发现旧 `_dedup_gate_marks`（切比雪夫 ≤3 聚类）只合并了同一门口的坐标片，**没处理「同一目标图有多处相距很远的真实入口」**：毒蛇山谷回盟重省 32 个坐标分 4 簇（(298,59)/(299,50)/(560,76)/(550,75)）、回比奇省 16 个坐标分 2 簇（(415,567)/(414,547)），每簇各画一个 → 视觉重叠。盟重省的秘密通道 D701 也有 3 簇。
+- **修法**：`_dedup_gate_marks` 改为**按目标图分组，每组只发一个标注**（组内仍按 ≤3 聚类，取门点最密集簇的中位数坐标）。另加 `BIGMAP_HIDE_ENTRIES = {D701}`，秘密通道完全不显示（用户要求，原版无依据的本项目增强，遵产品决策）。纯显示层，`gates_by_src`/踩门/寻路不变。
+- **验证**：毒蛇山谷 7→3 标注（比奇省/毒蛇矿区一层/盟重省）、盟重省 8→4（秘密通道消失），每目标图无重复；全套回归 128/0 + 180/0 + 19/19 全过。
+- **本轮改 `pyserver/world.py`（标签 `[修复]`），未提交。** 8080 需重启才生效。
