@@ -30,10 +30,99 @@ function createCanvas(w, h) {
     return new OffscreenCanvas(w, h);
 }
 
+// ---- 网点阴影 → 半透明阴影（画质增强，不改资源） -------------------------------
+// 1.80 客户端是 8 位色，没有半透明：人物/怪物/NPC/建筑的阴影用调色板 18 号 (16,8,8)
+// 或 52 号 (8,0,0) 与透明像素交替的「棋盘格网点」模拟（2026-11-19 抽样统计：Hum/Mon/npc
+// 全是 18，Objects* 全是 52）。800×600 CRT 上网点会被视觉混合，放大 1.5~2.5 倍后就成了
+// 一片清晰的网格。解码时把「严格棋盘格」像素连同中间的透明孔替换成同等平均暗度的
+// 半透明黑（覆盖率 50% → alpha≈50%）。
+// 魔法/特效库按 lighter 叠加绘制，近黑像素本来就不显示，不处理。
+// 关闭：localStorage.setItem('jootm2.smoothShadow','0') 后刷新。
+const SHADOW_CI_A = 18;
+const SHADOW_CI_B = 52;
+const SHADOW_ALPHA = 128;
+const SHADOW_LIB_RE = /(^|\/)(hum\d*|mon\d*|npc\d*|objects\d*|weapon\d*|hair\d*|tiles\d*|smtiles\d*|dnitems)\.wil$/i;
+let smoothShadowOn = true;
+try { smoothShadowOn = localStorage.getItem('jootm2.smoothShadow') !== '0'; } catch { /* worker/隐身 */ }
+
+/** ci: 调色板索引（行优先，已是正向行序）；就地改写 rgba 中的网点阴影。 */
+function smoothDitherShadow(ci, rgba, w, h) {
+    const n = w * h;
+    let mark = null;
+    // 1) 严格棋盘格像素：阴影色，四邻全透明，且对角至少一个同色
+    for (let y = 0; y < h; y++) {
+        const row = y * w;
+        for (let x = 0; x < w; x++) {
+            const i = row + x;
+            const c = ci[i];
+            if (c !== SHADOW_CI_A && c !== SHADOW_CI_B) continue;
+            if (x > 0 && ci[i - 1]) continue;
+            if (x < w - 1 && ci[i + 1]) continue;
+            if (y > 0 && ci[i - w]) continue;
+            if (y < h - 1 && ci[i + w]) continue;
+            const diag = (y > 0 && x > 0 && ci[i - w - 1] === c)
+                || (y > 0 && x < w - 1 && ci[i - w + 1] === c)
+                || (y < h - 1 && x > 0 && ci[i + w - 1] === c)
+                || (y < h - 1 && x < w - 1 && ci[i + w + 1] === c);
+            if (!diag) continue;
+            if (!mark) mark = new Uint8Array(n);
+            mark[i] = 1;
+        }
+    }
+    if (!mark) return;
+    // 1b) 贴着物体本体的网点边缘（四邻有一侧是实体像素，严格判定漏掉）：
+    //     同为阴影色、与已确认网点对角相连、且四邻至少两个透明 → 也算网点。
+    //     迭代两轮，沿栅栏/墙脚这类长边逐步扩散。
+    for (let pass = 0; pass < 2; pass++) {
+        let grew = false;
+        for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+                const i = row + x;
+                if (mark[i]) continue;
+                const c = ci[i];
+                if (c !== SHADOW_CI_A && c !== SHADOW_CI_B) continue;
+                const diag = (y > 0 && x > 0 && mark[i - w - 1] === 1)
+                    || (y > 0 && x < w - 1 && mark[i - w + 1] === 1)
+                    || (y < h - 1 && x > 0 && mark[i + w - 1] === 1)
+                    || (y < h - 1 && x < w - 1 && mark[i + w + 1] === 1);
+                if (!diag) continue;
+                let t = 0;
+                if (x === 0 || !ci[i - 1]) t++;
+                if (x === w - 1 || !ci[i + 1]) t++;
+                if (y === 0 || !ci[i - w]) t++;
+                if (y === h - 1 || !ci[i + w]) t++;
+                if (t >= 2) { mark[i] = 1; grew = true; }
+            }
+        }
+        if (!grew) break;
+    }
+    // 2) 网点中间的透明孔：四邻里至少 3 个是网点（边缘 2 个）→ 同属阴影
+    for (let y = 0; y < h; y++) {
+        const row = y * w;
+        for (let x = 0; x < w; x++) {
+            const i = row + x;
+            if (ci[i] || mark[i]) continue;
+            let k = 0, m = 0;
+            if (x > 0) { m++; if (mark[i - 1] === 1) k++; }
+            if (x < w - 1) { m++; if (mark[i + 1] === 1) k++; }
+            if (y > 0) { m++; if (mark[i - w] === 1) k++; }
+            if (y < h - 1) { m++; if (mark[i + w] === 1) k++; }
+            if (k >= 3 || (m < 4 && k >= 2)) mark[i] = 2;
+        }
+    }
+    for (let i = 0; i < n; i++) {
+        if (!mark[i]) continue;
+        const o = i << 2;
+        rgba[o] = 0; rgba[o + 1] = 0; rgba[o + 2] = 0; rgba[o + 3] = SHADOW_ALPHA;
+    }
+}
+
 export class WIL {
     constructor(wilUrl, wixUrl) {
         this.wilUrl = wilUrl;
         this.wixUrl = wixUrl;
+        this.smoothShadow = smoothShadowOn && SHADOW_LIB_RE.test(String(wilUrl).split('?')[0]);
         this.imageCount = 0;
         this.offsetList = [];        // 每图在 wil 的偏移（0=空图）
         this.sortedOffsets = [];     // 非空图偏移（递增），用于 chunk 边界对齐 + 二分查找
@@ -257,11 +346,13 @@ export class WIL {
         if (bitCount === 8) {
             const pixelLength = nextOff - fileOff - 8;
             const padding = pixelLength !== width * height && pixelLength === widthBytes(8 * width) * height;
+            const ciBuf = this.smoothShadow ? new Uint8Array(width * height) : null;
             for (let h = height - 1; h >= 0; h--) {
                 for (let w = 0; w < width; w++) {
                     if (padding && w === 0) p += skipBytes(8, width);
                     const ci = view.getUint8(p++);
                     const base = ci << 2;
+                    if (ciBuf) ciBuf[w + h * width] = ci;
                     const idx = (w + h * width) << 2;
                     rgba[idx]     = PALETTE_RGBA[base];
                     rgba[idx + 1] = PALETTE_RGBA[base + 1];
@@ -269,6 +360,7 @@ export class WIL {
                     rgba[idx + 3] = PALETTE_RGBA[base + 3];
                 }
             }
+            if (ciBuf) smoothDitherShadow(ciBuf, rgba, width, height);
         } else {
             // 16 位 RGB565
             for (let h = height - 1; h >= 0; h--) {

@@ -1010,3 +1010,30 @@ test_mage_flee 8/8、test_slave_protection 22/22、test_npc_mafa_guide 20/20。
 - 未覆盖：DOM GUI 里的 WIL 贴图（按钮/面板美术）仍由浏览器线性插值放大，属素材本身分辨率；
   小地图等 DOM 内 canvas 的文字仍为低清（量少，未改）。观感**仍需用户自测确认**。
 
+## §125 大地图/小地图物理分辨率 + 网点阴影半透明化（2026-11-19）
+
+用户追问：①面板/按钮字体不改，但大地图入口标注文字要清晰；②不改资源还有什么优化空间。
+
+**① 大地图入口文字（§124 未覆盖）**：大地图/小地图是 DOM 面板里的独立 canvas
+（580×350 / 120×120），不走 §124 的 Presenter，位图仍是逻辑尺寸被 CSS 拉伸。
+- `core/viewport.mjs` 新增 `deviceScale()` / `fitCanvasToDevice(cv, cssW, cssH)`：位图设为
+  物理像素尺寸并返回倍率，绘制方 `setTransform(s)` 后继续用逻辑坐标。
+- `PlayScene._renderBigMap`：逻辑尺寸常量 `BIGMAP_W/H`（580×350）替换 `cv.width/height`；
+  点击换算改为 `BIGMAP_W / rect.width`（位图不再等于逻辑像素）；mmap 底图在物理像素上通常是
+  缩小（k·s<1）→ 改用高质量插值（旧版最近邻缩小再被拉伸，城墙/河流成锯齿块）；入口标签加黑描边。
+- `PlayScene._renderMiniMap`：同样物理分辨率；非整数倍时底图线性插值。
+
+**② 网点阴影（不改资源的最大观感提升）**：1.80 是 8 位色，阴影用调色板 18 号 (16,8,8) /
+52 号 (8,0,0) 与透明像素交替的棋盘格模拟。抽样 60 张/库统计：Hum/Mon1/Mon2/npc 的严格棋盘格像素
+几乎全是 18，Objects/Objects4 全是 52；Weapon/Hair/SmTiles/Prguse 基本没有。
+放大 1.8 倍后成为明显网格。`gfx/wil.mjs` 8 位解码后对
+hum/mon/npc/objects/weapon/hair/tiles/smtiles/dnitems 库执行 `smoothDitherShadow`：
+严格棋盘格（阴影色 + 四邻透明 + 对角同色）→ 沿对角扩展贴着实体的边缘网点（≥2 邻透明，2 轮）→
+填中间透明孔（≥3 邻，边缘 ≥2）→ 统一改为 rgba(0,0,0,128)（50% 覆盖率等效暗度）。
+魔法/特效库按 lighter 叠加，不处理。`localStorage jootm2.smoothShadow='0'` 或 Ctrl+F7 面板
+「柔和阴影」关闭，需刷新（纹理解码后缓存在内存）。属本项目增强，非原版行为。
+
+**验证**（Playwright 1536×864@1.25 比奇省，注入 4 个测试入口）：入口文字/底图前后对比由块状变清晰；
+灯柱/屋檐/人物脚下阴影网格消失，栅栏边缘残留网点经边缘扩展后消除；人物本体深色轮廓未被误判。
+**仍需用户实机自测**：其他地图/怪物库（只抽样了 Hum/Mon1/Mon2/npc/Objects/Objects4）是否有
+被误判的深色细节。

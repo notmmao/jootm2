@@ -129,12 +129,23 @@ export function openFogTunePanel() {
         tb.style.padding = '4px 6px';
         fRow.appendChild(tb);
         fBtns.push(tb);
+        // 柔和阴影（gfx/wil.mjs 解码时把网点阴影换成半透明）：纹理已解码缓存，需刷新生效
+        const shadowOn = () => { try { return localStorage.getItem('jootm2.smoothShadow') !== '0'; } catch { return true; } };
+        const sb = makeBtn('柔和阴影(刷新生效)', () => {
+            try { localStorage.setItem('jootm2.smoothShadow', shadowOn() ? '0' : '1'); } catch { /* ignore */ }
+            paint(sb, shadowOn());
+        });
+        sb.style.flex = 'none';
+        sb.style.padding = '4px 6px';
+        fRow.appendChild(sb);
         refreshF();
+        paint(sb, shadowOn());
         scaleBox.appendChild(fRow);
         const fNote = document.createElement('div');
         fNote.style.cssText = 'font-size:10px;color:#7a8a6a;margin-top:4px;line-height:1.4;';
         fNote.textContent = '锐利=整数倍放大后再细调，像素块均匀；像素=纯最近邻（非整数倍时块大小不一）；'
-            + '柔和=线性插值。高清文字：名字/喊话/飘字按屏幕物理分辨率绘制。';
+            + '柔和=线性插值。高清文字：名字/喊话/飘字按屏幕物理分辨率绘制。'
+            + '柔和阴影：把原版 8 位色的网点阴影还原为半透明（关掉即原版网点）。';
         scaleBox.appendChild(fNote);
     }
     el.appendChild(scaleBox);
