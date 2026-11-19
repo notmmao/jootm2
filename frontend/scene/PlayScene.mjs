@@ -2358,10 +2358,25 @@ export class PlayScene extends Scene {
                     // 以前放在 enter().then() 里，预取期间仍是上一张图的底图，
                     // 而 snapshot 已是新图 → 点位按新格数归一化到旧底图，整体偏移。
                     this._miniMapIndex = msg.miniMapIndex;
-                    this._loadMiniMapTexture(this._miniMapIndex, msg.map.width, msg.map.height)
-                        .then(() => { if (this._bigMapOpen) this._renderBigMap(); });
+                    // 有 mmap 索引：底图与瓦片预取无关，立即换，避免旧底图配新格数导致点位偏移。
+                    // 无索引（房间图 MiniMap.txt 未登记，如 0157 祖玛大殿 / D710 石墓入口）：
+                    // 兜底 _buildMiniMapTexture() 读的是 mapActor.map.tiles，必须等 enter() 加载完
+                    // 新地图再生成，否则拿到的是上一张图的 tiles → 小地图显示旧图/空白，
+                    // 且 _renderBigMap 因 tex 无效提前 return，连门点文字标注都不画。
+                    const needFallbackMini = !(msg.miniMapIndex > 0);
+                    if (!needFallbackMini) {
+                        this._loadMiniMapTexture(this._miniMapIndex, msg.map.width, msg.map.height)
+                            .then(() => { if (this._bigMapOpen) this._renderBigMap(); });
+                    } else {
+                        this._miniMapTex = null;   // 清掉旧图残留，避免闪一帧错误底图
+                    }
                     this.mapActor.enter(msg.map.name, p.x, p.y,
                         (done, total) => { this._mapLoadingText = `正在加载地图资源 ${done}/${total}…`; })
+                        .then(() => {
+                            if (needFallbackMini) {
+                                return this._loadMiniMapTexture(this._miniMapIndex, msg.map.width, msg.map.height);
+                            }
+                        })
                         .then(() => { if (this._bigMapOpen) this._renderBigMap(); })
                         .catch((e) => { console.error('[play]', e); this._mapLoadError = String((e && e.message) || e); })
                         .finally(() => { this._mapLoadingText = null; });

@@ -284,14 +284,48 @@ def map_tile_stride(body_len: int, cells: int) -> int:
     return 12  # 尾部附加数据 / padding：按 12 字节读前 cells 个 tile
 
 
+_MAP_FILE_CACHE: dict[tuple[str, str], "Path | None"] = {}
+
+
+def map_file_path(map_id: str, map_dir: Path) -> Path | None:
+    """大小写不敏感地解析 ``<map_id>.map`` 的真实磁盘路径。
+
+    MapInfo.txt 里地图 id 大小写混用（如 ``D710`` / ``d710``），磁盘文件名
+    也不统一。Windows 文件系统大小写不敏感，所以 ``D710.map`` 一直能命中
+    ``d710.map``；Linux（阿里云部署）大小写敏感，会直接找不到 → 门被丢弃、
+    玩家进不去。这里统一做一次不敏感解析并缓存（地图目录固定，缓存安全）。
+
+    返回 ``None`` 才算该地图真的没有 .map 文件。
+    """
+    key = (str(map_dir), map_id.lower())
+    if key in _MAP_FILE_CACHE:
+        return _MAP_FILE_CACHE[key]
+    result: Path | None = None
+    for name in (f"{map_id}.map", f"{map_id}.MAP"):
+        p = map_dir / name
+        if p.is_file():
+            result = p
+            break
+    if result is None:
+        target = map_id.lower()
+        try:
+            for p in map_dir.iterdir():
+                if p.suffix.lower() == ".map" and p.stem.lower() == target:
+                    result = p
+                    break
+        except OSError:
+            result = None
+    _MAP_FILE_CACHE[key] = result
+    return result
+
+
 def map_size(map_id: str, map_dir: Path) -> tuple[int, int] | None:
     """只读 .map 头 4 字节拿宽高（大地图入口的房间/洞穴判定用）。
 
     比一次性加载整张 ``MapGrid`` 便宜几个数量级——比奇省有 97 个入口，
     每次快照都要判定目标图类型，不能把目标图全加载一遍。
     """
-    path = next((p for p in (map_dir / f"{map_id}.map", map_dir / f"{map_id}.MAP")
-                 if p.is_file()), None)
+    path = map_file_path(map_id, map_dir)
     if path is None:
         return None
     try:
@@ -307,8 +341,7 @@ def read_map(map_id: str, map_dir: Path) -> MapGrid:
     tile 步进与前端 ``Maps.mjs`` 采用同一套推断（见 ``map_tile_stride``），
     Java 侧 ``MapFileReader`` 写死 12 字节，遇到 14 字节或带附加数据的地图会错位。
     """
-    path = next((p for p in (map_dir / f"{map_id}.map", map_dir / f"{map_id}.MAP")
-                 if p.is_file()), None)
+    path = map_file_path(map_id, map_dir)
     if path is None:
         print(f"[map] not found: {map_id}")
         return MapGrid(map_id, 256, 256, bytearray(256 * 256))

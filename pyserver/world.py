@@ -38,6 +38,54 @@ from .util import (
 from .world_extra import BODY_LEATHERY, WorldExtra
 
 SIGHT_RANGE = 12
+
+# 房间图（max(w,h)<100）默认不在主城大图标注入口（用户约定：主城进店铺/民房
+# 不标）。但这两张是洞穴系列的必经大厅——石墓入口→石墓一~五层、祖玛寺庙大殿
+# → 祖玛一~七层，性质等同洞穴入口，用户要求在主城大地图上标出。
+# 原版客户端大地图本无门点标注（本项目增强），故无 Delphi 依据，用显式白名单
+# 精确控制，避免「房间图→cave 图」这类泛判据把 30+ 民房店铺一起放出。
+BIGMAP_EXTRA_ENTRIES: frozenset[str] = frozenset({"D710", "0157"})
+# 大地图不显示的入口目标图：秘密通道是地下暗道的过路点，用户要求在地图
+# 标注里隐去（原版大地图本无门点标注，这是本项目增强，遵从产品决策）。
+BIGMAP_HIDE_ENTRIES: frozenset[str] = frozenset({"D701"})
+
+
+def _dedup_gate_marks(gates: list[Gate], titles: dict[str, str]) -> list[dict]:
+    """每个目标图只发一个大地图标注，避免文字标签重复/重叠。
+
+    MapInfo.txt 里一个门口写成 8~14 行相邻坐标（原版用一片坐标覆盖门口），
+    且同一目标图在地图上可能有多处相距很远的入口（如毒蛇山谷回盟重省有
+    (298,58)/(559,75) 两簇、回比奇省有 (413,565)/(413,547) 两簇）。只按坐标
+    邻近聚类（旧算法，切比雪夫距离 <= 3）会把这些入口各画一份 → 视觉上出现
+    「两份重叠」。现在改为按目标图分组，每组只取门点最密集的一簇中心作为
+    唯一标注点。纯显示用途——实际踩门换图仍走完整的 ``gates_by_src``，
+    不受影响；也不影响小地图/寻路。
+    """
+    by_dst: dict[str, list[Gate]] = {}
+    for g in gates:
+        if g.dst_map in BIGMAP_HIDE_ENTRIES:
+            continue
+        by_dst.setdefault(g.dst_map, []).append(g)
+
+    marks: list[dict] = []
+    for to, gs in by_dst.items():
+        # 组内邻近聚类（门口坐标常连成一条链，跨度可达 5 格）
+        clusters: list[list[Gate]] = []
+        for g in gs:
+            for c in clusters:
+                if any(max(abs(m.src_x - g.src_x), abs(m.src_y - g.src_y)) <= 3
+                       for m in c):
+                    c.append(g)
+                    break
+            else:
+                clusters.append([g])
+        # 取门点最密集的一簇作为该目标图的唯一标注；同规模时取先出现的
+        best = max(clusters, key=len)
+        mid_x = sorted(g.src_x for g in best)[len(best) // 2]
+        mid_y = sorted(g.src_y for g in best)[len(best) // 2]
+        marks.append({"x": mid_x, "y": mid_y, "to": to,
+                      "title": titles.get(to, to)})
+    return marks
 # 旁观者血条同步间隔（ms）：玩家 hp 变化后最多延迟这么久才广播给周围玩家。
 # 太小会放大广播量（每次回血/中毒都要发），太大血条看起来迟滞。绑定 100ms tick 的整数倍。
 HP_SYNC_MS = 400
@@ -1068,6 +1116,12 @@ class GameWorld(WorldExtra):
         self._home_check: dict[int, int] = {}   # player_id -> 上次检查时刻
 
         self.available_maps = scan_available_maps(config.map_dir)
+        # 磁盘文件名大小写不统一（d710.map / D701.map），MapInfo.txt 里的
+        # gate id 也不统一（D710 / D701）。Windows 文件系统不敏感所以一直
+        # 没暴露，Linux 部署会整条门被丢弃（石墓 D710、地牢 D601 等）。
+        # 存在性判断一律走小写集合；gate / map 的 id 本身保留 MapInfo 原始
+        # 大小写，因为 map_titles / map_flags / mini_index 的 key 就是它。
+        self._available_lower = {m.lower() for m in self.available_maps}
         info: MapInfo = parse_map_info(config.envir_dir / "MapInfo.txt")
         self.map_titles = info.titles
         self.map_flags = info.flags          # DARK / DAY / MINE 等地图标志
@@ -1075,7 +1129,8 @@ class GameWorld(WorldExtra):
         self.gates_by_src: dict[str, list[Gate]] = {}
         kept = 0
         for g in info.gates:
-            if g.src_map not in self.available_maps or g.dst_map not in self.available_maps:
+            if (g.src_map.lower() not in self._available_lower
+                    or g.dst_map.lower() not in self._available_lower):
                 continue
             self.gates_by_src.setdefault(g.src_map, []).append(g)
             kept += 1
@@ -1092,6 +1147,11 @@ class GameWorld(WorldExtra):
                     _s = map_size(_g.dst_map, config.map_dir)
                     if _s and max(_s) >= 100:
                         self.cave_maps.add(_g.dst_map)
+        # 洞穴系列必经大厅（石墓入口 / 祖玛大殿）显式纳入，见 BIGMAP_EXTRA_ENTRIES 注释。
+        # 必须两端 .map 都存在才加，避免标注指向不存在的图。
+        for _mid in BIGMAP_EXTRA_ENTRIES:
+            if _mid.lower() in self._available_lower:
+                self.cave_maps.add(_mid)
 
         self.map_mini_index = parse_mini_map(config.envir_dir / "MiniMap.txt")
         print(f"[world] loaded {len(self.map_mini_index)} minimap entries")
@@ -1357,7 +1417,7 @@ class GameWorld(WorldExtra):
             return self.default_map
         if name in self.maps:
             return self.maps[name]
-        if name not in self.available_maps:
+        if name.lower() not in self._available_lower:
             return None
         game_map = GameMap(read_map(name, self.config.map_dir))
         self.maps[name] = game_map
@@ -1737,12 +1797,9 @@ class GameWorld(WorldExtra):
                     # MapInfo.txt 的连接行（src x,y -> dst）：大地图只标
                     # 洞穴/野外大图入口（cave_maps），主城村庄进房间的
                     # 入口不显示（用户约定）。dst 标题取 [dst 名称] 定义。
-                    "gates": [
-                        {"x": g.src_x, "y": g.src_y, "to": g.dst_map,
-                         "title": self.map_titles.get(g.dst_map, g.dst_map)}
-                        for g in self.gates_by_src.get(game_map.name, ())
-                        if g.dst_map in self.cave_maps
-                    ]},
+                    "gates": _dedup_gate_marks(
+                        [g for g in self.gates_by_src.get(game_map.name, ())
+                         if g.dst_map in self.cave_maps], self.map_titles)},
             "dayBright": self.day_bright,
             "darkLevel": self.dark_level(game_map.name),
             "underground": self.is_underground(game_map.name),
