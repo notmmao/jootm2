@@ -4012,14 +4012,9 @@ export class PlayScene extends Scene {
 
     // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）/ 拿着已穿装备点背包 = 卸下
     _onBagItemClick(it, cell) {
-        // 仓库存入模式：点背包物品 = 放进 DSellDlgSpot 的圈里暂存（不发请求），
-        // 点 OK 才 SendStorageItem（原版 FState.pas:5393-5459 / 5447-5459）
-        if (this.storageMode === 'deposit') {
-            this.storagePending = it;
-            this._renderStorageSpot();
-            this._refreshBag();     // 暂存物品从背包网格移出（原版 g_ItemArr[idx].S.Name := ''）
-            return;
-        }
+        // 仓库存入/卖物/修理都用同一套「两段式」交互（原版 DSellDlgSpot：
+        // 先点背包物品拿起，再点投放框放入）。点背包物品只选中（黄框），
+        // 不自动放入——放入由投放框的 click 处理。见 _showStorageDlg / _showSellDlg。
         if (!this.pickedItem) {
             this.pickedItem = it;            // 拿起
             this.pickedSource = 'bag';
@@ -4064,47 +4059,65 @@ export class PlayScene extends Scene {
         if (this.goldEl) this.goldEl.style.outline = '';
     }
 
-    /** 「你想放下多少金币?」对话框（原版 DMessageDlg，FState.pas:1965-1969）。 */
-    _showDropGoldDialog() {
+    /** 「你想放下多少金币?」对话框（原版 DMessageDlg，FState.pas:1806-1815 / 1865+）。
+     * 底图 prguse 360（452×179，原版 DialogSize=1 大横框）、按钮 prguse 361 确定 /
+     * 365 取消（FState.pas:720-723）；输入框原版是 Delphi 原生 TEdit，这里用 DOM input 叠上。 */
+    async _showDropGoldDialog() {
         const max = (this.self && this.self.gold) || 0;
         if (max <= 1) { this._log('金币不足，无法丢弃。'); return; }
         const ov = document.createElement('div');
         ov.style.cssText = 'position:absolute;inset:0;z-index:60;background:rgba(0,0,0,0.35);'
             + 'display:flex;align-items:center;justify-content:center;';
         const box = document.createElement('div');
-        box.style.cssText = 'background:#1c1c1c;border:2px solid #b8a06a;padding:14px 18px;'
-            + 'font-size:12px;color:#fff;width:220px;';
-        box.innerHTML = '<div style="margin-bottom:8px;">你想放下多少金币?</div>';
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:6px;';
+        // 原版底图 452×179；先用同尺寸占位，贴图到了直接铺上
+        box.style.cssText = 'position:relative;width:452px;height:179px;font-family:SimSun,serif;';
+        this._libUrl('prguse', 360).then((url) => {
+            if (url) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;width:452px;height:179px;';
+                box.insertBefore(bg, box.firstChild);
+            }
+        });
+        // 提示文字（原版 msglx=39,msgly=38）
+        const msg = document.createElement('div');
+        msg.style.cssText = 'position:absolute;left:39px;top:38px;font-size:14px;color:#fff;'
+            + 'text-shadow:1px 1px 0 #000;white-space:nowrap;';
+        msg.textContent = '你想放下多少金币?';
+        box.appendChild(msg);
+        // 输入区（原版 EdDlgEdit 是 TEdit，叠在对话框下方偏中；输入框位置按原版输入框热区近似）
         const input = document.createElement('input');
         input.type = 'text'; input.inputMode = 'numeric';
-        input.style.cssText = 'flex:1;background:#000;border:1px solid #666;color:#fff;'
-            + 'padding:3px 6px;font-size:12px;outline:none;';
-        const ok = document.createElement('button');
-        ok.textContent = '确定';
-        ok.style.cssText = 'padding:3px 10px;cursor:pointer;background:#3a3a3a;color:#fff;border:1px solid #888;';
-        const cancel = document.createElement('button');
-        cancel.textContent = '取消';
-        cancel.style.cssText = ok.style.cssText;
-        row.appendChild(input); row.appendChild(ok); row.appendChild(cancel);
-        box.appendChild(row);
-        ov.appendChild(box);
-
+        input.style.cssText = 'position:absolute;left:60px;top:118px;width:170px;height:26px;'
+            + 'background:#000;border:1px solid #7a6a44;color:#fff;'
+            + 'padding:2px 6px;font-size:13px;outline:none;';
+        box.appendChild(input);
+        // 确定 / 取消：原版 prguse 361 / 365 按钮贴图（原图 80×34）
+        const mkBtn = (idx, left, cb) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:${left}px;top:114px;width:76px;height:32px;cursor:pointer;`;
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false;
+                    im.style.cssText = 'width:100%;height:100%;'; b.appendChild(im); }
+            });
+            b.addEventListener('click', cb);
+            box.appendChild(b);
+        };
         const close = () => ov.remove();
         const submit = () => {
             const n = Math.floor(Number(String(input.value).replace(/[^\d]/g, '')) || 0);
             close();
             if (n > 0) this.conn.send('dropGold', { gold: n });
         };
-        ok.addEventListener('click', submit);
-        cancel.addEventListener('click', close);
+        mkBtn(361, 248, submit);   // 确定
+        mkBtn(365, 332, close);    // 取消
         input.addEventListener('keydown', (ev) => {
             ev.stopPropagation();
             if (ev.key === 'Enter') submit();
             if (ev.key === 'Escape') close();
         });
         ov.addEventListener('mousedown', (ev) => ev.stopPropagation());
+        ov.appendChild(box);
         this.manager.winManager.container.appendChild(ov);
         setTimeout(() => input.focus(), 0);
     }
@@ -4435,6 +4448,7 @@ export class PlayScene extends Scene {
     _closeShopPanel() {
         if (this.shopPanel) { this.shopPanel.remove(); this.shopPanel = null; }
         if (this.shopBagListEl) { this.shopBagListEl.remove(); this.shopBagListEl = null; }
+        this._clearPicked();    // 清两段式选中态（黄框），避免关窗后残留
         this.shopGoldEl = null;
         this.shopSellMode = false;
         this.shopSellItem = null;
@@ -4485,18 +4499,25 @@ export class PlayScene extends Scene {
         title.style.cssText = 'position:absolute;left:6px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
         title.textContent = '保管物品:';
         panel.appendChild(title);
-        // 投放圈 Spot (27,67) 61x52：点背包物品先放进这里暂存，点 OK 才真正存入
+        // 投放圈 Spot (27,67) 61x52：两段式（与卖东西一致）——先点背包物品选中，
+        // 再点这里放入暂存，点 OK 才真正存入。不画蓝色高亮框，靠 prguse 392 底图的圈。
         const spot = document.createElement('div');
         spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
-            + 'border:1px solid #5b8fd0;background:rgba(24,64,124,.28);'
             + 'display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
-        spot.title = '点背包物品放入，再点 OK 存入';
+        spot.title = '点背包物品选中，再点这里放入，最后点 OK 存入';
         spot.addEventListener('click', () => {
-            // 点圈取回暂存（原版 DSellDlgSpotClick 拿起物品，FState.pas:5391-5424）
-            if (!this.storagePending) return;
-            this.storagePending = null;
-            this._renderStorageSpot();
-            this._refreshBag();
+            if (this.pickedItem) {
+                // 第二下：把选中的背包物品放进投放圈暂存（原版 DSellDlgSpotClick，FState.pas:5391-5424）
+                this.storagePending = this.pickedItem;
+                this._clearPicked();
+                this._renderStorageSpot();
+                this._refreshBag();     // 暂存物品从背包视图移出
+            } else if (this.storagePending) {
+                // 圈里已有物品且手空 → 取回（原版再点圈拿起）
+                this.storagePending = null;
+                this._renderStorageSpot();
+                this._refreshBag();
+            }
         });
         this.storageSpotEl = spot;
         panel.appendChild(spot);

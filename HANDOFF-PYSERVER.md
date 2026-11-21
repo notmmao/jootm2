@@ -1206,6 +1206,19 @@ MapInfo 一个门口写成 8~14 行相邻坐标（原版用坐标片覆盖门口
 - **验证**：毒蛇山谷 7→3 标注（比奇省/毒蛇矿区一层/盟重省）、盟重省 8→4（秘密通道消失），每目标图无重复；全套回归 128/0 + 180/0 + 19/19 全过。
 - **本轮改 `pyserver/world.py`（标签 `[修复]`），未提交。** 8080 需重启才生效。
 
+## §136 声效/UI 素材/名字血条 原版对齐排查（2026-11-20）
+
+用户 5 问，先查火炬 Delphi 源码再决定，结论如下（**权威取证**）：
+
+1. **修理武器 / 解困随机券声效**：均无专属声效。`ClMain.pas:4874-4884` 的 `SM_USERREPAIRITEM_OK` 处理只有金币/持久/背包数值更新，**无任何 PlaySound**，失败仅弹 DMessageDlg 文字。随机传送卷 StdMode=3（StdItems.csv:164），项目 `SoundManager`/`itemUseSound` 已按原版"卷轴 3/书 4/捆 31 静默"实现（`PlayScene.mjs:1207,3934`）。**无需改动，现状已对齐。**
+2. **丢金币 UI 素材**：原版有——`FState.pas:1810` 设 `DialogSize=1` 调 DMessageDlg，底图 **prguse 360**（452×179 大横框，`FState.pas:1930`）、按钮 **361=确定 / 365=取消**（`FState.pas:720-723`），输入框是 Delphi 原生 TEdit（非 WIL，用 DOM input 近似）。**已改** `_showDropGoldDialog()`：原纯 CSS 黑框 → prguse 360 底图 + 361/365 按钮贴图。
+3. **交易 UI 素材**：原版有且项目**已用**——`TradePartyUI.mjs` 用 prguse 389/390（双方窗口）/391（锁定）/64（关闭）/28（金币）/385（输入框），物品图标走 items 图库。**无需改动，已对齐。**
+4. **仓库保管放入框**：去掉蓝框（原 `border:#5b8fd0` + 蓝背景，现只靠 prguse 392 底图的圈）；交互改两段式与卖物一致——点背包物品只选中(黄框，`_onBagItemClick` 去掉 deposit 直接放入特判)，再点投放框(`_showStorageDlg` spot click)才 `storagePending` 暂存，点 OK 才发 `storageStore`。`_closeShopPanel` 加 `_clearPicked()` 清残留选中态。
+5. **名字/血条位置（仅检查，未改）**：火炬 `PlayScn.pas:1098-1101`：`SayX=格中心x`、`SayY=格顶-47`（活着，死亡 -12）。`DrawScrn.pas:293-326`：血条画 `SayY-10`≈**格顶-57**（用 WProgUse2 的 HEALTHBAR_BLACK/RED 贴图,常量 0/1，**无数值**）；名字画 `SayY+30`≈**格顶-17**，用 NameTextOut(BoldTextOut，y=字顶)——即**名字在人物躯干部位（偏下/中间），不是头顶**；且原版只画 FocusCret(选中目标)+自己(BoSelectMyself)，**普通玩家/怪物名字默认不画**。项目现状：血条格顶-57 一致、**名字格顶-71（头顶上方，与原版差约 54px）**、名字给所有实体都画、怪物名加" LvN"后缀、血条无数值（与原版一致）。**因影响面大（全角色名字位置/显示策略）且用户只要求"检查"，未擅自改，待用户定夺。**
+
+**改动**：仅 `frontend/scene/PlayScene.mjs`（标签 `[修复]`，未提交）。
+**验证**：临时 Playwright 诊断 12/12 PASS（仓库无蓝框/两段式/OK 发协议/丢金币 3 张原版贴图）；回归 `test_repair_ui.py` 14/0、`test_bag_ui.py` 12/0、`test_bigmap_nav.py` 19/19 全过。`test_trade_party_ui.py` 15/17 的 2 个 FAIL 经 git stash 对比确认是**基线既有**（标题金币显示、锁定发 tradeConfirm），与本次无关。
+
 ## §137 离线挂机长跑模拟：定位并修复「不持久」五类根因（2026-11-21）
 
 用户反馈「离线挂机问题还是有点多，不能持久」，要求本地模拟 + 加速 tick 跑长时挂机、发现问题调整策略。新增 `scripts/sim_afk_longrun.py`：虚拟时钟接管 9 个模块的 `now_ms`，60x 加速（1 小时挂机约 1 分钟跑完），`--hours/--map/--level/--job/--preset/--seed/--debug`。固定 seed 可复现。
