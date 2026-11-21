@@ -154,10 +154,11 @@ def main() -> int:
         print("\n=== 4. 再点一次才恢复 + 策略档白名单 ===")
         srv._autopilot(s, {"type": "autopilot", "action": "on", "preset": "safe"})
         check("显式再开恢复托管", pilot.active and pilot.preset == "safe")
-        exp_before_again = p.exp
+        progress_before = (p.level, p.exp, pilot.kills)
         end = advance(srv, 80, start=end + 6000)
-        check("恢复后继续打怪", p.exp > exp_before_again,
-              f"exp {exp_before_again} → {p.exp}")
+        # 升级会让 exp 归零重算，单看 exp 会误判；用 (等级,经验,击杀) 综合判断
+        check("恢复后继续打怪", (p.level, p.exp, pilot.kills) > progress_before,
+              f"lv/exp/kills {progress_before} → {(p.level, p.exp, pilot.kills)}")
         srv.autopilot.enable(p, "不存在的档", now=end)
         check("非法档位回落默认档", pilot.preset == DEFAULT_PRESET)
 

@@ -48,6 +48,7 @@ DEFAULTS: dict[str, str] = {
     "afk.restartBonusMinutes": "60",   # 重启续挂补偿时长（分钟）
     "afk.supplyEnabled": "1",          # 补给闭环开关（回城卖货买药，§3.4 v2）
     "afk.supplyTownMap": "0",          # 补给城地图 id（默认比奇省）
+    "afk.supplyMaxFails": "5",         # 连续补给失败上限（0=永不因补给失败停挂）
     # ---- 周末双倍活动（用户新增功能，全部可配）----
     "weekend.enabled": "1",            # 总开关
     "weekend.expRate": "2.0",          # 击杀经验倍率
@@ -106,6 +107,7 @@ class ServerConfig:
     afk_restart_bonus_minutes: int = 60
     afk_supply_enabled: int = 1
     afk_supply_town_map: str = "0"
+    afk_supply_max_fails: int = 5      # 连续补给失败上限，达上限转长冷却而非停机
     afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
     # 在线托管满包行为：0=继续打怪、停止拾取（新默认）；1=回城停机（旧行为）。
     autopilot_bag_full_stop: int = 0
@@ -255,6 +257,7 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_restart_bonus_minutes=as_int("afk.restartBonusMinutes", None, None, 60),
         afk_supply_enabled=max(0, as_int("afk.supplyEnabled", None, None, 1)),
         afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
+        afk_supply_max_fails=max(0, as_int("afk.supplyMaxFails", None, None, 5)),
         afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
         autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
         weekend_enabled=max(0, as_int("weekend.enabled", None, None, 1)),

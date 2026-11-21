@@ -263,7 +263,7 @@ def main() -> int:
               f"state={pilot.supply_state}")
         pilot.supply_state = ""                     # 手动收工，别让它继续卖
 
-        print("\n=== 6. 金币不足：连续 2 次补给失败熔断 ===")
+        print("\n=== 6. 金币不足：补给失败转冷却，继续挂机不停机 ===")
         s3 = FakeSession()
         p3 = login(srv, s3, "SupplyB", job=0)
         p3.level = 15
@@ -273,12 +273,15 @@ def main() -> int:
         clear_threats(srv, p3)
         check("p3 放到屠夫旁", place(srv, p3, 314, 272), f"pos=({p3.x},{p3.y})")
         pilot3 = make_offline(srv, p3, minutes=60)
-        now = drive(pilot3, 20_000, 3000)
-        check("两次失败后熔断停机", not pilot3.active,
+        now = drive(pilot3, 20_000, 3000, stop_when=lambda: pilot3.supply_fails > 0)
+        check("金币不足 → 补给失败但不停挂", pilot3.active and pilot3.supply_fails >= 1,
               f"active={pilot3.active} fails={pilot3.supply_fails}")
-        check("报告写明金币不足", "金币不足" in pilot3.reason, pilot3.reason)
+        check("状态写明金币不足", "金币不足" in pilot3.status, pilot3.status)
+        check("进入重试冷却（不立即重试）",
+              pilot3.supply_retry_until > now and pilot3.supply_state == "",
+              f"retry+{(pilot3.supply_retry_until - now) / 1000:.0f}s")
 
-        print("\n=== 7. 无可达补给点：图链路不通直接熔断 ===")
+        print("\n=== 7. 无可达补给点：长冷却继续打怪，不直接熔断 ===")
         s4 = FakeSession()
         p4 = login(srv, s4, "SupplyC", job=0)
         p4.level = 15
@@ -289,13 +292,47 @@ def main() -> int:
               place(srv, p4, 274, 750, mapname="3"), f"map={p4.map.name} pos=({p4.x},{p4.y})")
         assert w.give_item(p4, "肉", BAG_SIZE - 1 - len(p4.bag))
         saved_gates = w.gates_by_src
+        saved_npcs = w.npcs_by_map.get("3", [])
         w.gates_by_src = {}
+        w.npcs_by_map["3"] = []      # 本地也无商人 → 才是真「无可达补给点」
         try:
             pilot4 = make_offline(srv, p4, minutes=60)
-            now = drive(pilot4, 20_000, 600)
-            check("链路不通立即熔断", not pilot4.active, pilot4.reason)
-            check("报告写明无可达补给点", "无可达补给点" in pilot4.reason,
-                  pilot4.reason)
+            now = drive(pilot4, 20_000, 600,
+                        stop_when=lambda: pilot4.supply_retry_until > 0)
+            check("链路不通不停挂", pilot4.active, pilot4.reason)
+            check("状态写明无可达补给点", "无可达补给点" in pilot4.status,
+                  pilot4.status)
+            check("转 30 分钟长冷却",
+                  pilot4.supply_retry_until - now >= 29 * 60_000,
+                  f"retry+{(pilot4.supply_retry_until - now) / 60000:.0f}m")
+        finally:
+            w.gates_by_src = saved_gates
+            w.npcs_by_map["3"] = saved_npcs
+
+        print("\n=== 7b. 本地优先补给：图3有药店/屠夫，无门链路也能就地补 ===")
+        s4b = FakeSession()
+        p4b = login(srv, s4b, "SupplyLocal", job=0)
+        p4b.level = 15
+        p4b.hp = p4b.max_hp = max(200, p4b.max_hp)
+        p4b.gold = 1000
+        clear_threats(srv, p4b)
+        check("p4b 放到矿区药店旁",
+              place(srv, p4b, 361, 340, mapname="3"),
+              f"map={p4b.map.name} pos=({p4b.x},{p4b.y})")
+        assert w.give_item(p4b, "肉", BAG_SIZE - 1 - len(p4b.bag))
+        w.gates_by_src = {}          # 故意切断跨图链路：只能靠本地
+        try:
+            pilot4b = make_offline(srv, p4b, minutes=60)
+            drive(pilot4b, 20_000, 600,
+                  stop_when=lambda: pilot4b.supply_state == SUPPLY_GOTO_ANCHOR
+                  or not pilot4b.active)
+            check("无门链路仍进入补给（本地补）",
+                  pilot4b.supply_state in (SUPPLY_SELL, SUPPLY_BUY,
+                                           SUPPLY_GOTO_ANCHOR),
+                  f"state={pilot4b.supply_state} reason={pilot4b.reason}")
+            check("本地补给没有切断外挂", pilot4b.active, pilot4b.reason)
+            check("目标地图锁定为本地图3", pilot4b.anchor_map == "3",
+                  pilot4b.anchor_map)
         finally:
             w.gates_by_src = saved_gates
 

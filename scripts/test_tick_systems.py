@@ -645,7 +645,13 @@ def test_drop_rates(w, p):
     tpl0.maxTrain = raw_train
     prev = w.drop_rates
     w.drop_rates = DropRates(exp=2.0, monsters={"鸡": {"exp": 0}})
-    check("击杀经验 ×2", w.kill_exp("鹿", 10) == 20)
+    # 隔离周末双倍活动（周六日会自动 ×2），本用例只验证 game_rates 的基础倍率
+    prev_cfg = w.config
+    w.config = replace(prev_cfg, weekend_enabled=0)
+    try:
+        check("击杀经验 ×2", w.kill_exp("鹿", 10) == 20)
+    finally:
+        w.config = prev_cfg
     check("按怪物经验 ×0", w.kill_exp("鸡", 10) == 0)
     check("经验 0 原样返回", w.kill_exp("鹿", 0) == 0)
     w.drop_rates = prev

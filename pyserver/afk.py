@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
-                        normalize_preset)
+                        attack_interval_ms, normalize_preset)
 from .util import RED_NAME_PK_POINT
-from .world import BAG_SIZE, Player, now_ms
+from .world import BAG_SIZE, Monster, Player, now_ms
 
 
 def today() -> str:
@@ -44,9 +44,22 @@ SUPPLY_GOTO_ANCHOR = "goto_anchor"
 SUPPLY_CHECK_MS = 10_000        # 触发判定节流（不每 tick 重算）
 SUPPLY_ACT_MS = 600             # 卖/买动作节奏（对齐客户端操作间隔）
 SUPPLY_LEG_RETRY = 4            # 同一段门连续寻路受阻次数上限
-SUPPLY_RETRY_MS = 60_000        # 一次补给失败后的重试冷却
-SUPPLY_STATE_TIMEOUT_MS = 8 * 60_000   # 单状态超时（大图赶路 1~2 分钟量级）
+SUPPLY_RETRY_MS = 60_000        # 一次补给失败后的重试冷却（按失败次数翻倍）
+SUPPLY_LONG_RETRY_MS = 30 * 60_000  # 连续失败达上限后的长冷却（不直接停挂）
+SUPPLY_FAIL_RESET_MS = 15 * 60_000  # 稳定升级一段时间后清零失败计数
+# 补给完成后的冷却：本地商人在3格内时，卖完买完回头1格就到锚点，
+# 若背包仍 ≥触发线会每 10 秒重新补给一次，实测 20 分钟内 BEGIN/FINISH
+# 循环上百次、补给占时 90%。冷却期照常打怪（满包靠 bagFullStop=0 继续
+# 打怪不拾取），给背包消耗（喝药）留出时间；濒死紧急补给走 _supply_begin
+# 直连，不受此冷却影响。
+SUPPLY_FINISH_COOLDOWN_MS = 3 * 60_000
+SUPPLY_STATE_TIMEOUT_MS = 15 * 60_000  # 单状态超时：1000×800 大图一路跑到门点
+                                       # 就要 4~6 分钟，8 分钟会把「赶路中」误判成超时
 SUPPLY_SELL_MAX_PRICE = 100     # 「杂物」卖价阈值：低于它的装备顺手清掉
+# 卖货时只找这么近的商人：1000×800 大图上某些杂物只有几十格外的 NPC 收，
+# 为几十金币跑 200 格纯属浪费挂机时间（实测补给占时 74%）。太远就不卖，
+# 满包靠 bagFullStop=0 继续打怪不拾取，经验照赚。
+SUPPLY_SELL_MAX_DIST = 40
 SUPPLY_BAG_TRIGGER = 4          # 背包剩余空位 ≤4 触发补给
 SUPPLY_POTION_MIN_LEVEL = 10    # 药尽触发门槛
 SUPPLY_POTIONS_PER_30MIN = 6    # 按剩余修炼时长粗估的买药量（每 30 分钟）
@@ -190,12 +203,15 @@ class OfflinePilot(AutoPilot):
     supply_state: str = ""        # ""=挂机中，其余见 SUPPLY_* 常量
     supply_reason: str = ""       # 本轮补给的原因（背包满/药水耗尽）
     supply_since: int = 0         # 当前状态进入时刻（超时熔断用）
-    supply_fails: int = 0         # 连续补给失败次数（≥2 熔断停机）
+    supply_fails: int = 0         # 连续补给失败次数（达上限转为长冷却，不停挂）
+    supply_last_fail_at: int = 0  # 最近一次补给失败时刻（稳定升级后清零计数）
     supply_retry_until: int = 0   # 失败后的重试冷却截止
     last_supply_check_at: int = 0 # 触发判定节流
     supply_last_act_at: int = 0   # 卖/买动作节拍
     supply_leg_try: int = 0       # 当前门段/锚点段连续寻路受阻计数
     supply_npc_id: int = 0        # 当前交易 NPC（调试观察用）
+    supply_return_tries: int = 0  # 补给失败后「先回锚点」的连续尝试次数
+    supply_defend_since: int = 0  # 赶路清挡路怪的起始时刻（>15s 放弃，防卡死）
     supply_route: list = field(default_factory=list)   # 剩余门段 [(src,gx,gy,dst)]
     supply_unsellable: set = field(default_factory=set) # 无商人收购的 makeIndex
     anchor_map: str = ""          # 挂机锚点（补给出发前记忆）
@@ -214,8 +230,45 @@ class OfflinePilot(AutoPilot):
     def _supply_enabled(self, srv) -> bool:
         return bool(int(getattr(srv.config, "afk_supply_enabled", 1)))
 
-    def _supply_town_map(self, srv) -> str:
-        return str(getattr(srv.config, "afk_supply_town_map", "0") or "0")
+    def _supply_town_map(self, srv, w=None, p=None) -> str:
+        """补给目标地图：本地能补给就留在当前图，否则回配置的补给城。
+
+        原版私服习惯回比奇补给，但我们的 1000×800 大矿区（图3）自带药店老板
+        （卖药）与屠夫/客栈老板（收肉收杂物），跨 3 张图来回一趟要 8~10 分钟，
+        实测占掉挂机 88% 的时间、2 小时只打 55 只怪。只要当前图能「买药 + 卖货」
+        就地完成，就没必要折腾回城——这也更贴合托管「少走多看」的期望。
+        地图切换/标定由 ``afk.supplyTownMap`` 保留为兜底（本地不满足时生效）。
+        """
+        fallback = str(getattr(srv.config, "afk_supply_town_map", "0") or "0")
+        if w is not None and p is not None and p.map is not None:
+            if self._can_supply_locally(srv, w, p):
+                return p.map.name
+        return fallback
+
+    def _can_supply_locally(self, srv, w, p) -> bool:
+        """当前地图是否同时有药商（补到所需药）与收购商（卖得掉背包杂物）。"""
+        want_mp = p.job == 1
+        offers = self._supply_potion_offers(srv, w, p, want_mp)
+        if not offers:
+            return False
+        hp_ok = any(o[2].acMin > 0 for o in offers)
+        mp_ok = (not want_mp) or any(o[2].macMin > 0 for o in offers)
+        if not (hp_ok and mp_ok):
+            return False
+        # 至少一件背包物品能在本地卖掉（否则背包腾不出格子买药）。
+        # 空背包 / 全是药品时无需卖货，只要有药商即可就地补给。
+        for it in p.bag:
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None or t.stdMode == 0:
+                continue
+            for npc in w.npcs_by_map.get(p.map.name, ()):
+                if npc.merchant and npc.map is p.map and srv._sell_price(npc, t, it) > 0:
+                    return True
+        # 没有待卖杂物（背包只有药/空）→ 药商足够，就地补给
+        return not any(
+            (w.item_templates.get(int(it.get("index", 0))) or type("T", (), {"stdMode": -1})()).stdMode != 0
+            for it in p.bag
+        )
 
     def _on_danger_no_potion(self, srv, w, p, now: int) -> None:
         if self.supply_state:
@@ -281,6 +334,9 @@ class OfflinePilot(AutoPilot):
         if now - self.last_supply_check_at < SUPPLY_CHECK_MS:
             return False
         self.last_supply_check_at = now
+        if self.supply_fails and now - self.supply_last_fail_at >= SUPPLY_FAIL_RESET_MS:
+            # 稳定打了一段时间（有经验/掉落进展）→ 上次的失败不该一直记账
+            self.supply_fails = 0
         if not self._supply_enabled(srv) or now < self.supply_retry_until:
             return False
         why = ""
@@ -295,16 +351,57 @@ class OfflinePilot(AutoPilot):
                 why = "药水耗尽"
         if not why:
             return False
-        # 预检可达性：图链路不通是确定性的，直接熔断（报告写明原因）。
-        town = self._supply_town_map(srv)
+        # 预检可达性：图链路不通是确定性的，别每 10 秒重算一次门序列；
+        # 也不直接停机——打怪升级本身还在产出，只是这趟补给不做了。
+        town = self._supply_town_map(srv, w, p)
         if p.map is not None and p.map.name != town:
             if supply_gate_route(w.gates_by_src, p.map.name, town) is None:
-                mgr = self.manager
-                mgr.disable(p, f"无可达补给点：地图 {p.map.name} → {town} 无门链路，"
-                               f"离线修炼已停止（触发：{why}）")
+                self.supply_retry_until = now + SUPPLY_LONG_RETRY_MS
+                self.set_status(f"当前地图无可达补给点（{why}），继续打怪",
+                                now, force=True)
                 return True
         self._supply_begin(srv, w, p, now, why)
         return True
+
+    def _safe_anchor(self, w, p, x: int, y: int) -> tuple[int, int]:
+        """锚点避开门格邻域：回锚点时若落脚贴着双向门，A* 最短路会穿过门格
+        被传送到别的图，又被回程门弹回来——实测图3(666,282) 贴 3↔0155
+        双向门，2 小时里 90% 时间在图3↔0155 横跳。这里就近找一个离所有
+        传送门 ≥3 格的可走空格作为真实落脚点。
+        """
+        gm = p.map
+        if gm is None:
+            return x, y
+        gates = getattr(w, "gates_by_src", {}).get(gm.name, ())
+        gate_cells = [(g.src_x, g.src_y) for g in gates]
+        if not gate_cells:
+            return x, y
+
+        def dist_to_gate(ax: int, ay: int) -> int:
+            return min(max(abs(ax - gx), abs(ay - gy)) for gx, gy in gate_cells)
+
+        if dist_to_gate(x, y) >= 3:
+            return x, y
+        # 半径 2~5 环内找离门 ≥3 的可走空格，优先近的
+        for radius in range(2, 6):
+            best, best_d = None, 1 << 30
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    nx, ny = x + dx, y + dy
+                    if not gm.inside(nx, ny) or not gm.can_walk(nx, ny) \
+                            or gm.occupied(nx, ny):
+                        continue
+                    gd = dist_to_gate(nx, ny)
+                    if gd < 3:
+                        continue
+                    d = max(abs(dx), abs(dy))
+                    if d < best_d:
+                        best, best_d = (nx, ny), d
+            if best is not None:
+                return best
+        return x, y      # 实在没有安全格，保留原位
 
     def _supply_begin(self, srv, w, p, now: int, why: str) -> None:
         self.supply_reason = why
@@ -312,10 +409,16 @@ class OfflinePilot(AutoPilot):
         self.supply_since = now
         self.supply_route = []
         self.supply_leg_try = 0
-        self.supply_unsellable.clear()
+        self.supply_defend_since = 0
+        # 卖不掉的物品（太远/没人收）在同图跨补给周期保留黑名单，别每轮重试；
+        # 换图后商人变了才清空。
+        new_map = p.map.name if p.map else ""
+        if new_map != getattr(self, "anchor_map", ""):
+            self.supply_unsellable.clear()
         self.supply_npc_id = 0
-        self.anchor_map = p.map.name if p.map else ""
-        self.anchor_x, self.anchor_y = p.x, p.y
+        self.supply_return_tries = 0
+        self.anchor_map = new_map
+        self.anchor_x, self.anchor_y = self._safe_anchor(w, p, p.x, p.y)
         self.set_status(f"补给开始 · {why} · 记忆锚点 {self.anchor_map}", now, force=True)
 
     # ---- 补给状态机骨架 -------------------------------------------------
@@ -338,12 +441,25 @@ class OfflinePilot(AutoPilot):
         if now - self.supply_since > SUPPLY_STATE_TIMEOUT_MS:
             self._supply_fail(srv, w, p, now, f"状态 {self.supply_state} 超时")
             return
-        town = self._supply_town_map(srv)
+        # 赶路被围：仅在跨图赶路（goto_town/goto_anchor）时清挡路怪。
+        # 绝不能在 sell/buy 阶段用——那是城内找商人，若寻路一时受阻，
+        # _defend_blocker 会盯住一只打不死的怪每 tick return，实测卡死 20 分钟。
+        if (self.supply_state in (SUPPLY_GOTO_TOWN, SUPPLY_GOTO_ANCHOR)
+                and self.supply_leg_try > 0
+                and (now - self.supply_defend_since) < 15_000
+                and self._defend_blocker(srv, w, p, now)):
+            if not self.supply_defend_since:
+                self.supply_defend_since = now
+            return
+        if self.supply_leg_try == 0:
+            self.supply_defend_since = 0     # 寻路恢复：重置清怪窗口
+        town = self._supply_town_map(srv, w, p)
         if self.supply_state == SUPPLY_GOTO_TOWN:
             if self._supply_cross_map(srv, w, p, now, town):
                 self.supply_state = SUPPLY_SELL
                 self.supply_since = now
-                self.supply_unsellable.clear()
+                # 不清 unsellable：卖不掉的东西同图跨周期保持黑名单，
+                # 否则每轮补给都对同一批杂物重复跑远路找商人。
                 self.set_status("补给 · 已到补给城，清理背包", now, force=True)
         elif self.supply_state == SUPPLY_SELL:
             self._supply_sell(srv, w, p, now)
@@ -364,8 +480,45 @@ class OfflinePilot(AutoPilot):
                         self._supply_fail(srv, w, p, now,
                                           f"锚点 ({self.anchor_x},{self.anchor_y}) 无法返回")
 
-    # ---- 跨图导航 -------------------------------------------------------
+    def _defend_blocker(self, srv, w, p, now: int) -> bool:
+        """补给赶路被怪贴身堵住时先清掉一只，返回 True = 本 tick 已占用。
 
+        背景：补给状态不主动打怪，玩家站着不动会被怪围成一圈——A* 的八个
+        邻格全被 ``occupied`` 占住时连部分路径都算不出来，于是
+        ``_step_to`` 立刻返回 False，四拍就计一次「门无法抵达」，两次补给
+        失败直接停机（模拟里 20~30 分钟必现）。这里只在「寻路已经失败过」
+        时出手，不把赶路变成清怪，节奏仍然快。
+        """
+        if p.map is None:
+            return False
+        blocker, best_d = None, 9
+        for a in w.nearby(p.map, p.x, p.y, 2):
+            if not isinstance(a, Monster) or not a.alive or a.master_id >= 0:
+                continue
+            d = p.distance_to(a)
+            if (d <= 1 or a.target_id == p.id) and d < best_d:
+                blocker, best_d = a, d
+        if blocker is None:
+            return False
+        if self._action_busy(p, now) or self._step_busy(now):
+            return True
+        if p.job == 1 and self._mage_fire(srv, w, p, blocker, now):
+            return True
+        if p.job == 2 and self._taoist_fire(srv, w, p, blocker, now):
+            return True
+        if best_d <= 1 and now - self.last_attack_at >= attack_interval_ms(p.level):
+            self.last_attack_at = now
+            exp_before = p.exp
+            srv._attack(p.session, {"type": "attack", "targetId": blocker.id})
+            self.set_status(f"补给 · 清理挡路 {blocker.name}", now)
+            if p.exp != exp_before:
+                self.kills += 1
+                self.last_exp = p.exp
+                self.last_progress_at = now
+            return True
+        return False
+
+    # ---- 跨图导航 -------------------------------------------------------
     def _supply_cross_map(self, srv, w, p, now: int, dest_map: str) -> bool:
         """沿门链路逐段走到 dest_map。返回 True = 已在目标图；
         False = 仍在途中（致命失败已在内部熔断/计失败）。"""
@@ -379,8 +532,8 @@ class OfflinePilot(AutoPilot):
         if not self.supply_route:
             route = supply_gate_route(w.gates_by_src, p.map.name, dest_map)
             if route is None:
-                self.manager.disable(p, f"无可达补给点：地图 {p.map.name} → {dest_map} "
-                                        f"无门链路，离线修炼已停止")
+                self._supply_fail(srv, w, p, now,
+                                  f"{p.map.name} → {dest_map} 无门链路")
                 return False
             self.supply_route = route
             self.supply_leg_try = 0
@@ -393,6 +546,7 @@ class OfflinePilot(AutoPilot):
             if p.map.name == leg[3]:
                 self.supply_route.pop(0)      # 已踩门换图：这一段完成
                 self.supply_leg_try = 0
+                self.supply_since = now       # 超时按「每段门」算，不是整趟补给
                 continue
             # 位置漂移（死亡复活等）：丢弃旧路线，下一 tick 从当前位置重算
             self.supply_route = []
@@ -470,6 +624,8 @@ class OfflinePilot(AutoPilot):
             d = max(abs(p.x - npc.x), abs(p.y - npc.y))
             if d < best_d:
                 best, best_d = npc, d
+        if best_d > SUPPLY_SELL_MAX_DIST:
+            return None          # 太远：这件杂物不值得专门跑一趟
         return best
 
     # ---- 买药 -----------------------------------------------------------
@@ -571,24 +727,60 @@ class OfflinePilot(AutoPilot):
     def _supply_finish(self, srv, w, p, now: int) -> None:
         self.supply_state = ""
         self.supply_fails = 0
+        self.supply_return_tries = 0
         self.supply_route = []
         # 回锚点了：刷新进展快照，避免被零进展熔断误杀
         self.last_exp, self.last_bag, self.last_gold = p.exp, len(p.bag), p.gold
         self.last_progress_at = now
+        # 关键：3 分钟冷却，防止贴商人的锚点导致「卖完立刻又补给」死循环
+        self.supply_retry_until = now + SUPPLY_FINISH_COOLDOWN_MS
         self.set_status("补给完成 · 继续修炼", now, force=True)
 
     def _supply_fail(self, srv, w, p, now: int, why: str) -> None:
+        """补给失败：退了再试，**不轻易停机**（长跑挂机最怕一次小故障全废）。
+
+        失败计数达 ``afk.supplyMaxFails``（默认 5，0=不限）后转为 30 分钟长冷却，
+        期间照常打怪；只有在「身上一瓶药都没有且血量见底」时才熔断，避免
+        无药送死。稳定升级 15 分钟后失败计数自动清零（`_supply_check_trigger`）。
+
+        另外：失败时如果人在**中转地图**（不是出发时的挂机锚点），先走回
+        锚点再恢复打怪——中转图常常一只怪都没有，原地待命会被「长时间
+        没有经验」熔断，这是模拟里 20 分钟就停机的主因之一。
+        """
         self.supply_fails += 1
-        if self.supply_fails >= 2:
-            self.manager.disable(p, f"连续 {self.supply_fails} 次补给失败：{why}，"
-                                    f"离线修炼已停止")
+        self.supply_last_fail_at = now
+        max_fails = max(0, int(getattr(srv.config, "afk_supply_max_fails", 5)))
+        if max_fails and self.supply_fails >= max_fails:
+            hp, _mp = count_potions(w, p)
+            if hp == 0 and p.hp <= max(1, p.max_hp) * 0.3:
+                self.manager.disable(p, f"连续 {self.supply_fails} 次补给失败"
+                                        f"（{why}）且无药可喝，离线修炼已停止")
+                return
+            self.supply_fails = 0
+            backoff = SUPPLY_LONG_RETRY_MS
+            self.set_status(f"补给失败（{why}），继续打怪，30 分钟后再试",
+                            now, force=True)
+        else:
+            backoff = SUPPLY_RETRY_MS * min(8, 2 ** max(0, self.supply_fails - 1))
+            self.set_status(f"补给失败（{why}），{backoff // 60_000} 分钟后重试",
+                            now, force=True)
+        self.supply_retry_until = now + backoff
+        on_anchor = (not self.anchor_map or p.map is None
+                     or p.map.name == self.anchor_map)
+        if not on_anchor and self.supply_return_tries < 4:
+            self.supply_return_tries += 1
+            self.supply_state = SUPPLY_GOTO_ANCHOR
+            self.supply_since = now
+            self.supply_route = []
+            self.supply_leg_try = 0
+            self.set_status(f"补给失败（{why}），先返回挂机点 {self.anchor_map}",
+                            now, force=True)
             return
+        self.supply_return_tries = 0
         self.supply_state = ""
         self.supply_route = []
-        self.supply_retry_until = now + SUPPLY_RETRY_MS
         self.last_exp, self.last_bag, self.last_gold = p.exp, len(p.bag), p.gold
         self.last_progress_at = now
-        self.set_status(f"补给失败（{why}），稍后重试", now, force=True)
 
 
 class OfflineAgentManager:
@@ -716,6 +908,7 @@ class OfflineAgentManager:
         pilot.last_progress_at = now_ms()
         pilot.path.clear()
         pilot.path_key = ()
+        pilot.plan = None
         pilot.target_id = 0
         pilot.loot_id = 0
         pilot.loot_until = 0

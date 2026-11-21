@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import heapq
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,7 +38,18 @@ POTION_INTERVAL_MS = 1000
 STATE_PUSH_MS = 1500
 STUCK_MS = 180_000              # 零经验熔断：大图从城里走到野外可能要 1~2 分钟，
                                 # 设太短会把「正在赶路」误判成卡死
-PATH_MAX_NODES = 6000           # A* 单次扫描上限（100ms tick 内纯内存可承受）
+PATH_MAX_NODES = 15000          # 兼容旧常量（一次性寻路的节点上限）
+PATH_TIME_BUDGET_MS = 30        # 兼容旧常量（一次性寻路的时间预算）
+PATH_HEURISTIC_WEIGHT = 2       # 加权 A*：路径略绕（~6%）但节点数少一个量级。
+                                # 实测 1000×800 图上 600 步跨图路线：w=1 需 890ms /
+                                # 11 万节点，w=2 只需 20ms / 1.6k 节点。游戏寻路
+                                # 不需要最优解，「能稳定走到」比「少走两步」重要。
+PATH_PLAN_BUDGET_MS = 20        # 跨 tick 续算：每次 tick 最多算 20ms
+PATH_PLAN_MAX_NODES = 5000      # 每次 tick 最多展开 5000 个节点
+PATH_PLAN_TOTAL_NODES = 300000  # 单次规划总节点上限（超大图兜底，超了先走近点
+                                # 再重算，不至于把服务端算崩）
+_DELTAS = tuple(direction_delta(d) for d in range(8))
+_INF = 1 << 30
 LOOT_LOCK_MS = 8000             # 拾取目标锁定时长，避免多件掉落间来回抖动
 BUTCH_LOCK_MS = 15_000          # 挖肉尸体锁定（一只动物要挖 3~10 次 × 600ms）
 BUTCH_INTERVAL_MS = 700         # 挖肉动作节奏（服务端校验 600ms，留余量防无效连点）
@@ -170,56 +182,147 @@ def _walkable(game_map, x: int, y: int) -> bool:
             and game_map.can_walk(x, y) and not game_map.occupied(x, y))
 
 
+class PathPlanner:
+    """可跨 tick 续算的加权 A*（8 方向）。
+
+    为什么需要它：离线挂机要从大图深处走到跨图门点（1000×800 图上 400~700 步），
+    一次性 A* 要么吃满 tick（w=1 时 890ms / 11 万节点），要么被预算截断后
+    返回一小段路径、下一拍重新规划——在两堵墙之间就会来回横跳，补给永远走不到
+    （实测 2 小时里 95% 时间都在路上打转）。
+
+    现在把搜索状态挂在 pilot 上**跨 tick 续算**：每 tick 最多算 20ms / 5000 节点，
+    算完再走；期间人物原地不动（观感就是停下来看了看路）。规划一旦完成就是
+    **整条路线**，中途不再重规划，不会左右摇摆。
+
+    加权：启发式乘 2，路径长约绕 6%，但节点数少一个量级（1.6k vs 11 万）。
+    游戏寻路不需要最优解，「稳定走到」比「少走两步」重要。
+    """
+
+    __slots__ = ("key", "map", "start", "goal", "exact", "tol", "width",
+                 "height", "dist", "prev", "heap", "walkable", "best_h",
+                 "best_node", "frontier", "scanned", "reached", "h0")
+
+    def __init__(self, game_map, sx: int, sy: int, tx: int, ty: int,
+                 exact: bool = False):
+        self.key = (id(game_map), sx, sy, tx, ty, bool(exact))
+        self.start = (sx, sy)
+        self.goal = (tx, ty)
+        self.exact = bool(exact)
+        self.tol = 0 if exact else 1
+        self.width = game_map.width
+        self.height = game_map.height
+        self.map = game_map
+        node = sy * self.width + sx
+        self.h0 = max(abs(sx - tx), abs(sy - ty))
+        self.dist = {node: 0}
+        self.prev = {}
+        self.heap = [(self.h0 * PATH_HEURISTIC_WEIGHT, 0, node)]
+        self.best_h, self.best_node = self.h0, node
+        self.frontier = node
+        self.scanned = 0
+        self.reached = None
+        self.walkable = {}
+
+    # -- 内部 ---------------------------------------------------------
+    def _ok(self, x: int, y: int) -> bool:
+        if x < 0 or y < 0 or x >= self.width or y >= self.height:
+            return False
+        k = y * self.width + x
+        v = self.walkable.get(k)
+        if v is None:
+            m = self.map
+            v = m.can_walk(x, y) and not m.occupied(x, y)
+            self.walkable[k] = v
+        return v
+
+    def _h(self, x: int, y: int) -> int:
+        return max(abs(x - self.goal[0]), abs(y - self.goal[1]))
+
+    # -- 外部 ---------------------------------------------------------
+    def advance(self, budget_ms: int = PATH_PLAN_BUDGET_MS,
+                max_nodes: int = PATH_PLAN_MAX_NODES) -> str:
+        """推进一段搜索。返回 ``running`` / ``done`` / ``failed``。"""
+        if self.reached is not None:
+            return "done"
+        tx, ty = self.goal
+        tol, width = self.tol, self.width
+        deadline = time.perf_counter() + budget_ms / 1000.0
+        n = 0
+        while self.heap:
+            _, g, node = heapq.heappop(self.heap)
+            if g > self.dist.get(node, _INF):
+                continue
+            n += 1
+            self.scanned += 1
+            if n > max_nodes or (not n & 0x1FF and time.perf_counter() > deadline):
+                return "running"
+            if self.scanned > PATH_PLAN_TOTAL_NODES:
+                # 超大图兜底：先走到「最靠近目标的前沿」，走完再重算
+                self.reached = (self.best_node if self.best_h < self.h0
+                                else self.frontier)
+                return "done" if self.reached != self.start_node else "failed"
+            self.frontier = node
+            cy, cx = divmod(node, width)
+            hh = self._h(cx, cy)
+            if hh < self.best_h:
+                self.best_h, self.best_node = hh, node
+            for d in range(8):
+                dx, dy = _DELTAS[d]
+                nx, ny = cx + dx, cy + dy
+                if not self._ok(nx, ny):
+                    continue
+                nnode = ny * width + nx
+                ng = g + 1
+                if ng >= self.dist.get(nnode, _INF):
+                    continue
+                self.dist[nnode] = ng
+                self.prev[nnode] = (d, node)
+                if max(abs(nx - tx), abs(ny - ty)) <= tol:
+                    self.reached = nnode
+                    self.heap.clear()
+                    return "done"
+                heapq.heappush(self.heap,
+                               (ng + self._h(nx, ny) * PATH_HEURISTIC_WEIGHT,
+                                ng, nnode))
+        # 队列搜空：目标所在连通块里到不了
+        self.reached = None
+        return "failed"
+
+    @property
+    def start_node(self) -> int:
+        return self.start[1] * self.width + self.start[0]
+
+    def build(self) -> list[int]:
+        """把已达节点回溯成方向序列（未达返回空）。"""
+        if self.reached is None or self.reached == self.start_node:
+            return []
+        out: list[int] = []
+        cur = self.reached
+        while cur != self.start_node:
+            d, parent = self.prev[cur]
+            out.append(d)
+            cur = parent
+        out.reverse()
+        return out
+
+
 def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int,
              exact: bool = False) -> list[int]:
-    """8 方向 A*（切比雪夫启发），默认返回走到「目标格或其相邻格」的方向序列；
-    ``exact=True`` 只认目标格本身（捡拾必须站在物品所在格，ObjBase.pas:1696）。
+    """一次性寻路（短距离 / 测试 / 调试用）：跑完整次规划再返回。
 
-    只做本图寻路；找不到返回空列表，调用方据此**换目标**而不是直线撞墙。
-    启发式让大图绕墙比朴素 BFS 少扫一个量级，节点上限保护 100ms tick。
+    真正的托管移动走 ``PathPlanner`` 跨 tick 续算（见 ``_step_to``）；
+    这里保留同签名方便脚本和排障调用。
     """
     if game_map is None or max(abs(sx - tx), abs(sy - ty)) <= (0 if exact else 1):
         return []
-    start = (sx, sy)
+    plan = PathPlanner(game_map, sx, sy, tx, ty, exact)
+    while True:
+        state = plan.advance(budget_ms=PATH_TIME_BUDGET_MS,
+                             max_nodes=PATH_MAX_NODES)
+        if state != "running":
+            break
+    return plan.build() if state == "done" else []
 
-    def heuristic(x: int, y: int) -> int:
-        return max(abs(x - tx), abs(y - ty))
-
-    best: dict[tuple[int, int], int] = {start: 0}
-    prev: dict[tuple[int, int], tuple[int, tuple[int, int]]] = {}
-    heap = [(heuristic(sx, sy), 0, start)]
-    goal: tuple[int, int] | None = None
-    scanned = 0
-    while heap and scanned < PATH_MAX_NODES:
-        _, g, (cx, cy) = heapq.heappop(heap)
-        if g > best.get((cx, cy), 1 << 30):
-            continue
-        scanned += 1
-        for d in range(8):
-            dx, dy = direction_delta(d)
-            nx, ny = cx + dx, cy + dy
-            if not _walkable(game_map, nx, ny):
-                continue
-            ng = g + 1
-            if ng >= best.get((nx, ny), 1 << 30):
-                continue
-            best[(nx, ny)] = ng
-            prev[(nx, ny)] = (d, (cx, cy))
-            if max(abs(nx - tx), abs(ny - ty)) <= (0 if exact else 1):
-                goal = (nx, ny)
-                heap.clear()
-                break
-            heapq.heappush(heap, (ng + heuristic(nx, ny), ng, (nx, ny)))
-    if goal is None:
-        return []
-    out: list[int] = []
-    cur = goal
-    while cur != start:
-        d, parent = prev[cur]
-        out.append(d)
-        cur = parent
-    out.reverse()
-    return out
 
 
 # ---------------------------------------------------------------- 实例
@@ -271,6 +374,7 @@ class AutoPilot:
     unreachable: dict[int, int] = field(default_factory=dict)  # 怪 id → 黑名单过期时刻
     path: list[int] = field(default_factory=list)
     path_key: tuple = ()
+    plan: Any = None                # 跨 tick 续算中的 PathPlanner（算完即清空）
     blocked_steps: int = 0
     # AI Bot 专用：选怪时跳过已被真人玩家锁定的怪（§4.1 决不抢怪）。
     avoid_real_targets: bool = False
@@ -1146,11 +1250,36 @@ class AutoPilot:
         # 走一步 pop 一步；目标移动 / 换图 / 被挡才重算。
         path_key = key + (tx, ty, p.map.name if p.map else "", exact)
         if not self.path or self.path_key != path_key:
-            self.path = bfs_path(p.map, p.x, p.y, tx, ty, exact)
+            # 跨 tick 续算：大图远距离绕墙时一次算不完，先原地「看路」，
+            # 算完整条路线再走（旧实现每拍重算一小段，会在墙角左右横跳）。
+            plan = self.plan
+            if plan is None or plan.key != (id(p.map), p.x, p.y, tx, ty, exact):
+                plan = self.plan = PathPlanner(p.map, p.x, p.y, tx, ty, exact)
+            state = plan.advance()
+            if state == "running":
+                # 规划迟迟算不完：近距离目标（怪/掉落）不该这样，基本可以判定
+                # 「目标在墙后/河对岸」——按不可达处理，别把 tick 全耗在算路上。
+                if plan.scanned > max(6000, dist * 400):
+                    self.plan = None
+                    self.path = []
+                    self.path_key = ()
+                    self._give_up_target(key, now)
+                    self.set_status("目标不可达 · 换目标", now)
+                    return False
+                self.set_status(f"{label} · 规划路线", now)
+                return True
+            self.plan = None
             self.path_key = path_key
-            if not self.path:
-                self._give_up_target(key, now)
+            if state == "failed":
+                self.path = []
                 self.path_key = ()
+                self._give_up_target(key, now)
+                self.set_status("目标被墙挡住 · 换目标", now)
+                return False
+            self.path = plan.build()
+            if not self.path:
+                self.path_key = ()
+                self._give_up_target(key, now)
                 self.set_status("目标被墙挡住 · 换目标", now)
                 return False
         d = self.path.pop(0)
@@ -1208,6 +1337,7 @@ class AutoPilot:
 
     def _give_up_target(self, key: tuple, now: int) -> None:
         """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
+        self.plan = None
         if not key:
             return
         self.unreachable[key[1]] = now + UNREACHABLE_MS
@@ -1422,6 +1552,7 @@ class AutoPilotManager:
         pilot.reason = ""
         pilot.path.clear()
         pilot.path_key = ()
+        pilot.plan = None
         pilot.target_id = 0
         pilot.loot_id = 0
         pilot.loot_until = 0
