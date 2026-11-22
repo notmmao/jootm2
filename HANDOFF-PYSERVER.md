@@ -1236,3 +1236,41 @@ MapInfo 一个门口写成 8~14 行相邻坐标（原版用坐标片覆盖门口
 **验证**：`sim_afk_longrun` seed 1/7/42 各 1h 均跑满无异常停机；全套回归 test_pyserver 128、test_all_messages 95、test_tick_systems 180、test_death_drop 26、test_autopilot 39、test_bots 29、test_afk_offline 50、test_afk_supply 43、test_pet_drop_pickup 8、test_weekend_boost 31、test_mage_flee 8、test_slave_protection 22、test_npc_mafa_guide 20 全过。
 
 **未做/边界**：补给占时仍随 seed 波动 32%~77%（卖货买药往返，非卡死）；均衡档 `pickup_min_price=0` 什么都捡是补给频繁的根因，但涉及用户既定拾取策略，未擅自改——若要进一步压补给频率，下轮可考虑离线档默认价格过滤。
+
+## §138 平板操作优化：说话按钮 + GM 辅助菜单 + 关闭体验（2026-11-23，ima 待办前两条）
+
+**分支**：先在独立分支 `feat/touch-gm-menu`（从 `feat/python-server@b3ecd7f` 分出）开发，
+后合并回 `feat/python-server`（与远端 20 个新提交一起，HANDOFF 冲突已手工解、本章节号顺延至 §138）。三个提交：
+`6c5c6b0 [逻辑]` 初始实现、`0288abc [修复]` 布局修复、`1dbad1a [修复]` 关闭体验优化。
+仅改前端 `frontend/scene/PlayScene.mjs` + `frontend/input/TouchControls.mjs`，未动服务端。
+
+**背景**：用户 ima 笔记 2026-11-22 待办前两条「gm 辅助菜单，简化操作」「平板操作优化：
+当前无法说话」。云电脑已发布公网服务（链接见 §126 之前发布记录，链接不变），本地
+浏览器可见。GM 账号 `player`（配置 `GM_ACCOUNTS={"player"}`，已存在，密码 `smoke123`）。
+
+**一、平板说话（原「无法说话」）**：根因是聊天框只靠物理键盘回车/斜杠唤出，平板无键盘
+唤不出。`TouchControls` 新增「说」按钮（`#tc-chat`）→ `onChat` 回调 `_openChatInput()`。
+触屏下把输入框临时移到逻辑坐标 (24,270) 宽 596 高 38、字号 16px（避开软键盘遮挡 +
+防 iOS Safari 聚焦自动缩放），关闭时复位到原版 (208,580)。
+
+**二、GM 辅助菜单**：服务端已支持 @命令但需手打，做成图形面板降低操作成本。
+`self.gm` 为真才可用（服务端 `_gm_command` 仍校验 is_gm，前端不追加特权）；`G` 键 /
+系统菜单入口打开，命令统一走 `conn.send('say',{text:'@'+cmd})`。分区：快捷（满血蓝/
++10万/+100万金币/回城）、等级、传送、制造、刷怪、系统（托管/机器人/离线代理/帮助），
+共 15 按钮 + 8 输入框。命令覆盖面已核对服务端 `_GM_HELP`，日志无异常。
+
+**三、关闭体验（用户实测反馈「说完退不出 / GM 菜单关不掉」）**：
+- 聊天框：软键盘回车常不触发 keydown → 加可见「发送」「×」按钮（触屏显示）；Enter
+  提交抽 `_submitChat()`，加 `isComposing`/keyCode 229 保护防中文输入法选字误发。
+- GM 面板：标题栏右上角加 × 按钮；纳入 `_closeTopWindow()` 使触屏「单」按钮可关；
+  打开 GM 时互斥收起聊天框。
+- GM 面板首版布局 bug（分区标题错位、系统按钮被裁）已修：分区各自独立行，面板
+  420×540 top=40。输入框字号 12→16px，提示文案适配触屏。
+
+**验证**：Playwright 两轮，首轮 21/21（触屏按钮/输入框位移复位/G 键开关/按钮实发 @满/
+无 JS 异常），次轮 17/17（发送×按钮/×关闭/统一关闭链/互斥/输入法保护/无 JS 异常）。
+截图复核 `shots/02_gm_panel.png`、`06_touch_chat.png`、`07_chat_buttons.png`、
+`08_gm_close_x.png`。已重新发布上线（公网链接不变），线上确认含新代码、状态正常。
+
+**注意**：公共资源仍为 1.76 客户端（缺 prguse3.wil 等，仅影响 F10 底图与部分怪物外观，
+不影响玩法）。`PlayScene.mjs` 与远端 `dc2e9a8` 的丢金币/仓库 UI 改动自动合并成功，已回归验证。
