@@ -499,15 +499,37 @@ export class PlayScene extends Scene {
             + 'font-family:SimSun,serif;font-size:12px;padding:0 2px;pointer-events:auto;display:none;';
         this.chatInput.addEventListener('keydown', (e) => {
             e.stopPropagation();
+            // 中文输入法选字中的 Enter 是"确认候选词"，不能当发送（isComposing / keyCode 229）
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter') {
-                const t = this.chatInput.value.trim();
-                if (t) this.conn.send('say', { text: t });
-                this._closeChatInput();
+                e.preventDefault();
+                this._submitChat();
             } else if (e.key === 'Escape') {
+                e.preventDefault();
                 this._closeChatInput();
             }
         });
         root.appendChild(this.chatInput);
+
+        // 触屏聊天操作按钮：软键盘的回车/完成键常不触发 keydown，必须有可见的"发送/关闭"兜底。
+        // 桌面端保持 display:none，仍用 Enter/Esc；仅触屏开框时显示，位置固定在中部输入框旁。
+        const mkChatBtn = (label, fn) => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.style.cssText = 'position:absolute;display:none;z-index:81;pointer-events:auto;'
+                + 'touch-action:manipulation;border:2px solid #8a7448;background:#241d12;'
+                + 'color:#ffe9a8;font-family:SimSun,serif;font-size:16px;'
+                + 'box-shadow:0 2px 8px rgba(0,0,0,.5);';
+            b.addEventListener('pointerdown', (e) => e.stopPropagation());
+            b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+            root.appendChild(b);
+            return b;
+        };
+        this.chatSendBtn = mkChatBtn('发送', () => this._submitChat());
+        this.chatSendBtn.style.cssText += 'left:628px;top:270px;width:82px;height:38px;';
+        this.chatCloseBtn = mkChatBtn('×', () => this._closeChatInput());
+        this.chatCloseBtn.style.cssText += 'left:718px;top:270px;width:52px;height:38px;';
 
         // 右上 4 个功能按钮（按下态 Prguse[8..11]，抬起态烘焙在底板上；坐标相对 DBottom）
         const topBtns = [
@@ -1218,12 +1240,23 @@ export class PlayScene extends Scene {
         // 触屏设备：输入框原本在 (208,580) 贴底，软键盘弹出会被遮住。
         // 临时移到屏幕中部并放大（逻辑坐标），字号 16px 避免 iOS Safari 自动缩放。
         if (this.touch && this.touch.enabled) {
-            this.chatInput.style.cssText = 'position:absolute;left:60px;top:280px;width:680px;height:36px;'
+            // 左侧留输入框，右侧让出 86px 给"发送"按钮 + 关闭按钮
+            this.chatInput.style.cssText = 'position:absolute;left:24px;top:270px;width:596px;height:38px;'
                 + 'box-sizing:border-box;background:#f0f0f0;color:#000;border:2px solid #8a7448;'
                 + 'outline:none;font-family:SimSun,serif;font-size:16px;padding:0 8px;'
                 + 'pointer-events:auto;display:block;z-index:80;';
+            if (this.chatSendBtn) this.chatSendBtn.style.display = 'block';
+            if (this.chatCloseBtn) this.chatCloseBtn.style.display = 'block';
         }
         this.chatInput.focus();
+    }
+
+    /** 提交聊天框内容（回车 /"发送"按钮），对齐原版行为：空内容直接收起。 */
+    _submitChat() {
+        if (!this.chatInput) return;
+        const t = this.chatInput.value.trim();
+        if (t) this.conn.send('say', { text: t });
+        this._closeChatInput();
     }
 
     /** 收起聊天输入框并复位样式（桌面/触屏通用）。 */
@@ -1232,6 +1265,8 @@ export class PlayScene extends Scene {
         this.chatInput.value = '';
         this.chatInput.blur();
         this.chatInput.style.display = 'none';
+        if (this.chatSendBtn) this.chatSendBtn.style.display = 'none';
+        if (this.chatCloseBtn) this.chatCloseBtn.style.display = 'none';
         // 复位到原版位置（208,580，387×12）——触屏开框时可能改过 cssText。
         this.chatInput.style.cssText = 'position:absolute;left:208px;top:580px;width:387px;height:14px;'
             + 'box-sizing:border-box;background:#c0c0c0;color:#000;border:none;outline:none;'
@@ -3090,6 +3125,10 @@ export class PlayScene extends Scene {
 
     /** 关掉最上层的一个窗口；返回 false 表示没有任何窗口可关（此时 Esc 打开系统菜单）。 */
     _closeTopWindow() {
+        if (this._gmPanel && this._gmPanel.style.display === 'block') {
+            this._closeGmPanel();
+            return true;
+        }
         if (this._bigMapOpen) { this._closeBigMap(); return true; }
         if (this._sysMenu && this._sysMenu.style.display === 'block') {
             this._closeSystemMenu();
@@ -3186,7 +3225,7 @@ export class PlayScene extends Scene {
         mk('返回角色选择', () => { this._closeSystemMenu(); this._backToSelect(); });
         const tip = document.createElement('div');
         tip.style.cssText = 'margin:6px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
-        tip.textContent = 'Esc 关闭';
+        tip.textContent = 'Esc / 点「返回游戏」关闭';
         p.appendChild(tip);
         this.hudEl.appendChild(p);
         this._sysMenu = p;
@@ -3213,6 +3252,9 @@ export class PlayScene extends Scene {
         this._buildGmPanel();
         if (!this._gmPanel) return;
         const open = this._gmPanel.style.display === 'block';
+        if (!open && this.chatInput && this.chatInput.style.display === 'block') {
+            this._closeChatInput();   // 互斥：打开 GM 面板先收起聊天框
+        }
         this._gmPanel.style.display = open ? 'none' : 'block';
     }
 
@@ -3227,9 +3269,19 @@ export class PlayScene extends Scene {
             + 'padding:8px;background:rgba(10,12,16,0.96);border:2px solid #c9a24a;box-sizing:border-box;'
             + 'pointer-events:auto;display:none;z-index:78;font-family:SimSun,serif;color:#e8d9b0;font-size:12px;';
         const title = document.createElement('div');
-        title.style.cssText = 'height:26px;line-height:26px;text-align:center;font-size:14px;'
+        title.style.cssText = 'position:relative;height:26px;line-height:26px;text-align:center;font-size:14px;'
             + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #c9a24a;margin-bottom:8px;';
         title.textContent = 'GM 辅助菜单';
+        // 右上角 × 关闭按钮：触屏无键盘也能关面板（G 键 / Esc 之外）
+        const closeX = document.createElement('button');
+        closeX.textContent = '×';
+        closeX.title = '关闭';
+        closeX.style.cssText = 'position:absolute;right:2px;top:1px;width:24px;height:24px;line-height:20px;'
+            + 'text-align:center;cursor:pointer;background:#3a2f1c;color:#ffe9a8;'
+            + 'border:1px solid #c9a24a;font-size:16px;padding:0;touch-action:manipulation;';
+        closeX.addEventListener('mousedown', (e) => e.stopPropagation());
+        closeX.addEventListener('click', (e) => { e.stopPropagation(); this._closeGmPanel(); });
+        title.appendChild(closeX);
         p.appendChild(title);
 
         const section = (label) => {
@@ -3267,8 +3319,9 @@ export class PlayScene extends Scene {
             const i = document.createElement('input');
             i.type = 'text';
             i.placeholder = placeholder;
-            i.style.cssText = 'flex:1;min-width:0;height:24px;background:#000;color:#e8d9b0;'
-                + 'border:1px solid #5c4d30;padding:0 4px;font-family:SimSun,serif;font-size:12px;' + (extra || '');
+            // 16px 字号：iOS Safari 对 <16px 的输入框 focus 时会自动缩放整个页面
+            i.style.cssText = 'flex:1;min-width:0;height:28px;background:#000;color:#e8d9b0;'
+                + 'border:1px solid #5c4d30;padding:0 4px;font-family:SimSun,serif;font-size:16px;' + (extra || '');
             i.addEventListener('keydown', (e) => e.stopPropagation());
             return i;
         };
@@ -3352,7 +3405,7 @@ export class PlayScene extends Scene {
 
         const tip = document.createElement('div');
         tip.style.cssText = 'margin:8px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
-        tip.textContent = 'G 键开关 · Esc 关闭 · 结果见聊天栏';
+        tip.textContent = '点右上角 × / G 键关闭 · 结果见聊天栏';
         p.appendChild(tip);
 
         this.hudEl.appendChild(p);
