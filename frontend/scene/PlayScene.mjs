@@ -3223,7 +3223,7 @@ export class PlayScene extends Scene {
     _buildGmPanel() {
         if (this._gmPanel || !this.hudEl) return;
         const p = document.createElement('div');
-        p.style.cssText = 'position:absolute;left:200px;top:70px;width:400px;max-height:460px;overflow-y:auto;'
+        p.style.cssText = 'position:absolute;left:200px;top:40px;width:420px;max-height:540px;overflow-y:auto;'
             + 'padding:8px;background:rgba(10,12,16,0.96);border:2px solid #c9a24a;box-sizing:border-box;'
             + 'pointer-events:auto;display:none;z-index:78;font-family:SimSun,serif;color:#e8d9b0;font-size:12px;';
         const title = document.createElement('div');
@@ -3238,9 +3238,13 @@ export class PlayScene extends Scene {
             d.textContent = label;
             p.appendChild(d);
         };
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin:0 4px;';
-        p.appendChild(row);
+        // 每个分区单独建一行，避免按钮与分区标题 DOM 顺序错位。
+        const newRow = () => {
+            const r = document.createElement('div');
+            r.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin:0 4px;';
+            p.appendChild(r);
+            return r;
+        };
         const btn = (label, cmd, parent) => {
             const b = document.createElement('button');
             b.textContent = label;
@@ -3271,10 +3275,11 @@ export class PlayScene extends Scene {
 
         // 快捷操作
         section('快捷');
-        btn('满血蓝', '满');
-        btn('+10万金币', '金 100000');
-        btn('+100万金币', '金 1000000');
-        btn('回城(0,289,477)', '移动 0 289 477');
+        const quickRow = newRow();
+        btn('满血蓝', '满', quickRow);
+        btn('+10万金币', '金 100000', quickRow);
+        btn('+100万金币', '金 1000000', quickRow);
+        btn('回城(0,289,477)', '移动 0 289 477', quickRow);
 
         // 等级
         section('等级 @等级 n (1-100)');
@@ -3336,13 +3341,14 @@ export class PlayScene extends Scene {
 
         // 系统
         section('系统');
-        btn('托管开关', '托管');
-        btn('托管·安全', '托管 安全');
-        btn('托管·效率', '托管 效率');
-        btn('机器人列表', '机器人 list');
-        btn('重建机器人', '机器人 reload');
-        btn('离线代理列表', '离线 list');
-        btn('GM 帮助', '帮助');
+        const sysRow = newRow();
+        btn('托管开关', '托管', sysRow);
+        btn('托管·安全', '托管 安全', sysRow);
+        btn('托管·效率', '托管 效率', sysRow);
+        btn('机器人列表', '机器人 list', sysRow);
+        btn('重建机器人', '机器人 reload', sysRow);
+        btn('离线代理列表', '离线 list', sysRow);
+        btn('GM 帮助', '帮助', sysRow);
 
         const tip = document.createElement('div');
         tip.style.cssText = 'margin:8px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
