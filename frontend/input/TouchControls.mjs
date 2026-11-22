@@ -82,7 +82,8 @@ export class TouchControls {
           <button id="tc-s3" style="${BTN}right:332px;bottom:16px;width:50px;height:50px;font-size:13px">技3</button>
           <button id="tc-bag" style="${BTN}right:24px;top:274px;width:46px;height:46px;font-size:12px">包</button>
           <button id="tc-map" style="${BTN}right:24px;top:222px;width:46px;height:46px;font-size:12px">图</button>
-          <button id="tc-menu" style="${BTN}right:78px;top:274px;width:46px;height:46px;font-size:12px">单</button>`;
+          <button id="tc-menu" style="${BTN}right:78px;top:274px;width:46px;height:46px;font-size:12px">单</button>
+          <button id="tc-chat" style="${BTN}right:78px;top:222px;width:46px;height:46px;font-size:12px">说</button>`;
         this.stage.appendChild(root);
         this.root = root;
         this.zone = root.querySelector('#touch-move-zone');
@@ -132,6 +133,7 @@ export class TouchControls {
         bind('#tc-bag', () => this.handlers.onBag && this.handlers.onBag());
         bind('#tc-map', () => this.handlers.onMap && this.handlers.onMap());
         bind('#tc-menu', () => this.handlers.onMenu && this.handlers.onMenu());
+        bind('#tc-chat', () => this.handlers.onChat && this.handlers.onChat());
         for (let i = 1; i <= 3; i++) {
             bind('#tc-s' + i, () => this.handlers.onSkill && this.handlers.onSkill(i));
         }
