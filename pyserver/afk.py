@@ -63,6 +63,9 @@ SUPPLY_SELL_MAX_DIST = 40
 SUPPLY_BAG_TRIGGER = 4          # 背包剩余空位 ≤4 触发补给
 SUPPLY_POTION_MIN_LEVEL = 10    # 药尽触发门槛
 SUPPLY_POTIONS_PER_30MIN = 6    # 按剩余修炼时长粗估的买药量（每 30 分钟）
+# 装备维护（用户 2026-11-23）：补给进城时顺手修背包里低持久装备 + 拆药水捆。
+SUPPLY_REPAIR_DURA_PCT = 50     # 耐久低于上限 50% 才修（省金币）
+SUPPLY_UNBIND_WHEN_LOW = True   # 药水（StdMode 0）少于目标量时拆捆补货
 
 
 def supply_gate_route(gates_by_src: dict, src_map: str,
@@ -214,6 +217,8 @@ class OfflinePilot(AutoPilot):
     supply_defend_since: int = 0  # 赶路清挡路怪的起始时刻（>15s 放弃，防卡死）
     supply_route: list = field(default_factory=list)   # 剩余门段 [(src,gx,gy,dst)]
     supply_unsellable: set = field(default_factory=set) # 无商人收购的 makeIndex
+    supply_repaired: set = field(default_factory=set)   # 本轮已修的 makeIndex（防重复）
+    supply_unbound: set = field(default_factory=set)    # 本轮已拆的卷包 makeIndex
     anchor_map: str = ""          # 挂机锚点（补给出发前记忆）
     anchor_x: int = 0
     anchor_y: int = 0
@@ -586,6 +591,10 @@ class OfflinePilot(AutoPilot):
                 cand, cand_t = it, t
                 break
         if cand is None:
+            # 装备维护（用户 2026-11-23）：卖空后顺手修低持久装备 + 拆药水捆，
+            # 全部做完再进入买药阶段。复用现有 handler，进城补给点即可完成。
+            if self._supply_maintain(srv, w, p, now):
+                return
             self.supply_state = SUPPLY_BUY
             self.supply_since = now
             self.supply_npc_id = 0
@@ -627,6 +636,113 @@ class OfflinePilot(AutoPilot):
         if best_d > SUPPLY_SELL_MAX_DIST:
             return None          # 太远：这件杂物不值得专门跑一趟
         return best
+
+    # ---- 装备维护：修理 + 药水解捆（用户 2026-11-23）---------------------
+
+    def _supply_repair_npc(self, srv, w, p):
+        """找当前地图上能修理的最近商人（脚本头 @repair 或默认商人）。"""
+        best, best_d = None, 10 ** 9
+        for npc in w.npcs_by_map.get(p.map.name if p.map else "", ()):
+            if not npc.merchant or npc.map is not p.map:
+                continue
+            if not srv._repair_allowed(npc, "repair"):
+                continue
+            d = max(abs(p.x - npc.x), abs(p.y - npc.y))
+            if d < best_d:
+                best, best_d = npc, d
+        if best_d > SUPPLY_SELL_MAX_DIST:
+            return None
+        return best
+
+    def _supply_repair_candidate(self, w, p):
+        """背包里耐久低于阈值的可修装备（StdMode 43 矿石不可修，由 price<0 兜底）。"""
+        for it in p.bag:
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.supply_repaired or mi in self.supply_unsellable:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None or t.stdMode in (0, 31):   # 药品/卷包不修
+                continue
+            dura = int(it.get("durability", 0) or 0)
+            dmax = int(it.get("durabilityMax", 0) or 0)
+            if dmax > 0 and dura * 100 < dmax * SUPPLY_REPAIR_DURA_PCT:
+                return it, t
+        return None
+
+    def _supply_unbind_candidate(self, w, p):
+        """背包里能拆出药水的卷包（StdMode 31 + UnbindList 目标是 StdMode 0）。"""
+        for it in p.bag:
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.supply_unbound:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None or t.stdMode != 31:
+                continue
+            target_name = w.unbind_item_name(t.shape)
+            if not target_name:
+                continue
+            target_t = w.item_template_by_name(target_name)
+            if target_t is not None and target_t.stdMode == 0:
+                return it
+        return None
+
+    def _supply_maintain(self, srv, w, p, now: int) -> bool:
+        """做一件维护动作（修装备/拆药捆）。返回 True=本 tick 已处理，需下 tick 继续。"""
+        srv_cfg = getattr(srv, "config", None)
+        # 总开关沿用 afk.supplyEnabled；两项维护各自可关（默认开）。
+        if not getattr(srv_cfg, "afk_supply_enabled", 1):
+            return False
+        do_repair = getattr(srv_cfg, "afk_supply_repair", 1)
+        do_unbind = getattr(srv_cfg, "afk_supply_unbind", 1) and SUPPLY_UNBIND_WHEN_LOW
+
+        cand = None
+        mode = ""
+        if do_repair:
+            found = self._supply_repair_candidate(w, p)
+            if found:
+                (cand, _t), mode = found, "repair"
+        if cand is None and do_unbind:
+            found = self._supply_unbind_candidate(w, p)
+            if found:
+                cand, mode = found, "unbind"
+        if cand is None:
+            # 本轮做尽：清空维护集合（下轮补给重新评估）
+            self.supply_repaired.clear()
+            self.supply_unbound.clear()
+            return False
+
+        mi = int(cand.get("makeIndex", 0))
+        npc = None
+        if mode == "repair":
+            # 修理必须靠近能修的 NPC（原版 ClientRepairItem 校验距离）。
+            npc = self._supply_repair_npc(srv, w, p)
+            if npc is None:
+                self.supply_repaired.add(mi)   # 没有修理商人：本轮跳过，避免每 tick 白找
+                return True
+            self.supply_npc_id = npc.id
+            if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+                if self._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+                                 f"补给 · 前往{npc.name}修理装备", now):
+                    self.supply_leg_try = 0
+                else:
+                    self.supply_leg_try += 1
+                    if self.supply_leg_try >= SUPPLY_LEG_RETRY:
+                        self.supply_repaired.add(mi)
+                return True
+        # 解捆是玩家双击物品，与 NPC 无关，就地进行（无需寻路）。
+        if now - self.supply_last_act_at < SUPPLY_ACT_MS:
+            return True
+        self.supply_last_act_at = now
+        if mode == "repair":
+            srv._repair_item(p.session, {"type": "repairItem", "npcId": npc.id,
+                                         "makeIndex": mi, "mode": "repair"})
+            self.supply_repaired.add(mi)
+            self.set_status("补给 · 修理装备", now, force=True)
+        else:
+            srv._use_item(p.session, {"type": "useItem", "makeIndex": mi})
+            self.supply_unbound.add(mi)
+            self.set_status("补给 · 药水解捆", now, force=True)
+        return True
 
     # ---- 买药 -----------------------------------------------------------
 

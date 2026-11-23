@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>挂机管理后台 · 传奇 MIR2</title>
+<style>
+    :root { --bg:#141210; --panel:#211d18; --line:#4a3f2e; --gold:#e8c877;
+            --txt:#e8dcc0; --dim:#a89a78; --ok:#7bd88f; --warn:#e8a860; --err:#e87070; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt);
+           font:14px/1.6 "Microsoft YaHei",SimSun,sans-serif; padding:20px; }
+    h1 { font-size:20px; color:var(--gold); margin:0 0 4px; }
+    .sub { color:var(--dim); font-size:12px; margin-bottom:18px; }
+    .wrap { max-width:920px; margin:0 auto; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+            padding:16px 18px; margin-bottom:14px; }
+    label { color:var(--dim); font-size:12px; display:block; margin:10px 0 4px; }
+    input,select,button { font:inherit; }
+    input,select { background:#0f0d0b; color:var(--txt); border:1px solid var(--line);
+                   border-radius:4px; padding:7px 9px; width:100%; }
+    .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .row > * { flex:1; min-width:130px; }
+    button { background:#3b3323; color:var(--gold); border:1px solid var(--line);
+             border-radius:4px; padding:8px 14px; cursor:pointer; white-space:nowrap; }
+    button:hover { background:#4d422d; }
+    button.primary { background:#6b5423; color:#fff2cf; }
+    button.danger { background:#5a2d2d; color:#ffd0d0; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .msg { min-height:22px; margin:8px 0; font-size:13px; }
+    .msg.err { color:var(--err); } .msg.ok { color:var(--ok); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+    .kv { background:#171410; border:1px solid #332b1e; border-radius:4px; padding:10px 12px; }
+    .kv .k { color:var(--dim); font-size:11px; }
+    .kv .v { color:var(--gold); font-size:16px; font-weight:bold; }
+    .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; }
+    .tag.on { background:#234a2a; color:var(--ok); }
+    .tag.off { background:#4a2d2d; color:var(--err); }
+    h2 { font-size:15px; color:var(--gold); margin:2px 0 10px; border-bottom:1px solid var(--line);
+         padding-bottom:6px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #332b1e; }
+    th { color:var(--dim); font-weight:normal; }
+    .hidden { display:none; }
+    code { color:var(--dim); font-size:11px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>挂机管理后台</h1>
+    <div class="sub">查看在线托管 / 离线修炼状态，调整挂机策略。凭据使用游戏内登录签发的 token，不传输密码。</div>
+
+    <div class="card">
+        <h2>连接</h2>
+        <div id="connectRow" class="row">
+            <div style="flex:2">
+                <label>登录 Token（在游戏内登录后会保存在浏览器，本页会自动读取）</label>
+                <input id="token" placeholder="粘贴 token，或先在游戏里登录一次">
+            </div>
+            <div style="flex:0 0 auto"><button class="primary" id="authBtn">连接</button></div>
+        </div>
+        <div class="msg" id="connMsg"></div>
+    </div>
+
+    <div id="dashboard" class="hidden">
+        <div class="card">
+            <h2>角色</h2>
+            <div class="row">
+                <div><label>选择角色</label><select id="charSel"></select></div>
+                <div style="flex:0 0 auto"><button id="refreshBtn">刷新状态</button></div>
+                <div style="flex:0 0 auto"><button id="gmBtn" class="hidden">GM 全服视图</button></div>
+            </div>
+            <div class="msg" id="dashMsg"></div>
+        </div>
+
+        <div id="playerView">
+            <div class="card">
+                <h2>在线托管</h2>
+                <div class="grid" id="apStats"></div>
+                <div class="row" style="margin-top:12px">
+                    <div><label>策略档位</label><select id="apPreset">
+                        <option value="safe">安全</option><option value="balanced">均衡</option>
+                        <option value="efficient">效率</option></select></div>
+                    <div style="flex:0 0 auto"><button id="apOn" class="primary">开启托管</button></div>
+                    <div style="flex:0 0 auto"><button id="apPause">暂停</button></div>
+                    <div style="flex:0 0 auto"><button id="apOff" class="danger">关闭</button></div>
+                </div>
+            </div>
+            <div class="card">
+                <h2>离线修炼</h2>
+                <div class="grid" id="afkStats"></div>
+                <div class="row" style="margin-top:12px">
+                    <div><label>修炼时长（分钟）</label><input id="afkMinutes" type="number" value="240" min="10" step="10"></div>
+                    <div><label>策略档位</label><select id="afkPreset">
+                        <option value="safe">安全</option><option value="balanced">均衡</option>
+                        <option value="efficient">效率</option></select></div>
+                    <div style="flex:0 0 auto"><button id="afkStart" class="primary">设定计划</button></div>
+                    <div style="flex:0 0 auto"><button id="afkStop" class="danger">取消计划</button></div>
+                </div>
+                <div class="sub" style="margin:8px 0 0">设定计划后，角色下次下线即自动开始修炼；上线自动结算。余额可找比奇城玛法领路人领取。</div>
+            </div>
+        </div>
+
+        <div id="gmView" class="hidden">
+            <div class="card">
+                <h2>全服挂机概览</h2>
+                <div class="sub" id="gmSummary"></div>
+                <table><thead><tr><th>角色</th><th>等级</th><th>类型</th><th>档位</th><th>状态</th><th>击杀</th><th>地图</th></tr></thead>
+                <tbody id="gmTable"></tbody></table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let TOKEN = '', CHARS = [], IS_GM = false;
+
+function autoToken() {
+    try {
+        const t = localStorage.getItem('jootm2.authToken');
+        if (t) $('token').value = t;
+    } catch (e) {}
+}
+autoToken();
+
+function msg(el, text, kind) { el.textContent = text || ''; el.className = 'msg' + (kind ? ' ' + kind : ''); }
+
+async function api(path, opts) {
+    const r = await fetch(path, opts);
+    return await r.json();
+}
+function jsonOpts(body) {
+    return { method: 'POST', headers: {'Content-Type':'application/json'},
+             body: JSON.stringify({ ...body, token: TOKEN }) };
+}
+
+$('authBtn').onclick = async () => {
+    TOKEN = $('token').value.trim();
+    msg($('connMsg'), '连接中…');
+    try {
+        const d = await api('/api/dash/auth', jsonOpts({}));
+        if (!d.ok) { msg($('connMsg'), d.error, 'err'); return; }
+        CHARS = d.characters || []; IS_GM = !!d.isGm;
+        msg($('connMsg'), `已连接：${d.username}${IS_GM ? '（GM）' : ''}，共 ${CHARS.length} 个角色`, 'ok');
+        $('dashboard').classList.remove('hidden');
+        $('gmBtn').classList.toggle('hidden', !IS_GM);
+        const sel = $('charSel'); sel.innerHTML = '';
+        CHARS.forEach(c => {
+            const o = document.createElement('option'); o.value = c.id;
+            o.textContent = `${c.name}（Lv${c.level}）${c.online ? ' · 在线' : ' · 离线'}`;
+            o.disabled = !c.online; sel.appendChild(o);
+        });
+        if (CHARS.some(c => c.online)) { await refresh(); }
+        else msg($('dashMsg'), '当前没有在线角色。请先在游戏内登录角色后再操作。');
+    } catch (e) { msg($('connMsg'), '连接失败：' + e.message, 'err'); }
+};
+
+async function refresh() {
+    const cid = $('charSel').value;
+    if (!cid) { msg($('dashMsg'), '请选择在线角色。'); return; }
+    msg($('dashMsg'), '刷新中…');
+    try {
+        const d = await api(`/api/dash/state?token=${encodeURIComponent(TOKEN)}&charId=${cid}`);
+        if (!d.ok) { msg($('dashMsg'), d.error, 'err'); return; }
+        msg($('dashMsg'), `${d.charName} · Lv${d.level} · 实时状态`, 'ok');
+        const ap = d.autopilot || {}, afk = d.afk || {};
+        $('apStats').innerHTML = kv([
+            ['托管状态', ap.active ? '开启中' : (ap.paused ? '已暂停' : '未开启'), ap.active],
+            ['策略档位', ap.presetName || ap.preset || '-'],
+            ['本轮击杀', ap.kills ?? 0],
+            ['当前情境', ap.status || ap.reason || '-'],
+        ]);
+        if (ap.preset) $('apPreset').value = ap.preset;
+        $('afkStats').innerHTML = kv([
+            ['时长余额', afk.balance + ' 分钟'],
+            ['今日已用', afk.usedToday + ' / ' + afk.dailyLimit],
+            ['待生效计划', afk.plan ? `${afk.plan.minutes}分·${afk.plan.preset}` : '无'],
+            ['修炼中', afk.active ? '是' : '否', afk.active],
+        ]);
+    } catch (e) { msg($('dashMsg'), '刷新失败：' + e.message, 'err'); }
+}
+function kv(items) {
+    return items.map(([k, v, flag]) => `<div class="kv"><div class="k">${k}</div>
+        <div class="v">${flag === undefined ? esc(v) :
+            `<span class="tag ${flag ? 'on' : 'off'}">${flag ? '● ' : '○ '}${esc(v)}</span>`}</div></div>`).join('');
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function action(scope, act, extra) {
+    const cid = $('charSel').value;
+    msg($('dashMsg'), '操作中…');
+    try {
+        const d = await api('/api/dash/action', jsonOpts({ charId: Number(cid), scope, action: act, ...extra }));
+        msg($('dashMsg'), (d.ok ? '✓ ' : '✗ ') + (d.reason || '完成'), d.ok ? 'ok' : 'err');
+        await refresh();
+    } catch (e) { msg($('dashMsg'), '操作失败：' + e.message, 'err'); }
+}
+
+$('refreshBtn').onclick = refresh;
+$('apOn').onclick = () => action('autopilot', 'on', { preset: $('apPreset').value });
+$('apPause').onclick = () => action('autopilot', 'pause');
+$('apOff').onclick = () => action('autopilot', 'off');
+$('afkStart').onclick = () => action('afk', 'start',
+    { minutes: Number($('afkMinutes').value), preset: $('afkPreset').value });
+$('afkStop').onclick = () => action('afk', 'stop');
+
+$('gmBtn').onclick = async () => {
+    try {
+        const d = await api(`/api/dash/state?token=${encodeURIComponent(TOKEN)}&all=1`);
+        if (!d.ok) { msg($('dashMsg'), d.error, 'err'); return; }
+        const aps = d.autopilot.pilots || [], afs = d.afk.agents || [];
+        $('gmSummary').textContent = `在线托管 ${d.autopilot.count} 人 · 离线修炼 ${d.afk.count} 人`;
+        const rows = [];
+        aps.forEach(a => rows.push([a.name, a.level, '在线托管', a.preset,
+            a.active ? '开启' : (a.status || '暂停'), a.kills, a.map]));
+        (Array.isArray(afs) ? afs : []).forEach(a => rows.push([a.name, a.level ?? '-', '离线修炼',
+            a.preset ?? '-', `剩${a.remaining ?? '-'}分`, a.kills ?? '-', a.map ?? '-']));
+        $('gmTable').innerHTML = rows.map(r => '<tr>' + r.map(c => `<td>${esc(c)}</td>`).join('') + '</tr>').join('')
+            || '<tr><td colspan="7">当前无人挂机</td></tr>';
+        $('playerView').classList.add('hidden'); $('gmView').classList.remove('hidden');
+    } catch (e) { msg($('dashMsg'), 'GM 视图加载失败：' + e.message, 'err'); }
+};
+</script>
+</body>
+</html>
