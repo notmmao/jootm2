@@ -650,3 +650,12 @@ document.hidden 派发 visibilitychange；对照组（前台+冻结=停步）、
 顺带：`test_opfs_cache.py` 的 BASE 改 `JOOTM2_BASE` 环境变量（默认仍 8098）。
 
 纯前端；部署只需镜像。
+
+## §153 阿里云部署 a0a08a3（2026-11-23 20:37）
+
+- 部署前 `/api/players`：在线 5 = 3 Bot + **2 真人（测试1、燕赤霞）**；经用户确认「直接部署」后执行。
+- `bash scripts/deploy_image.sh` 33 秒一把过；无 scp（619d2f5..HEAD 零 gamedata/资源改动）。
+- 带上 4 笔功能：`f182959` 衣服耐久对齐、`c1a38f5` NPC 常显名/怪物常显血条、
+  `e2b5335` OPFS 整文件缓存+载入重试、`a0a08a3` 寻路后台续跑。
+- 验证：`/api/version=a0a08a3`、smoke_ws 全通、容器内 opfsStore/fileCache 在位。
+- 注意：真人玩家会被重启踢下线，重连即可（token 免密会自动登回）。
