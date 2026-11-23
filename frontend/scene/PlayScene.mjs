@@ -234,17 +234,25 @@ export class PlayScene extends Scene {
             try { return localStorage.getItem('jootm2.noFog') === '1'; } catch { return false; }
         })();
         this.mapActor.forceNotViewFog = this._noFog;
-        // 头顶名字/血条显示偏好：默认全关（保持原版全红观感），系统菜单可热切换。
+        // 头顶名字/血条显示偏好：系统菜单可热切换。
         const pref = (key, fallback) => {
             try {
                 const v = localStorage.getItem(key);
                 return v == null ? fallback : v === '1';
             } catch { return fallback; }
         };
+        // 名字显示风格：默认原版（选中才显示、名字在躯干、无 Lv、血条带数字），
+        // 'current' 为 2026-11-23 之前的改良风格（头顶全显示、带 Lv、无数字）。
+        let nameStyle = 'original';
+        try {
+            const v = localStorage.getItem('jootm2.nameStyle');
+            if (v === 'current' || v === 'original') nameStyle = v;
+        } catch { /* 隐私模式 */ }
         this._hudMode = {
             enhanced: pref('jootm2.hudEnhanced', false),
             showHpLabel: pref('jootm2.showHpLabel', true),
             hoverNamesOnly: pref('jootm2.nameOnFocusOnly', false),
+            nameStyle,
         };
         this.mapActor.hudMode = this._hudMode;
         this._holding = false;       // 鼠标按住状态（按住持续移动，松开停止）
@@ -1161,6 +1169,18 @@ export class PlayScene extends Scene {
     _toggleNameMode() {
         this._setHudPref('hoverNamesOnly', !this._hudMode.hoverNamesOnly,
             '名字仅在悬停时显示');
+    }
+
+    /** 名字显示风格：原版（默认）/ 当前改良。切换即时生效并持久化。 */
+    _toggleNameStyle() {
+        const next = this._hudMode.nameStyle === 'current' ? 'original' : 'current';
+        this._hudMode.nameStyle = next;
+        try { localStorage.setItem('jootm2.nameStyle', next); } catch { /* 隐私模式 */ }
+        if (this.mapActor) this.mapActor.hudMode = this._hudMode;
+        this._syncStyleBtn?.();
+        this._log(`[系统] 名字显示风格：${next === 'original'
+            ? '原版（选中显示·名字在躯干·无等级·血条带数字）'
+            : '当前改良（头顶全显示·带等级）'}`);
     }
 
     /** 返回人物选择（原版 Alt-X / 退出角色）：保持登录态与 WS 连接。 */
@@ -3268,6 +3288,13 @@ export class PlayScene extends Scene {
         this._syncFogBtn();
         // 光照调参：游戏内实时调黑纱浓度/光圈，玩家自己定最佳默认值。
         mk('光照调节（画面亮度 · Ctrl+F7）', () => { this._closeSystemMenu(); toggleFogTunePanel(); });
+        // 名字显示风格（原版 / 当前改良）：默认原版，即时生效。
+        const styleBtn = mk('', () => this._toggleNameStyle());
+        this._syncStyleBtn = () => {
+            styleBtn.textContent = `名字风格：${this._hudMode.nameStyle === 'current' ? '当前改良' : '原版'}`;
+            styleBtn.style.color = this._hudMode.nameStyle === 'current' ? '#ffe9a8' : '#9fe08a';
+        };
+        this._syncStyleBtn();
         // 头顶 HUD 偏好：三个开关都即时生效，不需要重登。
         const hudBtn = mk('', () => this._toggleHudEnhanced());
         this._syncHudBtn = () => {
@@ -5181,6 +5208,8 @@ export class PlayScene extends Scene {
                 poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
                 nameColor: e.nameColor,               // 服务端下发的调色板索引（玩家关系色/分类色/宠物等级色）
                 masterId: e.masterId,                 // 区分宝宝（增强模式血条绿描边用）
+                openHealth: e.openHealth,             // 心灵启示临时血条（当前风格；修既有未传快照缺陷）
+                elite: !!e.elite,                     // 精英怪标记（任务 23，名字绿色+前缀）
                 // 头顶说话气泡（原版 TActor.Say，DrawScrn.pas:331-352）：4 秒内显示
                 say: (e._sayUntil && now < e._sayUntil) ? e._sayText : null,
                 // 原版 m_nLight / m_nChrLight（ObjBase.pas:3387、SM_LOGON 的

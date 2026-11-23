@@ -20,9 +20,11 @@ const TILE_H = 32;
  *  - showHpLabel：对应原版 boShowRedHPLable（ClMain.pas:7005，缺省 False）；
  *    这里默认开以保持现有观感，关掉后只有心灵启示(28)等临时血条。
  *  - hoverNamesOnly：对应原版只画 g_FocusCret / 悬停自己的行为。
+ *  - nameStyle：'original'（默认，名字在躯干/选中才显示/无 Lv/血条带数字）
+ *    或 'current'（当前改良：名字在头顶/全显示/带 Lv/无数字）。
  */
 const HUD_DEFAULTS = Object.freeze({
-    enhanced: false, showHpLabel: true, hoverNamesOnly: false,
+    enhanced: false, showHpLabel: true, hoverNamesOnly: false, nameStyle: 'original',
 });
 
 /** 调色板索引 → CSS 颜色（原版 GetRGB 用 DefColorTable 同一张表）。 */
@@ -1323,26 +1325,26 @@ export class MapActor {
         }
     }
 
-    /** 头顶血条 + 名字（原版 DrawScrn.pas:296-344）。 */
+    /** 头顶血条 + 名字（原版 DrawScrn.pas:283-354）。 */
     _drawHeadHud(ctx, e, anchorX, anchorY) {
         const hud = this.hudMode || HUD_DEFAULTS;
         const enhanced = !!hud.enhanced;
         const pet = e.masterId != null;
-
-        // 血条（原版 DrawScrn：SayY - 10 = 格顶 - 57，头顶上方）
-        // 原版只有一种 HEALTHBAR_RED，人物也不换色；以前给「自己」用了天蓝色，
-        // 看起来像魔法条，跟左下红血球对不上（用户反馈的「两边不一致」）。
-        // 因此增强模式也只换描边、不改红色填充。
-        // DrawScrn.pas:306 的 `not actor.m_boDeath` → 死亡/尸体一根都不画。
-        // 显示条件（DrawScrn.pas:305-307）：
-        //   if g_boShowRedHPLable then actor.m_boOpenHealth := True;
-        //   if (actor.m_boOpenHealth or actor.m_noInstanceOpenHealth) and not m_boDeath
-        // 即「客户端设置里勾了显示血条」→ 全部显示；没勾 → 只有被心灵启示(28)
-        // 打到 openHealth 的目标显示。g_boShowRedHPLable 原版缺省 False
-        // （ClMain.pas:7005），这里默认开以保持现有观感；系统菜单可切回原版时机。
-        const showHp = (hud.showHpLabel !== false) || e.isSelf
-            || (e.openHealth > 0 && e.openHealth > Date.now());
+        // 显示风格（用户 2026-11-23 定）：'original'=原版（默认）/'current'=当前改良。
+        // 原版 DrawScrn.pas:309-326：名字只画「选中目标 FocusCret」+「选中自己」，
+        // 位置 SayY+30 = 格顶-17（躯干中部），无等级后缀；血条 SayY-10 = 格顶-57。
+        // 用户额外要求原版风格下血条显示 HP 数字（原版图条本身无数字）。
+        const original = hud.nameStyle !== 'current';
         const dead = e.dead || e.hp <= 0;
+        // 名字 Y：原版 SayY+30 = 格顶-17（躯干）；当前改良 = 格顶-71（头顶）。
+        const nameY = anchorY - (original ? 17 : 71);
+
+        // 血条。原版时机：仅选中目标/自己（原版靠 BoOpenHealth/心灵启示；这里用
+        // isFocus/isSelf 近似，让选中怪物即可看到血量）。当前风格：沿用 showHpLabel。
+        const showHp = original
+            ? (e.isFocus || e.isSelf)
+            : ((hud.showHpLabel !== false) || e.isSelf
+                || (e.openHealth > 0 && e.openHealth > Date.now()));
         // NPC 不参与战斗，增强模式下不画头顶血条（避免商人头顶一根红条）。
         if (showHp && e.maxHp > 0 && !dead && !(enhanced && e.type === 'npc')) {
             const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
@@ -1362,16 +1364,31 @@ export class MapActor {
             }
             ctx.fillStyle = '#ef4444';
             if (pct > 0) ctx.fillRect(bx0, by0, 40 * pct / 100, 4);
+            if (original) {
+                // 原版风格血条数字（用户要求）：白字黑边，居中压在血条上。
+                ctx.font = '9px SimSun,serif';
+                ctx.textAlign = 'center';
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#000';
+                const hpText = `${Math.ceil(hp)}/${e.maxHp}`;
+                ctx.strokeText(hpText, anchorX + TILE_W / 2, by0 + 4);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(hpText, anchorX + TILE_W / 2, by0 + 4);
+            }
         }
 
-        // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
-        // hoverNamesOnly 打开时对齐原版：只画悬停目标 + 悬停/移动中的自己。
-        // 怪物名字后缀 Lv 等级（用户 2026-11-18；玩家/NPC 不加，保持原版）。
+        // 名字。原版：只有选中目标 + 自己显示；无 Lv；画在躯干中部（格顶-17）。
+        // 当前：全部显示（或悬停才显示，跟随细开关）；怪物带 Lv；画在头顶（格顶-71）。
         let dispName = e.name;
-        if (e.name && e.type === 'monster' && e.level > 0) {
+        if (!original && e.name && e.type === 'monster' && e.level > 0) {
             dispName = `${e.name} Lv${e.level}`;
         }
-        if (dispName && !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf)) {
+        // 精英怪（任务 23）：名字带「精英」前缀 + 绿色，两种风格都生效。
+        if (e.elite && dispName) dispName = `精英·${dispName}`;
+        const showName = original
+            ? (e.isFocus || e.isSelf)
+            : !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf);
+        if (dispName && showName) {
             ctx.font = '11px SimSun,serif';
             ctx.textAlign = 'center';
             let tw = this._nameW.get(dispName);
@@ -1381,7 +1398,7 @@ export class MapActor {
                 this._nameW.set(dispName, tw);
             }
             const nx = anchorX + TILE_W / 2;
-            const ny = anchorY - 71;
+            const ny = nameY;
             ctx.fillStyle = 'rgba(0,0,0,0.6)';
             ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
             // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
@@ -1400,6 +1417,8 @@ export class MapActor {
                     nameFill = paletteFill(idx) || nameFill;
                 }
             }
+            // 精英怪绿色优先于 PK/普通色（仅怪物有 elite 标记）。
+            if (e.elite) nameFill = '#5ef08a';
             ctx.fillStyle = nameFill;
             ctx.fillText(dispName, nx, ny);
         }
@@ -1410,7 +1429,8 @@ export class MapActor {
         // 显示在名字上方；SayTime 4 秒内有效，超时清掉。无贴图框、无尾巴。
         if (e.say) {
             const lines = this._wrapSay(e.say, 150);
-            const baseY = anchorY - 71 - 16;   // 名字(ny=-71)再往上 16px 起
+            // 气泡在名字上方：原版风格名字在 -17（气泡 -33），当前风格名字在 -71（气泡 -87）。
+            const baseY = nameY - 16;
             ctx.font = '12px SimSun,serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
