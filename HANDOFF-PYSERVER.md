@@ -659,3 +659,10 @@ document.hidden 派发 visibilitychange；对照组（前台+冻结=停步）、
   `e2b5335` OPFS 整文件缓存+载入重试、`a0a08a3` 寻路后台续跑。
 - 验证：`/api/version=a0a08a3`、smoke_ws 全通、容器内 opfsStore/fileCache 在位。
 - 注意：真人玩家会被重启踢下线，重连即可（token 免密会自动登回）。
+
+## §154 说话气泡移回头顶（2026-11-23，用户反馈）
+
+原版风格名字在躯干（-17），气泡原实现贴名字上方（-33）视觉上压在人物身上。
+改为独立锚定头顶：`baseY = min(nameY, anchorY-71) - 16`（原版/改良两风格统一
+在头顶-87 起向上叠行）。test_name_style 15/15 + 真实浏览器注入 _sayText 截图
+确认气泡在血条上方。纯前端；部署只需镜像。

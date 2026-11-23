@@ -1433,8 +1433,9 @@ export class MapActor {
         // 显示在名字上方；SayTime 4 秒内有效，超时清掉。无贴图框、无尾巴。
         if (e.say) {
             const lines = this._wrapSay(e.say, 150);
-            // 气泡在名字上方：原版风格名字在 -17（气泡 -33），当前风格名字在 -71（气泡 -87）。
-            const baseY = nameY - 16;
+            // 气泡固定画在头顶（格顶-87 起向上叠行），不跟随名字 Y——
+            // 原版风格名字在躯干（-17），气泡若贴着名字会压在人物身上（用户反馈）。
+            const baseY = Math.min(nameY, anchorY - 71) - 16;
             ctx.font = '12px SimSun,serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
