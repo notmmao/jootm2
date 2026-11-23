@@ -51,18 +51,15 @@ checklevel 7
 <关 闭/@exit>
 [@Q706_1]
 #IF
-checkhum 01152 1
+checkbaggage
+#ACT
+give 火球术 1
+SET [757] 1
 #SAY
-现在有人在接受我的测验，\
-请你等他测试完，很抱歉。\ \
-<关 闭/@exit>
-#ELSEACT
-Monclear 01152
-Param1 01152
-Param2 19
-Param3 19
-MonGen 鹿 10 10
-MonGen 鸡 20 10
-MonGen 羊 10 10
-TimeRecall 5
-map 01152
+好，你已经具备资格做我的徒弟\
+祝贺你啊... \
+给你火球术到了7级之后练，祝贺你 \
+<离 开/@exit>
+#ELSESAY
+你的包里东西已经满了，快清理一下吧.. \
+<离 开/@exit>

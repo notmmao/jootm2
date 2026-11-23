@@ -49,18 +49,14 @@ checklevel 7
 <退 出/@exit>
 [@Q706_1]
 #IF
-checkhum 01132 1
+checkbaggage
+#ACT
+give 治愈术 1
+SET [757] 1
 #SAY
-现在这里正有一个人在进行试练 \
-很抱歉,你稍微等一下吧. \ \
+考验已经通过了,你可以做我的徒弟\
+祝贺你... 我先教你7级时候的基本技能治愈术 \
 <退  出/@exit>
-#ELSEACT
-Monclear 01132
-Param1 01132
-Param2 10
-Param3 10
-MonGen 鹿 10 10
-MonGen 鸡 20 10
-MonGen 羊 10 10
-TimeRecall 5
-map 01132
+#ELSESAY
+你的包裹已经装满了,给我腾出地方来.. \
+<退  出/@exit>

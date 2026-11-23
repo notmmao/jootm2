@@ -95,8 +95,9 @@ def build():
 
 
 def npc_by_script(w, script_name: str, map_name: str = ""):
+    # NPC 实际 script_name 带中文后缀（如「9Eht-高级道士」），测试传的是短前缀。
     for n in w.npcs.values():
-        if n.script_name == script_name and (not map_name or n.map_name == map_name):
+        if n.script_name.startswith(script_name) and (not map_name or n.map_name == map_name):
             return n
     return None
 
@@ -123,59 +124,48 @@ def main() -> None:
     check("出现测验文案（羊鹿鸡）", "羊" in r.say_text and "鸡" in r.say_text)
     check("测验选项 @Q706_1", "@Q706_1" in r.say_text)
 
-    print("\n[2] 第二人在测验房 → checkhum 拦截，不传送")
-    p2 = make_player(service, str(int(time.time()) % 100000), job=0)
-    gm_room = w.get_or_load_map("01132")
-    x, y = w.random_walk_pos(gm_room)
-    w.space_move(p2, "01132", x, y)
+    # 2026-11-22 修正：三张任务图（01142/01152/01132）无出口门 + 回城卷无效，
+    # 唯一出路 TimeRecall 定时器不写存档，断线/下线重登后丢失 → 角色永久卡死
+    # （Garden 卡 01142 实例）。用户选定「去掉传送+刷怪」，导师处直接判定发书。
+    print("\n[2] 测验通过：直接送《治愈术》+ 置 757，不传送/不刷怪/无定时器")
     r = engine.execute(p, npc_tao, "Q706_1")
-    check("checkhum 命中 → 提示有人试练", "试练" in r.say_text and not r.moved,
-          f"map={p.map.name}")
-    w.remove_player(p2)   # 挪走占用者
-
-    print("\n[3] 空房进入：MonGen 羊鹿鸡 + TimeRecall 记录原点 + map 传送")
-    r = engine.execute(p, npc_tao, "Q706_1")
-    n_mon = w.count_map_monsters("01132")
-    check("传送到 01132", r.moved and p.map.name == "01132", f"map={p.map.name}")
-    check("刷出 鹿10+鸡20+羊10（小屋可走格有限，≥35）", n_mon >= 35, f"monsters={n_mon}")
-    tr = p.time_recall
-    check("TimeRecall 记录原点 5 分钟", bool(tr) and tr["map"] == home_map
-          and tr["expire"] > now_ms() + 4 * 60_000,
-          f"from={tr['map'] if tr else None}")
-
-    print("\n[4] 屋内 NPC：有怪时 checkmonmap 拦截不给书")
-    npc_room = npc_by_script(w, "9Eht", "01132")
-    assert npc_room is not None, "找不到 01132 屋内 NPC"
-    r = engine.execute(p, npc_room, "main")
-    check("有怪提示继续打", "怪" in r.say_text and not r.moved)
-    check("未置 757", p.quest_params.get(757, 0) == 0)
-
-    print("\n[5] 清完怪 → 免费送《治愈术》+ 置 757")
-    w.clear_map_monsters("01132")
-    check("清怪后 0 只", w.count_map_monsters("01132") == 0)
-    r = engine.execute(p, npc_room, "main")
-    check("送《治愈术》书", bag_count(w, p, "治愈术") == 1,
-          f"bag={len(p.bag)}")
+    check("送《治愈术》书", bag_count(w, p, "治愈术") == 1, f"bag={len(p.bag)}")
     check("set [757]", p.quest_params.get(757, 0) == 1)
+    check("不传送（留在原地）", not r.moved and p.map.name == home_map,
+          f"map={p.map.name}")
+    check("无刷怪", w.count_map_monsters("01132") == 0)
+    check("无 TimeRecall 残留", p.time_recall is None)
+    check("通过文案", "考验" in r.say_text or "祝贺" in r.say_text)
 
-    print("\n[6] 包满 → checkbaggage 拒发")
+    print("\n[3] 再做一次：757 已置 → 走 @Q707 提示双击书，不重复发")
+    r2 = engine.execute(p, npc_tao, "main")
+    check("不再重复发书", bag_count(w, p, "治愈术") == 1)
+    check("提示双击书", "双击" in r2.say_text or "火球" in r2.say_text
+          or "治愈" in r2.say_text)
+
+    print("\n[4] 包满 → checkbaggage 拒发")
     p.quest_params[757] = 0
-    w.clear_map_monsters("01132")
     fill = w.item_templates[next(iter(w.item_templates))]
     while len(p.bag) < BAG_SIZE:
         p.bag.append({"makeIndex": 800000 + len(p.bag), "index": fill.index,
                       "durability": 1000, "durabilityMax": 1000, "lucky": 0})
-    r = engine.execute(p, npc_room, "main")
+    r = engine.execute(p, npc_tao, "Q706_1")
     check("包满提示", "清理" in r.say_text or "腾出" in r.say_text)
     check("不再发书", bag_count(w, p, "治愈术") == 1)
 
-    print("\n[7] TimeRecall 到期 → 送回原点（脚本 map 换图不取消）")
-    p.time_recall["expire"] = now_ms() - 1
-    w.tick(now_ms())
-    check("回到记录点", p.map.name == home_map and p.time_recall is None,
-          f"map={p.map.name}, xy=({p.x},{p.y}) vs ({home_x},{home_y})")
+    print("\n[5] 法师之家：火球术直通发书")
+    pm = make_player(service, str(int(time.time()) % 100000), job=1)
+    pm.level = 7
+    npc_mage = npc_by_script(w, "9Ewi", "0115")
+    assert npc_mage is not None, "找不到高级魔法师 NPC"
+    r = engine.execute(pm, npc_mage, "main")
+    check("法师自动 set [756]", pm.quest_params.get(756, 0) == 1)
+    r = engine.execute(pm, npc_mage, "Q706_1")
+    check("送《火球术》书", bag_count(w, pm, "火球术") == 1)
+    check("法师不传送", not r.moved and pm.map.name != "01152")
+    check("法师 set [757]", pm.quest_params.get(757, 0) == 1)
 
-    print("\n[8] 战士之家：暗之沃玛护卫死引用 → 空房直通送书（原版兜底行为）")
+    print("\n[6] 战士之家：基本剑术直通发书（暗之沃玛护卫死引用已不复存在）")
     pw = make_player(service, str(int(time.time()) % 100000), job=0)
     pw.level = 7
     npc_war = npc_by_script(w, "9Ehw", "0114")
@@ -183,15 +173,9 @@ def main() -> None:
     r = engine.execute(pw, npc_war, "main")
     check("战士自动 set [756]", pw.quest_params.get(756, 0) == 1)
     r = engine.execute(pw, npc_war, "Q706_1")
-    check("传送到 01142（怪模板缺失 → 0 只）",
-          r.moved and p.map.name != "01142" and pw.map.name == "01142"
-          and w.count_map_monsters("01142") == 0,
-          f"monsters={w.count_map_monsters('01142')}")
-    npc_room_w = npc_by_script(w, "9Ehw", "01142")
-    assert npc_room_w is not None, "找不到 01142 屋内 NPC"
-    r = engine.execute(pw, npc_room_w, "main")
-    check("checkmonmap 不过 → 直接送《基本剑术》", bag_count(w, pw, "基本剑术") == 1)
-    check("set [757]", pw.quest_params.get(757, 0) == 1)
+    check("送《基本剑术》书", bag_count(w, pw, "基本剑术") == 1)
+    check("战士不传送", not r.moved and pw.map.name != "01142")
+    check("战士 set [757]", pw.quest_params.get(757, 0) == 1)
 
     print("\n[9] 职业守卫与命运链守卫")
     pw.quest_params[756] = 0
