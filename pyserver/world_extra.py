@@ -16,8 +16,9 @@ from .weekend import drop_rate as weekend_drop_rate, exp_rate as weekend_exp_rat
 from .holiday import exp_rate as holiday_exp_rate
 from .gamedata import parse_map_quest, read_lines
 from .util import (
-    BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, PK_POINT_PER_KILL,
-    RED_NAME_PK_POINT, SIGHT_RANGE, U_WEAPON, encode, java_div, now_ms,
+    BAG_SIZE, DEEP_RED_PK_POINT, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC,
+    PK_POINT_PER_KILL, RED_NAME_PK_POINT, SIGHT_RANGE, U_WEAPON,
+    encode, java_div, now_ms,
 )
 
 
@@ -950,21 +951,23 @@ class WorldExtra:
         self.send_system(p, "你被击败了。按 Esc →「返回角色选择」重新登录即可在出生点复活。")
 
     def _death_drops(self, p, killer) -> None:
-        """死亡掉落惩罚（原版 ``TBaseObject.Die`` ObjBase.pas:20982-21013）。
+        """死亡掉落惩罚（原版 ``TCreature.Die`` 掉落段 ObjBase.pas:2728-2760）。
 
-        按原版默认配置（M2Share.pas:2019-2026）实现：
-        - 背包散落 ``boDieScatterBag=True``、``nDieScatterBagRate=3``：
-          每件背包物品 ``Random(3)=0`` 掉落（1/3 概率）；
-          红名 ``PKLevel>=2``（pk_point>=200）``boDieRedScatterBagAll=True`` 全掉
-          （TPlayObject.ScatterBagItems，ObjBase.pas:26648-26687）；
-        - 身上装备 ``DropUseItems``（:20689-20757）：被怪杀死才掉
-          （``boKillByMonstDropUseItem=True``，:21005；被玩家杀
-          ``boKillByHumanDropUseItem=False`` 不掉），每槽 ``Random(30)=0``
-          掉落、红名 ``nDieRedDropUseItemRate=15``；
-        - 金币 ``boDieDropGold=False``（:21012）默认不掉。
-
-        落地半径 ``DropWide=2``（ScatterBagItems:26650 / DropUseItems 传 2）。
-        毒死/未知来源按被怪杀处理（原版 m_LastHiter 即毒源怪）。
+        逐行对齐火炬源码（2026-11-23 复核，旧注释里的 M2Share 配置变量名与
+        行号系臆造，已按真实实现更正）：
+        - 背包散落 ``ScatterBagItems``（:2385）：白名每件 ``Random(3)=0`` 掉
+          （1/3），红名 ``PKLevel >= 2``（:2398，pk_point>=200）``boDropall``
+          全掉；玩家落地半径 ``dropwide := 2``（:2397）。
+        - 身上装备 ``DropUseItems``（:2512）：每槽 ``Random(ran)=0``，
+          ``ran = 15 if PKLevel > 2 else 30``（:2547-2548）——注意装备加速掉的
+          阈值 ``PKLevel>2``（pk_point>=300，深红名）**高于**背包全掉的
+          ``PKLevel>=2``（pk_point>=200）；200~299 红名段背包全掉但装备仍 1/30。
+        - 调用闸门（:2738-2755）：玩家被**怪**杀死才 ``DropUseItems``
+          （``ehiter.RaceServer <> RC_USERHUMAN``，:2750；毒死 ExpHiter=nil
+          走 :2753 也掉），被玩家杀不掉装备；背包 ``ScatterBagItems`` 无条件调
+          （:2755）。原版安全区 ``FightZone/Fight3Zone`` 整体豁免（:2729），
+          本项目地图无该标志，未实现。
+        - 金币：玩家死亡分支无 ``ScatterGolds`` 调用（仅怪 :2743），不掉。
         """
         from .world import Player
 
@@ -973,6 +976,10 @@ class WorldExtra:
         if not has_bag and not has_equip:
             return
         red = p.pk_point >= RED_NAME_PK_POINT
+        # 装备加速掉落阈值更高：原版 DropUseItems（:2547）`PKLevel > 2` =
+        # pk_point >= 300（深红名）才把每槽 Random(30) 降到 Random(15)；
+        # 200~299 红名段背包全掉但装备仍 1/30（旧实现合并阈值会翻倍掉率）。
+        deep_red = p.pk_point >= DEEP_RED_PK_POINT
         dropped: list[str] = []
 
         # ① 背包散落（原版 for i := Count-1 downto 0 逐件 Random(3)=0）
@@ -987,7 +994,7 @@ class WorldExtra:
 
         # ② 身上装备：被怪杀才掉（每槽 Random(rate)=0）
         if not isinstance(killer, Player):
-            rate = 15 if red else 30
+            rate = 15 if deep_red else 30
             for slot in range(len(p.equipment)):
                 it = p.equipment[slot]
                 if it is not None and random.randrange(rate) == 0:

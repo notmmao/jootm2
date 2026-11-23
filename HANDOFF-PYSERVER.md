@@ -689,3 +689,27 @@ document.hidden 派发 visibilitychange；对照组（前台+冻结=停步）、
 **验证**：新增 `scripts/test_skill_train.py` 11/11（道士只学4涨4 / 战士涨3 /
 3+4都学只涨4 / 满级与等级门槛不涨 / 攒满100升级扣点 / 攻杀不受影响）；
 test_durability 19/19、test_pyserver 128/0。纯服务端；部署只需镜像。
+
+## §156 死亡装备掉落阈值对齐火炬：红名掉率不再翻倍（2026-11-23，用户反馈「很容易掉」）
+
+**根因**（火炬 `ObjBase.pas:2547` vs `:2398`）：原版 `PKLevel = pk_point div 100`
+（:3865），两个红名阈值不同——
+- 背包全掉：`PKLevel >= 2`（:2398）= pk_point >= **200**
+- 装备加速掉（每槽 Random 30→15）：`PKLevel > 2`（:2547）= pk_point >= **300**（深红名）
+
+旧实现把两者合并成一个 `red = pk_point >= 200`，导致 **200~299 红名段装备掉落
+概率被错误翻倍**（1/30→1/15）。白名（<200）本就 1/30，与原版一致。
+
+**修复**：util.py 新增 `DEEP_RED_PK_POINT = 300`；`_death_drops` 背包全掉仍用
+`red`（>=200），装备 rate 改用 `deep_red`（>=300）。顺带更正 `_death_drops` 与
+test_death_drop.py 头部注释——旧注释里「M2Share.pas:2019-2026 默认配置」那套
+变量名（boDieScatterBag/nDieRedDropUseItemRate 等）在火炬源码根本不存在，是臆造
+引用，已按真实实现（Die 掉落段 :2728-2760 / ScatterBagItems :2385 /
+DropUseItems :2512）逐行更正。
+
+**已知未实现差异**（记录，非 bug）：①原版安全区 FightZone/Fight3Zone 整体豁免
+掉落（:2729），本项目地图无该标志；②原版 IDC_NEVERLOSE/IDC_DIEANDBREAK 物品标志
+（永不掉落/死亡破损）未解析——普通装备这两个标志均为 0，不影响掉率。
+
+**验证**：test_death_drop.py 新增 [3b] 分档断言（白名30/红名200仍30/深红名300→15），
+29/29；test_pet_drop_pickup 8/8、test_pk_punishment 22/0。纯服务端；部署只需镜像。

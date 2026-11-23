@@ -35,6 +35,12 @@ SUPER_GUARD_RACES = frozenset({11, 12})
 # （TGuardUnit.IsProperTarget ObjMon2.pas:878 / TSuperGuard.Run ObjGuard.pas:100）
 # = 深红名 pk_point >= 200。黄名（100~199）不会被守卫攻击。
 RED_NAME_PK_POINT = 200
+# 原版装备加速掉落阈值：DropUseItems（ObjBase.pas:2547）`if PKLevel > 2 then
+# ran := 15`。PKLevel = PkPoint div 100（:3865），PKLevel>2 即 pk_point >= 300
+# （深红名）才把每槽掉落从 Random(30) 提到 Random(15)。注意这比「背包全掉」
+# 的 PKLevel>=2（:2398，pk_point>=200）更高一档——200~299 红名段背包全掉但
+# 装备仍 1/30，旧实现把两者合并成 >=200 会让这段装备掉率错误翻倍。
+DEEP_RED_PK_POINT = 300
 # 原版 ObjBase.pas:7719-7724：在线每 2 分钟 DecPkPoint(1)（变量名 time10min
 # 是历史遗留，实际间隔 2*60*1000）。离线不衰减，源码无离线补算。
 PK_DECAY_INTERVAL_MS = 2 * 60 * 1000

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """死亡惩罚掉落 + 丢金币的离线回归（纯标准库）。
 
-对齐原版依据：
-- ``TBaseObject.Die``（ObjBase.pas:20982-21013）死亡掉落链 + 默认配置
-  （M2Share.pas:2019-2026）：
-  背包 ``boDieScatterBag=True / nDieScatterBagRate=3`` 每件 Random(3)=0 掉落，
-  红名 ``PKLevel>=2`` 全掉（TPlayObject.ScatterBagItems :26648）；
-  装备 ``DropUseItems``（:20689）被怪杀才掉（boKillByMonstDropUseItem=True，
-  被玩家杀 boKillByHumanDropUseItem=False 不掉），每槽 Random(30)=0、红名 15；
-  金币 ``boDieDropGold=False`` 默认不掉。散落半径 DropWide=2。
+对齐原版依据（2026-11-23 复核，旧注释的 M2Share 配置变量名/行号系臆造，已按真实实现更正）：
+- ``TCreature.Die`` 掉落段（ObjBase.pas:2728-2760）：
+  背包 ``ScatterBagItems``（:2385）每件 ``Random(3)=0`` 掉落，红名
+  ``PKLevel>=2``（:2398，pk_point>=200）boDropall 全掉；
+  装备 ``DropUseItems``（:2512）被怪杀才掉（调用闸门 :2749-2753，被玩家杀
+  不调用），每槽 ``Random(ran)=0``，``ran = 15 if PKLevel>2 else 30``
+  （:2547-2548）——装备加速掉阈值 pk_point>=300 **高于**背包全掉的 200；
+  金币玩家死亡分支无 ScatterGolds（仅怪 :2743）不掉。散落半径 dropwide=2（:2397）。
 - ``TPlayObject.ClientDropGold``（ObjBase.pas:16187）：``nGold >= m_nGold``
   拒绝（至少留 1）；``DropGoldDown``（:2301）半径 3 落地、同格合并。
 
@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
-from pyserver.util import RED_NAME_PK_POINT  # noqa: E402
+from pyserver.util import DEEP_RED_PK_POINT, RED_NAME_PK_POINT  # noqa: E402
 from pyserver.world import Monster, Player, now_ms  # noqa: E402
 
 PASS = 0
@@ -206,6 +206,46 @@ def test_equip_drop_by_monster(w, p2, sess, service):
     check("掉落物在地面", n_ground == 1, f"found={n_ground}")
 
 
+def _equip_randrange_divisor(w, p3, pk_point):
+    """空背包 + 单件装备，记录被怪杀掉落时对装备槽用的 randrange 除数。"""
+    from pyserver.world import Player as P
+    p3.bag = []
+    p3.pk_point = pk_point
+    p3.dead = False
+    p3.alive = True
+    wpn_t = add_template(w, stdMode=5, shape=1, duraMax=3000, dcMin=2, dcMax=5)
+    p3.equipment[1] = {"makeIndex": 700300 + pk_point, "index": wpn_t.index,
+                       "durability": 3000, "durabilityMax": 3000, "lucky": 0}
+    seen: list[int] = []
+    real = random.randrange
+    random.randrange = lambda n: (seen.append(n), 1)[1]  # 返回非 0 → 不掉，只记录除数
+    try:
+        w._death_drops(p3, None)
+    finally:
+        random.randrange = real
+    return seen
+
+
+def test_equip_drop_red_tiers(w, p3, sess, service):
+    print("\n[3b] 装备掉落除数按红名分档：200~299→30、>=300→15")
+    for msg in ({"type": "logout"}, {"type": "enterGame", "name": p3.name},
+                {"type": "noticeOk", "name": p3.name}):
+        service.on_message(sess, json.dumps(msg, ensure_ascii=False))
+    pp = service.find_by_session(sess)
+    assert pp is not None
+    pp.x, pp.y = p3.x, p3.y
+    # 白名：除数 30
+    d_white = _equip_randrange_divisor(w, pp, 0)
+    check("白名装备 randrange(30)", 30 in d_white, f"divisors={d_white}")
+    # 红名 200~299：仍是 30（旧实现误用 15，掉率翻倍）
+    d_red = _equip_randrange_divisor(w, pp, RED_NAME_PK_POINT)
+    check("红名 200 装备 randrange(30)（非 15）", 30 in d_red and 15 not in d_red,
+          f"divisors={d_red}")
+    # 深红名 >=300：降到 15
+    d_deep = _equip_randrange_divisor(w, pp, DEEP_RED_PK_POINT)
+    check("深红名 300 装备 randrange(15)", 15 in d_deep, f"divisors={d_deep}")
+
+
 def test_drop_gold(w, p, sess, service):
     print("\n[4] 丢金币：ClientDropGold 语义")
     for msg in ({"type": "logout"}, {"type": "enterGame", "name": p.name},
@@ -341,6 +381,7 @@ def main():
     test_bag_scatter(w, p, sess)
     p2 = test_red_scatter_all(w, p, sess, service)
     test_equip_drop_by_monster(w, p2, sess, service)
+    test_equip_drop_red_tiers(w, p2, sess, service)
     test_drop_gold(w, p, sess, service)
     # 重登链路会创建新 Player 对象（旧 id 已从 map.players 移除），
     # 归属测试必须用当前 session 绑定的最新对象。
