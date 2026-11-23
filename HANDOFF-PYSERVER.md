@@ -713,3 +713,11 @@ DropUseItems :2512）逐行更正。
 
 **验证**：test_death_drop.py 新增 [3b] 分档断言（白名30/红名200仍30/深红名300→15），
 29/29；test_pet_drop_pickup 8/8、test_pk_punishment 22/0。纯服务端；部署只需镜像。
+
+## §157 阿里云部署 517cefa（2026-11-23 21:41）
+
+用户确认立即部署（当时在线含 2 真人：测试1、燕赤霞，已接受踢线）。
+`bash scripts/deploy_image.sh` 一次完成：镜像 `mir2-python:517cefa` 推送、
+容器重建启动。本次含 §154~156 三笔改动（气泡头顶 / 精神力战法修炼 /
+死亡掉落阈值），前端随镜像走、无 gamedata 变更故无需 scp。
+验证：`/api/version` = 517cefa，`/api/status` 200，重启后 5 人（bot+重连）在线。
