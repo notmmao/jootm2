@@ -90,6 +90,7 @@ node --check frontend/<file>.mjs
 - 本地 Docker：Windows Docker Desktop（可能没开，先 `docker version` 探测），负责构建 + 推 ACR + 本机回归。
 - **ACR**：`crpi-n05futsy39yjkqf2.cn-shanghai.personal.cr.aliyuncs.com/notmmao/mir2-python`（公开仓库 pull 免登录；push 需 `docker login --username=notmmao@gmail.com`）。标签 = git 短 hash + `latest` 双标签。服务器更新 = pull → `docker tag` 成 `jootm2:python` → `compose up -d`。
 - 标准流程：提交 → `python scripts/gen_version.py` → build/push ACR → 服务器 pull/tag/up → **只验证 `/api/version` version 字段 + `/api/status`**。详细坑见 HANDOFF-PYSERVER §21。
+- **涉及资源/配置文本等风格的改动必须额外给 scp 指令（用户约定 2026-11-23）**：只要本会话改动了不随镜像走的文件——`gamedata/`（MapInfo、MerChant、Npcs、Market_Def 脚本等，服务器上是卷挂载会覆盖镜像内同名文件）、`config/server.properties`（若服务器有独立挂载）、`data/` 数据文件、`resources/` 美术音频——交付部署时除了 `bash scripts/deploy_image.sh` 之外，**必须同时逐文件给出 `scp <本地路径> root@aliyun.notmmao.com:/root/jootm2/<对应路径>` 指令**，并提醒重启容器使 gamedata 生效，否则线上不更新。
 
 ## 解释器约定（关键）
 

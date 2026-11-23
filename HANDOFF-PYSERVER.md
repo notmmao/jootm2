@@ -1380,3 +1380,107 @@ MapInfo 一个门口写成 8~14 行相邻坐标（原版用坐标片覆盖门口
 
 **注意**：公共资源仍为 1.76 客户端（缺 prguse3.wil 等，仅影响 F10 底图与部分怪物外观，
 不影响玩法）。`PlayScene.mjs` 与远端 `dc2e9a8` 的丢金币/仓库 UI 改动自动合并成功，已回归验证。
+
+## §143 八项功能/对齐批量改动（2026-11-23，用户一批需求）
+
+用户 9 条需求（第 3/9 条重复，合并为 8 项）。动手前用 AskUserQuestion 拍板 4 个架构决策：
+挂机后台=玩家自助（GM 兼全服）、模板角色=预置测试账号、登录=token 免密、精英比例=5%。
+
+1. **去掉比奇城重叠的网络文明宣传员**：真正的重叠在 `MerChant.txt:29`
+   `9snpc1-网络文明宣传员`（地图0，326,261）——上次只按用户「原地再放一个玛法领路人、
+   其他不动」在 Npcs.txt 加了同坐标领路人，MerChant 里的宣传员没删，两者叠一起。
+   注释掉该行（解析器跳过 `;` 开头行）。宣传员是纯公约 NPC，发金币在独立的
+   `Npc_Def/玛法领路人-0.txt`，删它不影响领金币。
+
+2. **还原原版名字显示 + 菜单切换**：查火炬 `DrawScrn.pas:283-354` 确认原版
+   名字只画选中目标(FocusCret)+选中自己、位置 `SayY+30`=格顶-17（躯干）、无等级、
+   血条 `SayY-10`=格顶-57 且**无数字**。`MapActor._drawHeadHud` 加 `hud.nameStyle`：
+   - 'original'（**默认**）：选中才显示名字、无 Lv、名字在躯干 -17、血条显示 HP 数字
+     （用户额外要求）、气泡跟随到 -33。
+   - 'current'：保持旧改良（头顶 -71 全显示、带 Lv、无数字）。
+   PlayScene 加 `_toggleNameStyle()` + localStorage `jootm2.nameStyle`，Esc 菜单主开关。
+   顺手修快照未传 `openHealth` 的既有缺陷。新增 `scripts/test_name_style.mjs` 12/12。
+
+3. **玩家自助挂机网页后台**：新建 `frontend/afk.html`（独立页，访问 `/afk.html`，
+   静态服务 web_root=frontend）+ 4 个 REST 端点（service.handle_admin，复用登录 token）：
+   `POST /api/dash/auth`（token→账号+角色列表+isGm）、`GET /api/dash/state`（charId 单角色
+   或 GM `all=1` 全服）、`POST /api/dash/action`（启停/暂停/切档/设计划）。越权校验：
+   角色必须属于 token 账号且在线。GM 按 `GM_ACCOUNTS`（player）判定。
+   `scripts/test_afk_dashboard.py` 19/19（起真实服务端，含越权/GM/启停）。
+
+4. **精英怪（5%）**：新机制，原版无。`config/server.properties` 加 `elite.rate=0.05`、
+   hpMult=2、dcMult=1.5、expMult=3。Monster 加 `elite` 字段；`_spawn_monster` 天然刷怪
+   掷骰（hp≤0/exp≤0 的摆设怪跳过），HP/exp 改实例值、DC 加成走 `slave_dc_bonus`
+   （复用 roll_attack，不改攻击链路）；brief_json 下发 elite，前端名字加「精英·」前缀+
+   绿色 `#5ef08a`（两种风格都生效）。`scripts/test_elite_monster.py` 18/18。
+
+5. **离线挂机修装备 + 药水解捆**：`afk.py` 补给 SELL→BUY 之间插入维护动作
+   `_supply_maintain()`：背包内耐久<50% 的可修装备找 repair NPC 走近后调既有
+   `srv._repair_item`；StdMode31 且解捆目标为药水的卷包就地调 `srv._use_item`
+   （解捆是双击物品，与 NPC 无关）。每轮用 `supply_repaired/supply_unbound` 防重复，
+   无修理商人则跳过不卡死。开关 `afk.supplyRepair`/`afk.supplyUnbind`（默认1）。
+   `scripts/test_afk_maintain.py` 17/17。
+
+6. **法定节假日双倍经验**：新建 `pyserver/holiday.py`，内置 2026 国务院放假日期
+   （国办发明电〔2025〕7号，联网核实：元旦/春节/清明/劳动/端午/中秋/国庆放假区间，
+   调休上班日不加成）+ 兜底固定节日 + 自定义 `holiday.dates`。只加经验不加爆率，
+   与周末倍率**取最大值**（不叠乘成×4）。config 加 holiday.enabled/expRate/force/dates；
+   world_extra.kill_exp 用 `max(weekend_exp, holiday_exp)`；service 登录提示 + 状态翻转
+   全服广播沿用周末链路。`scripts/test_holiday_exp.py` 26/26。
+
+7. **预置各等级模板角色**：`scripts/seed_template_chars.py`（幂等）往库建账号
+   `template/template123` + 1/7/17/25/35/40 级 × 三职业 18 个角色，装备按档位从
+   StdItems 动态查（缺名跳过）、技能按职业等级配、赠 240 分钟离线时长、金币按等级给。
+   实跑临时库验证 18 角色可登录进游戏（stats 显示 35 级 HP128/128），二次跑全跳过。
+
+8. **用户名保存 / token 免密登录**：新建 `pyserver/auth_token.py`（HMAC-SHA256 签名
+   无状态 token，30 天有效，密钥可用 `JOOTM2_TOKEN_SECRET` 覆盖，不落库不改 accounts
+   表避免与 Java 共用库冲突）。WS `login` 成功改走 `_finish_login` 回包带 token+username；
+   新增 `tokenLogin` 消息校验 token 后登录。db 加 `account_by_id`。前端 LoginScene
+   读 localStorage `jootm2.authToken`/`jootm2.lastUsername`：预填用户名 + 自动 tokenLogin，
+   失败静默清 token 回手输（不弹错误框）。`scripts/test_auth_token.py` 9/9。
+
+**验证**：本轮新增 6 个测试全绿（12/18/9/17/19/26=101 项）；服务端核心回归
+128/95/180/17/23/22 全过；JS/Python 语法、`git diff --check` 干净。
+
+**部署**：本轮跨服务端代码/配置 + 前端 + gamedata（MerChant.txt）三类：
+- gamedata `MerChant.txt` 走卷挂载，需单独 scp 覆盖；
+- 服务端代码/配置 + 前端 `afk.html`/`PlayScene.mjs`/`MapActor.mjs`/`LoginScene.mjs`
+  走镜像，`bash scripts/deploy_image.sh`；
+- 模板角色需在服务器上跑 `D:/Python310/python.exe scripts/seed_template_chars.py`
+  （容器内路径 /app，用容器内 python）才会写进线上库；
+- 前端仍需 Ctrl+F5 强刷。
+
+**注意**：合法节假日表目前只内置 2026 年（国务院通知）；2027 年需更新 holiday.py
+或配 `holiday.dates`。精英怪是用户主动新增、偏离原版（原版无此机制），数值可配。
+原版名字风格现在默认开启，若用户想回改良风格 Esc 菜单切「名字风格：当前改良」。
+
+## §144 E2E 全链路验证 + GM 刷怪走统一构造路径（2026-11-23）
+
+用户要求本地起服务端做 E2E 并截图，另在 CLAUDE.md 加部署规则。
+
+1. **E2E 脚本** `scripts/e2e_session_20261123.py`（3.9 Playwright + 3.10 服务端，
+   独立临时 db `data/_e2e.db`、elite 专用配置 `data/_e2e_elite.properties`
+   只含 `elite.rate=1.0`）：**19/19 PASS**。覆盖 §143 全部八项：真实输入框登录 +
+   token 落 localStorage、名字风格默认原版、GM @刷怪 稻草人×5 全精英（选中后
+   绿色「精英·稻草人」躯干名 + 血条数字 50/50，未选中怪不显示名）、Esc 菜单
+   切换风格双向生效、token 冷启动自动免密登录（无错误弹窗）、afk.html 后台
+   （自动带 token→连接→刷新→开托管→GM 全服 2 行表格）。截图 9 张在
+   `data/e2e_shots/`（01 选人～09 GM 全服视图）。
+   坑：wait_for_function 在 __sceneManager 挂载前求值会抛 `reading 'current'`，
+   条件要加 `window.__sceneManager &&` 前置守卫；后台点「开启托管」后 dashMsg
+   会被随后的 refresh() 覆盖，断言应看状态卡片而不是消息行。
+
+2. **修复 GM @刷怪 绕过统一构造路径**（service.py `_gm_command`）：旧代码手搓
+   `Monster(...)`，漏掉 `init_meat_quality`/`_init_race_traits`/精英掷骰/掉落
+   初始化（稻草人挖肉、精英标记都不生效）。改调 `w._spawn_monster(p.map, t, x, y)`
+   + `broadcast_entity_add`。回归 gm_rescue 17/0、pyserver 128/0、all_messages 95/0。
+   E2E 里 @刷怪 能出精英正是此修复的验证。
+
+3. **CLAUDE.md 部署规则新增一条**（用户 2026-11-23 明确要求）：凡改动涉及
+   资源/配置文本等不随镜像走的内容（gamedata 卷挂载、独立挂载的
+   server.properties、data/、resources/），交付部署时除 `bash scripts/deploy_image.sh`
+   外**必须同时逐文件给出 scp 指令**并提醒重启容器。
+
+**本轮 §143+§144 改动均未提交。** 部署时 scp 清单（gamedata 卷挂载）：
+`MerChant.txt`（去宣传员）；其余（服务端代码/配置/前端/afk.html）全走镜像。
