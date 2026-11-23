@@ -26,6 +26,11 @@ const WIN_CHGPW = { bg: 50, w: 420, h: 299 };
 // 按钮图（FState.pas：Ok=62 New=61 ChgPw=53 Cancel=52 Close=64）
 const BTN_SUBMIT = 62, BTN_NEWUSER = 61, BTN_CHGPW = 53, BTN_CANCEL = 52, BTN_CLOSE = 64;
 
+// 免密登录（用户 2026-11-23）：token 由服务端登录成功签发、存 localStorage；
+// 用户名也记住（只存用户名，不存密码）。token 失效自动回退到手输。
+const LS_TOKEN = 'jootm2.authToken';
+const LS_USER = 'jootm2.lastUsername';
+
 // 注册表单字段（照 IntroScn.pas Create：left=161，宽 116（问答 163），top 相对窗口）
 const REG_FIELDS = [
     { key: 'username', top: 116, w: 116, max: 10 },
@@ -62,6 +67,7 @@ export class LoginScene extends Scene {
         this._edits = [];           // 当前窗口的输入框（回车跳转）
         // 登录成功后的开门动画状态（原版 m_boNowOpening / m_nCurFrame / m_dwStartTime）
         this._door = { active: false, done: false, startAt: 0, frames: [] };
+        this._autoTrying = false;   // 正在用 token 自动登录（失败时静默回退）
     }
 
     // WIL 纹理 → img URL（缓存）
@@ -190,7 +196,19 @@ export class LoginScene extends Scene {
         await this._btn(win, BTN_CHGPW, 111, 207, () => this.showChgpw());
         await this._btn(win, BTN_CLOSE, 252, 28, () => this.conn.close());
 
-        id.focus();   // 照 OpenScene：EdId.SetFocus
+        // 记住的用户名预填；若有 token 则自动免密登录（连接此时已就绪）。
+        let savedUser = '', token = '';
+        try {
+            savedUser = localStorage.getItem(LS_USER) || '';
+            token = localStorage.getItem(LS_TOKEN) || '';
+        } catch { /* 隐私模式 */ }
+        if (savedUser) id.value = savedUser;
+        if (token) {
+            this._autoTrying = true;
+            this.conn.send('tokenLogin', { token });
+        } else {
+            id.focus();   // 照 OpenScene：EdId.SetFocus
+        }
     }
 
     // ---- 注册窗口（DNewAccount） ------------------------------------------
@@ -285,14 +303,29 @@ export class LoginScene extends Scene {
             this._showMsgDlg('请输入帐号和密码。');
             return;
         }
+        this._autoTrying = false;
+        try { localStorage.setItem(LS_USER, u); } catch { /* 隐私模式 */ }
         this.conn.send('login', { username: u, password: p });
     }
 
     onMessage(type, msg) {
         if (type === 'loginResult') {
             if (msg.ok) {
+                // 保存服务端签发的 token + 用户名，供下次免密登录/挂机后台使用。
+                try {
+                    if (msg.token) localStorage.setItem(LS_TOKEN, msg.token);
+                    if (msg.username) localStorage.setItem(LS_USER, msg.username);
+                } catch { /* 隐私模式 */ }
+                this._autoTrying = false;
                 this._startDoor();     // 原版：登录成功先开门，再淡出切选人
             } else {
+                // 自动登录失败：静默清掉失效 token，回到手输界面（不弹错误框）。
+                if (this._autoTrying) {
+                    this._autoTrying = false;
+                    try { localStorage.removeItem(LS_TOKEN); } catch { /* 隐私模式 */ }
+                    if (this._edits[0]) this._edits[0].focus();
+                    return;
+                }
                 // 原版 SM_PASSWD_FAIL 走 FrmDlg.DMessageDlg 居中弹窗，
                 // LoginScene.PassWdFail 只重新显示输入框，并不在窗口里画一行字。
                 this._showMsgDlg(msg.error || 'ID不存在或未知错误，请稍后再试。');
