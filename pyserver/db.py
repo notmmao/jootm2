@@ -309,6 +309,12 @@ class Database:
             f"SELECT {CHAR_COLUMNS} FROM characters WHERE account_id = ? ORDER BY id",
             (account_id,))]
 
+    def all_characters(self) -> list[dict]:
+        """全量角色（GM 卡死扫描用）。只取判定所需的轻量列，避免反序列化背包。"""
+        cols = "id, name, map_name, x, y, home_map, home_x, home_y"
+        return [dict(r) for r in self.conn.execute(
+            f"SELECT {cols} FROM characters ORDER BY id")]
+
     def find_character(self, name: str) -> dict | None:
         row = self.conn.execute(
             f"SELECT {CHAR_COLUMNS} FROM characters WHERE name = ?", (name,)
@@ -353,6 +359,20 @@ class Database:
         )
         with self.conn:
             self.conn.execute(f"UPDATE characters SET {cols} WHERE id = ?", values)
+
+    def relocate_character(self, character_id: int, map_name: str, x: int, y: int) -> bool:
+        """只更新角色位置三字段（GM 解卡用），返回是否命中一行。
+
+        刻意不复用 :meth:`update_character`：那会把整行 items/storage/skills
+        等一起写回，若角色此刻正由另一条连接（Java 端/在线 tick）改动，
+        会被这份陈旧快照覆盖。解卡只需挪位置，只碰 map_name/x/y。
+        """
+        with self.conn:
+            cur = self.conn.execute(
+                "UPDATE characters SET map_name = ?, x = ?, y = ? WHERE id = ?",
+                (map_name, x, y, character_id),
+            )
+        return cur.rowcount > 0
 
     def delete_character(self, account_id: int, name: str) -> None:
         with self.conn:

@@ -649,10 +649,61 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
 
     # ---- GM @命令（原版 ObjBase.pas CmdXXX 系列，权限 >= 6）-------------
 
+    def _rescue_dest(self, home_map: str, home_x: int, home_y: int) -> tuple[str, int, int]:
+        """解卡落点：优先角色记忆点（home），校验地图存在+坐标可走；无效回比奇出生点。
+
+        智能回家点方案（用户 2026-11-22 选定）。home 可能是未登记地图（卡死根因
+        之一）或落在墙里，必须校验；_free_near 在 home 附近找可走空格，找不到
+        再回退 default_map 的 start_x/start_y（比奇 0,289,618）。
+        """
+        w = self.world
+        gm = w.get_or_load_map(home_map) if home_map else None
+        if gm is not None:
+            pos = w._free_near(gm, max(0, min(gm.width - 1, home_x)),
+                               max(0, min(gm.height - 1, home_y)), 3)
+            if pos is not None:
+                return gm.name, pos[0], pos[1]
+        # 回退出生点
+        dmap = w.default_map
+        pos = w._free_near(dmap, w.start_x, w.start_y, 5) or (w.start_x, w.start_y)
+        return dmap.name, pos[0], pos[1]
+
+    def _rescue_online(self, target, map_name: str, x: int, y: int) -> None:
+        """在线角色解卡：SpaceMove 传送 + 快照 + 广播 + 通知 + 立即落库。
+
+        立即 persist 是必要的：否则旧坐标留在内存，下次定时存档会把解卡结果
+        覆盖回去（角色又被存进卡死地图）。
+        """
+        w = self.world
+        if w.space_move(target, map_name, x, y) is None:
+            return
+        if target.session is not None:
+            target.session.send_json(w.map_snapshot(target, "changeMap"))
+        w.broadcast_entity_add(target)
+        w.space_move_show(target)
+        w.send_system(target, f"[GM] 你已被解救，传送到 {map_name}({x},{y})。")
+        self.persist(target)
+
+    def _is_stuck(self, map_name: str, x: int, y: int) -> str | None:
+        """判断角色是否卡死，返回原因字符串（不卡返回 None）。
+
+        卡死判定：① 地图未登记（get_or_load_map=None，无门无出口）；
+        ② 坐标越界或落在不可走格。注意 get_or_load_map 会按需加载地图，
+        扫描全库时可能加载很多图——但只用读 .map 头+瓦片，成本可接受。
+        """
+        w = self.world
+        gm = w.get_or_load_map(map_name)
+        if gm is None:
+            return f"地图{map_name}不存在"
+        if not gm.inside(x, y) or not gm.can_walk(x, y):
+            return "坐标不可走"
+        return None
+
     _GM_HELP = ("GM命令: @移动 [地图] x y  @金 数量  @等级 n  "
                 "@制造 物品名 [数量]  @刷怪 怪名 [数量]  @满  "
                 "@托管 [安全|均衡|效率]  "
                 "@离线 grant 角色名 分钟 | @离线 watch [角色名] | @离线 list  "
+                "@解卡 角色名 | @卡死扫描 | @解卡 all  "
                 "@机器人 list|reload|名字 台词  @帮助")
 
     def _gm_command(self, p, line: str) -> None:
@@ -807,6 +858,66 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                     w.send_system(target, f"[离线修炼] 获赠 {minutes} 分钟修炼时长。")
                 return
             w.send_system(p, "用法: @离线 grant 角色名 分钟 | @离线 watch [角色名] | @离线 list")
+            return
+
+        # ---- GM 解卡三件套（用户 2026-11-22 要求）------------------------
+        # 卡死根因：地图未登记/坐标落在墙里/TimeRecall 定时器重登丢失等，
+        # 现有 @移动 只能传 GM 自己，救不了别人。这里支持在线+离线双路。
+        if cmd in ("解卡", "rescue"):
+            if args and args[0].lower() in ("all", "全部"):
+                # 批量：扫全库，卡死的逐个救
+                rows = self.db.all_characters()
+                rescued = 0
+                for rec in rows:
+                    reason = self._is_stuck(rec["map_name"], rec["x"], rec["y"])
+                    if reason is None:
+                        continue
+                    dmap, dx, dy = self._rescue_dest(
+                        rec.get("home_map", ""), rec.get("home_x", 0), rec.get("home_y", 0))
+                    online = w.player(rec["name"])
+                    if online is not None:
+                        self._rescue_online(online, dmap, dx, dy)
+                    else:
+                        self.db.relocate_character(rec["id"], dmap, dx, dy)
+                    rescued += 1
+                    w.send_system(p, f"  救回 {rec['name']}：{reason} → {dmap}({dx},{dy})")
+                w.send_system(p, f"批量解卡完成：共救回 {rescued} 个角色。")
+                return
+            if not args:
+                w.send_system(p, "用法: @解卡 角色名 | @解卡 all")
+                return
+            name = args[0]
+            target = w.player(name)
+            rec = self.db.find_character(name)
+            if target is None and rec is None:
+                w.send_system(p, f"找不到角色 {name}。")
+                return
+            src = (f"{target.map.name if target.map else '?'}({target.x},{target.y})"
+                   if target is not None else f"{rec['map_name']}({rec['x']},{rec['y']})")
+            home_map = (target.home_map if target is not None else rec.get("home_map", ""))
+            home_x = (target.home_x if target is not None else rec.get("home_x", 0))
+            home_y = (target.home_y if target is not None else rec.get("home_y", 0))
+            dmap, dx, dy = self._rescue_dest(home_map, home_x, home_y)
+            if target is not None:
+                self._rescue_online(target, dmap, dx, dy)
+            else:
+                self.db.relocate_character(rec["id"], dmap, dx, dy)
+            w.send_system(p, f"已将 {name} 从 {src} 救回 {dmap}({dx},{dy})。")
+            return
+        if cmd in ("卡死扫描", "scanstuck"):
+            rows = self.db.all_characters()
+            stuck = []
+            for rec in rows:
+                reason = self._is_stuck(rec["map_name"], rec["x"], rec["y"])
+                if reason is not None:
+                    online = "在线" if w.player(rec["name"]) is not None else "离线"
+                    stuck.append((rec["name"], rec["map_name"], rec["x"], rec["y"],
+                                  reason, online))
+            w.send_system(p, f"卡死扫描：{len(stuck)} / {len(rows)} 个角色异常。")
+            for name, m, x, y, reason, online in stuck[:40]:
+                w.send_system(p, f"  {name}({online}) {m}({x},{y}) — {reason}")
+            if len(stuck) > 40:
+                w.send_system(p, f"  …另有 {len(stuck) - 40} 个，用 @解卡 all 一次救回。")
             return
         if cmd in ("机器人", "bot"):
             # @机器人 list / @机器人 名字 台词 / @机器人 reload
