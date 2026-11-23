@@ -1236,3 +1236,109 @@ MapInfo 一个门口写成 8~14 行相邻坐标（原版用坐标片覆盖门口
 **验证**：`sim_afk_longrun` seed 1/7/42 各 1h 均跑满无异常停机；全套回归 test_pyserver 128、test_all_messages 95、test_tick_systems 180、test_death_drop 26、test_autopilot 39、test_bots 29、test_afk_offline 50、test_afk_supply 43、test_pet_drop_pickup 8、test_weekend_boost 31、test_mage_flee 8、test_slave_protection 22、test_npc_mafa_guide 20 全过。
 
 **未做/边界**：补给占时仍随 seed 波动 32%~77%（卖货买药往返，非卡死）；均衡档 `pickup_min_price=0` 什么都捡是补给频繁的根因，但涉及用户既定拾取策略，未擅自改——若要进一步压补给频率，下轮可考虑离线档默认价格过滤。
+
+## §138 比奇省网络文明宣传员位置新增玛法领路人（2026-11-21，用户要求）
+
+**需求**：用户「把比奇省的网络文明宣传员换成玛法领路人」，澄清后明确为——在原坐标**再放一个**玛法领路人，其他配置一律不动（宣传员保留、不删不改）。
+
+**改动**：`gamedata/Mir200/Envir/Npcs.txt` 加一行 `玛法领路人 0 0 326 261 0 12`（比奇省 326,261），与原有 (280,610) 那个并存。UTF-8 无 BOM，保持原格式。
+
+**机制佐证**：NPC 按唯一 id 存 `self.npcs[npc.id]`（world_extra.py:440），同名不冲突；`script_cache` key = `N:玛法领路人:0`（map=0），两者共享同一份脚本，对话/领补助功能完全一致。比奇省现有 2 个玛法领路人，网络文明宣传员 (326,261)/(盟重 297,302) 原样保留。
+
+**验证**：`load_npc_spawns` 解析出 2 个玛法领路人（280,610 / 326,261，appr=12）；`test_all_messages` 95/0、`test_pyserver` 128/0、`git diff --check` 干净。
+
+**本轮改 `Npcs.txt`（数据配置，标签 `[数据]`），未提交。** 需重启服务端生效（NPC 在 World 构造时一次性加载），前端无需改动。
+
+## §139 阿里云线上应急：建 GM 账号 + 救卡图角色 Garden（2026-11-22）
+
+**背景**：用户反馈「人物卡住没回城，GM 能解决么，去创建 GM 账号」。
+
+**关键机制澄清**：GM 权限是硬编码白名单 `config.py:16 GM_ACCOUNTS = frozenset({"player"})`，登录时按**账号名**判定（`service.py:440`），不是数据库字段。建 GM 账号 = 在生产库注册用户名为 `player` 的账号。GM 命令 `@移动 x y`/`@移动 地图名 x y`（`service.py:674`）**只能传发命令的 GM 自己**，救不了别人账号下的角色——所以救 Garden 走的是直接改库，不是 GM 命令。
+
+**卡图根因**：Garden（账号 24 / 2014）卡在地图 `01142` 的 (13,12)。`01142` 在 `MapInfo.txt` 里**没有登记**，属于不存在/无门的地图，角色进去后没有出口 → 回不了城。这类卡图 GM 命令也救不了（进不去那张图就用 `@移动` 也能救，但玩家自己不会）。
+
+**操作（阿里云生产库，先备份）**：
+1. 备份：`sqlite3 data/jootm2.db ".backup data/jootm2.db.bak-20261122-0735"`（含 WAL，备份文件 487KB）
+2. 走容器内 `python` + 项目自己的 `Database.register('player','123456')` 建 GM 账号（id=25，`authenticate` 验证 True）；密码 SHA-256(salt+password)，salt 随机
+3. `UPDATE characters SET map_name='0', x=289, y=618, home_map='0', home_x=289, home_y=618 WHERE name='Garden'`（1 行）
+4. 验证：GM 账号 25 存在；Garden map=0 xy=289,618 hp=62；/api/status 200 在线 3（bot）
+
+**如需重做**：账号名必须是 `player`（白名单写死）；`scp` 只同步 `gamedata`（compose 卷挂载 `./gamedata:/app/gamedata`），代码改动才走 `deploy_image.sh` 镜像。改库前务必 `.backup`，别直接 copyfile（WAL 会丢）。
+
+## §139 托管菜单布局优化：折叠成小按钮 + 状态条贴底（2026-11-21，用户要求）
+
+**需求**：用户反馈「托管菜单布局优化，当前状态和菜单有点影响视野」。给三个方案（全折叠 / 整体贴底 / 右上紧凑）后用户选**折叠成小按钮**。
+
+**现状问题**：两块元素都压在画面区中上部（`HUD_Y=349`，上方 0~349 是画面）。托管菜单 `autoBar` 在 `(496,126)` 宽 296×22，一行塞了开关/档位/不挖肉/离线四个控件；状态条 `autoPilotStatus` 在 `(170,96)` 宽 460，托管时横贯视野中上部。
+
+**改动（全在 `frontend/scene/PlayScene.mjs`）**：
+- `autoBar` 收成右上角 `(690,124)` 宽 102 的 split button：左侧 `#autoPilotBtn` 开关（80px，**id/语义/P 键/服务端协议全部不变**），右侧新增 `#autoPilotMenuBtn`（22px `▾`/`▴`）切换菜单。
+- 档位下拉、不挖肉勾选、离线入口搬进折叠面板 `#autoPilotMenu`（默认 `display:none`，`right:0;top:23px`），原 id 全保留。点离线入口时自动 `_closeAutoMenu()`，避免和离线面板（z-index:70）叠加。
+- 状态条 `#autoPilotStatus` 从 `(170,96)` 460×20 挪到 `(0,329)` 800×20，贴画面底边、只留一条 `border-top` 细带；文案与显示逻辑（`_renderAuto`）零改。
+- 联动更新 3 个浏览器脚本：`test_autopilot_ui.py`（不挖肉勾选前先点 `#autoPilotMenuBtn`）、`test_afk_ui.py` + `snap_afk_guide.py`（进游戏后展开菜单才能看到 `#afkBtn`）；`snap` 关面板改用面板自身 `div[title="关闭"]`（`afkPanel` 盖住折叠入口，点不到 `#afkBtn`）。`test_corpse_fx.py` 只点常驻开关，无需改。
+
+**验证**：`node --check` + `py_compile` 语法过；`test_autopilot_ui` 13/13、`test_afk_ui` 13/13 全过；`snap_afk_guide` 四张图正常产出。截图目视确认：右上角只剩紧凑开关+▾、画面中部视野清空、状态条贴底不再横贯中上部。
+
+**本轮改 `PlayScene.mjs` + 3 个测试脚本 + 重生成 `docs/autopilot-hud.png` / `docs/images/afk-guide/*.png`（标签 `[前端]`），未提交。** 纯前端改动，服务端协议不变；部署只需更新镜像（gamedata/config 未动）。
+
+---
+
+## §140 玩家一批对齐/功能修正（2026-11-22：GM解卡 + 职业之家卡死 + 稻草人火焰 + PK衰减配置）
+
+用户一批 5 类诉求，全部查过火炬 Delphi 权威源码后落地。按性质分 4 块，代码文件有交叉，提交按标签拆。
+
+### A. GM 解卡三件套（用户要求设计）
+- **背景**：`@移动` 只能传 GM 自己，救不了别人角色。线上 Garden 卡图只能直接改库。
+- **实现**：`service.py` 加 `@解卡 角色名` / `@卡死扫描` / `@解卡 all`，双路（在线 `world.player` → SpaceMove+快照+广播+立即 persist；离线 `db.find_character` → 改库）。
+  - 卡死判定 `_is_stuck()`：地图未登记（get_or_load_map=None）/ 坐标越界 / 坐标不可走。
+  - 落点 `_rescue_dest()`：优先 home_map/home_x/home_y（校验存在+可走+`_free_near` 邻近空格），无效回比奇出生点（用户选「智能回家点」）。
+  - `db.py` 加 `relocate_character()`（只更新 map_name/x/y 三字段，避免整行覆盖并发改动）+ `all_characters()`（扫描用轻量列）。
+  - 在线解卡后立即 `persist()`，否则下次定时存档会把旧坐标写回、角色又卡回去。
+- 新回归 `scripts/test_gm_rescue.py` 17/0。
+
+### B. 三个职业之家测验任务卡死修正（用户：修正任务，不刷怪）
+- **卡死根因**：三张任务图 `01142`(武士)/`01152`(法师)/`01132`(道士) 全 `exits=0` 无出口门，MapInfo 带 `NORECALL`（回城卷无效），唯一出路 `TimeRecall` 定时器**不写存档**（`persist()` 无此字段）——玩家断线/下线重登后 `time_recall=None`，永久锁死。Garden 就是撞这个坑的离线角色。
+- 额外 bug：武士家刷的 `暗之沃玛护卫` 是死引用怪（Monster.csv 无此模板，只有 `火焰沃玛2`）。
+- **修法**（用户三选一选定「去掉传送+刷怪」）：三个门外导师脚本的 `@Q706_1` 段从「清场+刷怪+TimeRecall+map 传送」改成 `#IF checkbaggage / #ACT give 技能书 + SET [757]`，复用屋内 NPC 已验证的发书结构。屋内 NPC 与任务地图文件保留不动（无人再进，无害）。保留任务链与剧情（7级→导师→对话发书→双击学技能→书店）。
+- 改 `9Eht-高级道士-0113.txt` / `9Ewi-高级魔法师-0115.txt` / `9Ehw-高级武士-0114.txt`；重写 `test_npc_home_quest.py`（顺带修了基线就坏的 `npc_by_script` 精确匹配→前缀匹配，原测试因 NPC script_name 带中文后缀从来跑不通）23/0。
+
+### C. 稻草人死亡火焰爆炸恢复（用户：以前会爆炸）
+- **原版依据**：`M2Server/ObjBase.pas:2800` 怪死当下 `SendRefMsg(RM_DEATH, lparam3=1)` → `:12583` 转 `SM_NOWDEATH`；客户端 `AxeMon.pas:351-358` 置 `BoUseEffect:=TRUE` 播完整 ActDie 动画 + `THuSuABi.LoadSurface`(:752) 叠 `DEATHFIREEFFECTBASE=2860` 火焰。稻草人 Race=18≠22 命中。后进视野看到尸体才走 `SM_DEATH` 定格（:1865 lparam3=0），不叠火焰。
+- **bug**：项目前端怪死一律设 `_action='death'` 定格，从不设 `die`，火焰（`ActorSprite.mjs:190` 的 `action==='die' && raceImg===18`）从未触发。
+- **修法**：`PlayScene.mjs` 怪死时 `raceImg===18` 设 `_action='die'` + `_dieUntil=now+10*120`（MA14.die 10帧×120ms）；到期转 death 定格。同步放过两处会把 die 腰斩成 death 的归一逻辑（渲染循环 4866 段 + entityAdd(corpse) 分支）。Playwright 实测：死亡瞬间 `_frameSpec` = `mon3/2780 + mon3/2860@lighter`，到期后 = `mon3/2789` 无火焰；普通怪不受影响。
+
+### D. PK 衰减缩短（用户：原版时间太长，确认后主动偏离）
+- 查证原版 `ObjBase.pas:7719` = `2*1000*60`（2分钟/点），项目实现与之一致，黄名 200 分 / 红名 400 分清白。用户确认偏长，选「加配置项默认 30 秒/点」。
+- `config.py` 加 `pk.decay_interval_ms`（`pk.decayIntervalSec`，默认 30，设回 120 恢复原版）；`world.py::_tick_pk` 改用配置值；`config/server.properties` 加注释行。`config.py` load 里曾误写 `max(1000, 30)` 把 30 秒钳成 1000 秒，已修为 `max(1, ...)`。
+- 30 秒/点 → 黄名 50 分 / 红名 100 分清白。`test_pk_punishment.py` 改为跟随配置 22/0。
+
+### 验证
+- 服务端：`test_pyserver` 128/0、`test_all_messages` 95/0、`test_tick_systems` 180/0、`test_pk_punishment` 22/0、`test_gm_rescue` 17/0、`test_npc_home_quest` 23/0。
+- 前端：`test_bigmap_nav` 19/19、`test_repair_ui` 14/0、`test_bag_ui` 12/0。`test_corpse_fx` 6/1 的 1 FAIL 经 stash 比对确认是基线既有（`--no-resource-index` 下纹理未加载），与本次无关。
+- `git diff --check` 干净；临时诊断脚本/db 全清理。
+
+### 部署提醒
+- 本轮跨 服务端代码 / 前端 / 配置 / gamedata 四类，**服务端代码与配置（`service.py`/`db.py`/`config.py`/`world.py`/`server.properties`）要重启并更新镜像**；gamedata 三脚本走卷挂载可直接 scp 覆盖；前端 `PlayScene.mjs` 需 Ctrl+F5。
+- 阿里云 PK 配置改动要生效同样需重启容器。
+- 提交标签建议拆：GM解卡 `[逻辑]`、职业之家 `[数据]`+`[测试]`、稻草人 `[渲染]`、PK `[调整]`、文档 `[文档]`；按规范每提交只带一个标签。
+
+**本轮未提交，等用户确认。**
+
+## §141 PK 衰减再缩到 15 秒 + 平板托管后无声修复（2026-11-22）
+
+### A. 为什么阿里云"没更新过来"（其实是生效了）
+- 用户按部署指令跑完后反馈"没更新"。远程核验 `/api/version` = `dc2e9a8`（builtAt 08:12:41，正是那次部署），容器内 `pk.decayIntervalSec=30` / `config.py=30_000`——**30 秒/点已生效**。
+- "看起来没变"是因为红名 pk_point=200，按 30 秒/点要 200×30s=100 分钟才归零变白，配置改了≠名字立刻变白；已积累的 pk 点要在线一点点扣（离线不补算）。先讲清这点再谈改数值。
+
+### B. PK 衰减默认值 30 → 15 秒（用户要求）
+- `pyserver/config.py` 两处（dataclass 默认 `15_000` + load 里 `as_int(...,15)`）、`config/server.properties`（`pk.decayIntervalSec=15`）、`world.py` 注释、`scripts/test_pk_punishment.py` 断言同步改。红名 200 点 → **50 分钟**清白，黄名 100 点 → 25 分钟。原版仍 120 秒/点（设回即恢复）。回归 22/0。
+
+### C. 平板（iPad）打开托管后永久无声——SoundManager 两处移动端坑
+- **坑1（主因）**：`install()` 的 `pointerdown`/`keydown` 解锁监听用了 `{once:true}`，首次手势后就移除；而 `_playUrl` 收到 `NotAllowedError`（移动端切后台/来电/低电量/并发过多会撤销音频权限）会把 `unlocked=false`。两者叠加 → 再次点击已无监听可重新解锁 → **永久静音**。托管面板点击恰好是解锁后的高频操作，容易踩中。
+  - 修法：去掉 once，改常驻监听（幂等重试）+ 加 `touchstart`（老 WebView 只发 touch）+ 加 `visibilitychange` 回前台续播 BGM；`_unlock()` 已解锁时也借每次手势尝试 `_startBgm()`（BGM 被系统 pause 后能恢复）。
+- **坑2**：音效槽 `voices` 只靠 `ended` 回收；iOS 上 audio 被中断时 `ended` 不触发 → voices 只增不减，撑满 `maxVoices=24` 后 `play()` 开头直接 return，所有音效静默。托管持续打怪音正好触发。
+  - 修法：给每个非 bgm voice 加 15 秒 `setTimeout` reaper 兜底回收；`cleanup` 加 `done` 幂等标志，避免重复触发误删。
+- 新回归 `scripts/test_audio_mobile.mjs` 6/6（Node 桩模拟 NotAllowedError / ended 不触发 / 手势重解锁 / 回前台续播）。原 `test_audio.mjs` 18/19 的 1 FAIL 经 stash 确认基线既有（spellCast 断言与本次无关）。
+- **部署**：前端 `SoundManager.mjs` 走镜像 + 浏览器强刷；PK 代码/配置走镜像并重启（gamedata 无改动，本轮不用 scp）。
+
+**本轮未提交，等用户确认。**
