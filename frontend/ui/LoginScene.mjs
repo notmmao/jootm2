@@ -28,8 +28,8 @@ const BTN_SUBMIT = 62, BTN_NEWUSER = 61, BTN_CHGPW = 53, BTN_CANCEL = 52, BTN_CL
 
 // 免密登录（用户 2026-11-23）：token 由服务端登录成功签发、存 localStorage；
 // 用户名也记住（只存用户名，不存密码）。token 失效自动回退到手输。
-const LS_TOKEN = 'jootm2.authToken';
-const LS_USER = 'jootm2.lastUsername';
+// 键名与登出清理在 core/authToken.mjs（SelectCharScene「退出」共用，避免循环 import）。
+import { LS_TOKEN, LS_USER } from '../core/authToken.mjs';
 
 // 注册表单字段（照 IntroScn.pas Create：left=161，宽 116（问答 163），top 相对窗口）
 const REG_FIELDS = [

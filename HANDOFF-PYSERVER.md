@@ -542,3 +542,25 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
   → `docker restart jootm2`（NPC/商店构造时加载）。
 - 容器内抽查：宣传员 9snpc1 行已带 `;` 注释、`pk.decayIntervalSec=15` 在镜像 config 生效；
   `elite.rate` 走代码默认 0.05。gp-bench-3 模板账号（tpl1..9）本轮也同步可用（镜像同版本）。
+
+## §148 选角「退出」真正登出：清免密 token（2026-11-23，用户反馈）
+
+**问题**：自动登录后，选角界面点「退出」回到登录界面，LoginScene 检测到
+localStorage 还有 token 又 `tokenLogin` 自动登回去——退出无效。
+
+**修复**：
+- 新文件 `frontend/core/authToken.mjs`：`LS_TOKEN`/`LS_USER` 键名 + `clearAuthToken()`
+  独立小模块（LoginScene 与 SelectCharScene 互有引用，放 core 避免循环 import）。
+- `LoginScene.mjs`：常量改为从 core/authToken import（行为不变）。
+- `SelectCharScene._exit()`：`onReturnLogin` 前调 `clearAuthToken()`——只清 token，
+  **用户名记忆保留**；下次手动登录后服务端重新签发 token。
+- 语义边界：游戏内菜单「退出角色」（回选角）与「退出游戏」不动，保持登录态，
+  与原版 Alt-X 一致；只有选角界面的「退出」（原版关客户端）才真正登出。
+
+**验证**：`scripts/test_exit_logout.py`（3.9 Playwright + 3.10 独立 db）15/15：
+表单登录→退出清 token 且 2.5s 内未自动登回→手动重登签发新 token→注入 token 冷启动
+自动免密→退出再清→再登恢复；「退出角色」保留 token；无页面 JS 报错。
+退出热区定位：SelectCharScene._buildButtons 最后 append 的 cursor:pointer 热区
+（按钮 72），取 client 矩形中心真实 click。
+
+纯前端改动，无 gamedata/资源；部署只需镜像。
