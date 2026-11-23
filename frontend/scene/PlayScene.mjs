@@ -600,25 +600,44 @@ export class PlayScene extends Scene {
         this._buildStateWin();
         this._buildBag();
 
-        // ---- 在线托管 AutoPilot（一期）--------------------------------
-        // 极简入口：右上角一个开关 + 档位下拉，托管时屏幕上方一行状态。
-        // 执行逻辑全在服务端，这里只发开关/档位消息并展示状态回包。
+        // 在线托管 AutoPilot（一期）——入口收成右上角一个紧凑 split button：
+        // 左侧开关（原 id / 语义 / P 键不变），右侧 ▾ 展开档位/不挖肉/离线。
+        // 执行逻辑全在服务端，这里只发消息并展示状态回包。
         this._auto = {
             active: false, paused: false, preset: this._loadAutoPreset(),
             noButch: this._loadAutoNoButch(),
             status: '', reason: '', route: '', kills: 0, presetNames: {},
         };
         const autoBar = document.createElement('div');
-        autoBar.style.cssText = 'position:absolute;left:496px;top:126px;width:296px;'
-            + 'height:22px;display:flex;gap:4px;pointer-events:auto;font-size:12px;';
+        autoBar.id = 'autoPilotBar';
+        autoBar.style.cssText = 'position:absolute;left:690px;top:124px;width:102px;'
+            + 'height:22px;display:flex;pointer-events:auto;font-size:12px;';
         this._autoBtn = document.createElement('div');
         this._autoBtn.id = 'autoPilotBtn';
-        this._autoBtn.style.cssText = 'width:82px;height:22px;box-sizing:border-box;'
+        this._autoBtn.style.cssText = 'width:80px;height:22px;box-sizing:border-box;'
             + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
             + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
         this._autoBtn.title = '开启/关闭自动托管（P）';
         this._autoBtn.addEventListener('click', () => this._toggleAutopilot());
         autoBar.appendChild(this._autoBtn);
+        this._autoMenuBtn = document.createElement('div');
+        this._autoMenuBtn.id = 'autoPilotMenuBtn';
+        this._autoMenuBtn.style.cssText = 'width:22px;height:22px;box-sizing:border-box;'
+            + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;border-left:none;'
+            + 'font-size:11px;user-select:none;';
+        this._autoMenuBtn.textContent = '▾';
+        this._autoMenuBtn.title = '展开/收起托管设置（档位 / 不挖肉 / 离线）';
+        this._autoMenuBtn.addEventListener('click', () => this._toggleAutoMenu());
+        autoBar.appendChild(this._autoMenuBtn);
+
+        // 折叠设置面板：默认收起，点 ▾ 展开；档位/不挖肉/离线都搬进来。
+        const autoMenu = document.createElement('div');
+        autoMenu.id = 'autoPilotMenu';
+        autoMenu.style.cssText = 'position:absolute;right:0;top:23px;width:212px;'
+            + 'display:none;flex-direction:column;gap:5px;padding:6px;box-sizing:border-box;'
+            + 'background:rgba(12,12,12,.92);border:1px solid #8a7a4a;';
+        this._autoMenuEl = autoMenu;
         this._autoSel = document.createElement('select');
         this._autoSel.id = 'autoPilotPreset';
         this._autoSel.style.cssText = 'width:78px;height:22px;box-sizing:border-box;'
@@ -633,12 +652,16 @@ export class PlayScene extends Scene {
         this._autoSel.value = this._auto.preset;
         this._autoSel.title = '托管策略档';
         this._autoSel.addEventListener('change', () => this._changeAutoPreset(this._autoSel.value));
-        autoBar.appendChild(this._autoSel);
+        const presetRow = document.createElement('div');
+        presetRow.style.cssText = 'display:flex;align-items:center;gap:6px;height:22px;color:#ffe9a8;';
+        presetRow.appendChild(document.createTextNode('档位'));
+        presetRow.appendChild(this._autoSel);
+        autoMenu.appendChild(presetRow);
         // 「不挖肉」独立勾选框：覆盖档位默认（安全/均衡默认挖肉、效率默认不挖）。
         const noButchLabel = document.createElement('label');
         noButchLabel.id = 'autoPilotNoButchLabel';
         noButchLabel.style.cssText = 'display:flex;align-items:center;gap:3px;'
-            + 'width:72px;height:22px;box-sizing:border-box;cursor:pointer;color:#ffe9a8;'
+            + 'width:100%;height:22px;box-sizing:border-box;cursor:pointer;color:#ffe9a8;'
             + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;font-size:11px;';
         noButchLabel.title = '勾选后托管任何档位都不挖肉，专注打怪升级';
         this._autoNoButch = document.createElement('input');
@@ -649,27 +672,32 @@ export class PlayScene extends Scene {
         this._autoNoButch.addEventListener('change', () => this._changeNoButch(this._autoNoButch.checked));
         noButchLabel.appendChild(this._autoNoButch);
         noButchLabel.appendChild(document.createTextNode('不挖肉'));
-        autoBar.appendChild(noButchLabel);
+        autoMenu.appendChild(noButchLabel);
 
         // 「离线」入口：打开/关闭离线修炼面板（docs/OFFLINE-AFK-PROTOCOL.md）。
         // 不占快捷键；执行逻辑全在服务端，前端只发 afk 三动作并渲染回包。
         this._afk = { state: null, panel: null, reportPanel: null };
         this._afkBtn = document.createElement('div');
         this._afkBtn.id = 'afkBtn';
-        this._afkBtn.style.cssText = 'width:52px;height:22px;box-sizing:border-box;'
+        this._afkBtn.style.cssText = 'width:100%;height:22px;box-sizing:border-box;'
             + 'line-height:20px;text-align:center;cursor:pointer;color:#ffe9a8;'
             + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;';
-        this._afkBtn.textContent = '离线';
+        this._afkBtn.textContent = '离线修炼';
         this._afkBtn.title = '离线修炼：设定计划后，下线自动开始修炼';
-        this._afkBtn.addEventListener('click', () => this._toggleAfkPanel());
-        autoBar.appendChild(this._afkBtn);
+        this._afkBtn.addEventListener('click', () => {
+            this._closeAutoMenu();   // 收起设置面板，避免和离线面板叠在一起
+            this._toggleAfkPanel();
+        });
+        autoMenu.appendChild(this._afkBtn);
+        autoBar.appendChild(autoMenu);
         root.appendChild(autoBar);
 
         this._autoStatusEl = document.createElement('div');
         this._autoStatusEl.id = 'autoPilotStatus';
-        this._autoStatusEl.style.cssText = 'position:absolute;left:170px;top:96px;'
-            + 'width:460px;height:20px;line-height:20px;text-align:center;font-size:12px;'
-            + 'color:#ffe9a8;background:rgba(0,0,0,.58);border:1px solid rgba(180,150,80,.55);'
+        // 状态条贴画面最底边（HUD_Y=349），一条细带，不再横贯视野中上部。
+        this._autoStatusEl.style.cssText = 'position:absolute;left:0;top:329px;'
+            + 'width:800px;height:20px;line-height:20px;text-align:center;font-size:12px;'
+            + 'color:#ffe9a8;background:rgba(0,0,0,.55);border-top:1px solid rgba(180,150,80,.45);'
             + 'text-shadow:1px 1px 0 #000;pointer-events:none;display:none;';
         root.appendChild(this._autoStatusEl);
         this._renderAuto();
@@ -736,6 +764,21 @@ export class PlayScene extends Scene {
     _saveAutoNoButch(on) {
         try { localStorage.setItem('jootm2.autopilotNoButch', on ? '1' : '0'); }
         catch { /* 隐私模式 */ }
+    }
+
+    /** 展开/收起托管设置面板（档位/不挖肉/离线）。 */
+    _toggleAutoMenu() {
+        if (!this._autoMenuEl) return;
+        const show = this._autoMenuEl.style.display !== 'block';
+        this._autoMenuEl.style.display = show ? 'block' : 'none';
+        if (this._autoMenuBtn) this._autoMenuBtn.textContent = show ? '▴' : '▾';
+    }
+
+    /** 收起托管设置面板（点离线入口时调用）。 */
+    _closeAutoMenu() {
+        if (!this._autoMenuEl) return;
+        this._autoMenuEl.style.display = 'none';
+        if (this._autoMenuBtn) this._autoMenuBtn.textContent = '▾';
     }
 
     _toggleAutopilot() {
