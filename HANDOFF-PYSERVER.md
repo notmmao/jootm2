@@ -564,3 +564,5 @@ localStorage 还有 token 又 `tokenLogin` 自动登回去——退出无效。
 （按钮 72），取 client 矩形中心真实 click。
 
 纯前端改动，无 gamedata/资源；部署只需镜像。
+**已部署阿里云**（2026-11-23 18:23，在线 3=3 Bot 无人时段）：`/api/version=619d2f5`、
+容器内 authToken.mjs 在位、smoke_ws 全通；gp-bench-3 未点名不动。
