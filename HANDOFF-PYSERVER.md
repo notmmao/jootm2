@@ -747,3 +747,24 @@ MAX_CONCURRENT=8 队列 + 地面缓存借像素失败 → 外面也黑。
 B=局域网 IP 非安全上下文期望 idb；各 6 项：后端正确/Range 无异常/回填/重载索引恢复/
 二次零网络命中/无 JS 报错）12/12；`test_opfs_cache.py` 9/9 无回归。
 待部署后用 debug 脚本对线上复跑，`enabled=true, mode=idb` 应成立。
+
+## §159 Cloudflare Tunnel 上线 https://mir2.notmmao.com（2026-11-23，橙云方案实测作废）
+
+**为什么不能用橙云代理**：阿里云备案拦截是**全端口 DPI 查 HTTP Host 头**（实测 8080
+带任意未备案域名 Host → Non-compliance ICP Filing 拦截页；带 IP Host 才放行），而
+CF 橙云回源的 Host 头固定等于访客访问的主机名、产品上无法改写——「未备案 + 大陆源站
++ 橙云」无解。Tunnel 可行是因为最后一跳是 cloudflared → `127.0.0.1:8080` 本地回环，
+不走公网入口、绕开 DPI。
+
+**部署**：服务器上 `docker run -d --name jootm2-tunnel --restart unless-stopped
+--network host cloudflare/cloudflared:latest tunnel --no-autoupdate run --token <用户
+在 CF Zero Trust 面板建的 token>`。4 条边缘连接注册成功（region2.v2 被墙自动避开）。
+公网入口收敛为 https://mir2.notmmao.com/。
+
+**验证**（debug_map_switch_cache.py 对隧道复跑，HEAD=dca8aa0）：
+- Range 206 + Content-Range + gzip 头完整透传；WS 握手 101；
+- **https = 安全上下文 → OPFS 整文件缓存首次真正生效**（`mode:'opfs'`）：
+  首进矿区 221→19 请求；回比奇 31 请求且 opfsHits=40（Range 零网络本地切片）；
+  后台预取持续回填（stored 20、pending 10）。
+- 遗留观察项：CF 免费版 WS 空闲超时约 100s，长时间挂机若实测掉线需在服务端加 ping/pong
+  或调 CF 配置；debug 脚本角色名改为 `JOOTM2_CHAR` 环境变量传入（线上= GmHero）。

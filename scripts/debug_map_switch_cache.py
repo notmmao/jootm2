@@ -103,7 +103,7 @@ def main() -> int:
             page.evaluate(f"() => window.__conn.send('noticeOk', {{name:'{CHAR}'}})")
         except Exception:
             pass
-        wait_play(page)
+        wait_play(page, timeout=180)
         print("已进入游戏（比奇省），等首屏稳定 12s …")
         time.sleep(12)
         st0 = sched_stats(page)
