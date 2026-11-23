@@ -351,6 +351,13 @@ export class PlayScene extends Scene {
         this._keyUp = (e) => this._onKeyUp(e);
         document.addEventListener('keydown', this._keyDown);
         document.addEventListener('keyup', this._keyUp);
+        // 导航后台续跑：页面转入后台且寻路未走完 → 起专用定时器步进；
+        // 回前台 rAF 恢复 → 停表（见 _navBgEnsure 注释）。
+        this._navVisHandler = () => {
+            if (document.hidden) { if (this._navPath) this._navBgEnsure(); }
+            else this._navBgStop();
+        };
+        document.addEventListener('visibilitychange', this._navVisHandler);
         this._mdHandler = (e) => this._onMouseDown(e);
         this._muHandler = () => {
             this._holding = false;          // 松开停止移动
@@ -3091,8 +3098,40 @@ export class PlayScene extends Scene {
             this._navStuck = 0;
             this._navPrev = null;
             this._navStepAt = 0;
+            this._navBgStop();
             if (!silent) this._log('[导航] 已停止', '#9fb08a');
         }
+    }
+
+    // ---- 导航后台续跑（2026-11-23）----
+    // 寻路步进原本挂在 rAF 主循环里；标签页隐藏/窗口最小化时 Chrome 会冻结
+    // rAF，人物就停在原地。导航期间页面转入后台时，改由 setInterval 专用定时器
+    // 继续调 _tickAutoNav（逻辑坐标仍由服务端 echo 驱动，回前台后渲染自动跟上）。
+    // 另用 Web Lock 申请豁免 Chrome 的「后台 5 分钟后激进节流」——没有豁免的话
+    // 定时器会退化到每分钟一次；部分 Chrome 版本对持锁页面完全不冻结定时器。
+    // 两者都失败也只是退回「后台暂停」的旧行为，绝不影响前台。
+
+    _navBgEnsure() {
+        if (this._navBgTimer) return;
+        const step = () => {
+            if (!this._navPath || !this.self) { this._navBgStop(); return; }
+            try {
+                this._tickAutoNav(Date.now());
+            } catch (e) { console.error('[navBg]', e); }
+            if (!this._navPath) this._navBgStop();
+        };
+        this._navBgTimer = setInterval(step, 250);
+        if (!this._navLockCtrl && navigator.locks && navigator.locks.request) {
+            this._navLockCtrl = new AbortController();
+            navigator.locks.request('jootm2.nav-background',
+                { signal: this._navLockCtrl.signal }, () => new Promise(() => {}))
+                .catch(() => { /* 被拒绝/中断：无豁免，仍按节流定时器跑 */ });
+        }
+    }
+
+    _navBgStop() {
+        if (this._navBgTimer) { clearInterval(this._navBgTimer); this._navBgTimer = 0; }
+        if (this._navLockCtrl) { this._navLockCtrl.abort(); this._navLockCtrl = null; }
     }
 
     /** 目标格不可站时在 ±2 环内找最近可站格（历史「点墙就近寻路」口径）。 */
@@ -5887,6 +5926,8 @@ export class PlayScene extends Scene {
         this._dragCleaners = [];
         this._holding = false;
         this._cancelNav(true);
+        this._navBgStop();
+        if (this._navVisHandler) document.removeEventListener('visibilitychange', this._navVisHandler);
         this._dirAttackHolding = false;
         this._shiftDown = false;
         this.bagPanel = null;

@@ -624,3 +624,29 @@ retries；`window.__opfs()` 调试钩子。main.mjs init 并行开两级缓存�
 持续 502 reject 不卡死、无页面报错。
 
 纯前端；部署只需镜像。后续可选：进游戏过场时批量预取本地图用到的 WIL 整文件。
+
+## §152 大地图寻路后台续跑：页面隐藏不再停步（2026-11-23，用户反馈）
+
+**根因**：寻路步进 `_tickAutoNav` 挂在 rAF 主循环（render 内）；Chrome 在标签页
+隐藏/窗口最小化时**冻结 rAF**，人物原地停走。托管不受影响（服务端 tick 推进）。
+WS 也不受影响（服务端 ping + 浏览器原生 pong，后台不断线）。
+
+**修复**（PlayScene.mjs）：
+- `_navBgEnsure/_navBgStop`：导航期间页面转后台 → `setInterval(250ms)` 专用定时器
+  继续调 `_tickAutoNav(Date.now())`（本身按时间戳节流，与 rAF 无耦合）；
+  回前台/取消导航/到达/场景 onExit 即停表。
+- `visibilitychange` 监听在 onEnter 注册、onExit 注销。
+- 后台时用 `navigator.locks.request('jootm2.nav-background', {signal})` 持锁申请
+  豁免 Chrome「5 分钟后激进节流」（无豁免定时器退化为每分钟一次）；Web Lock
+  在部分 Chrome 版本还能让持锁页面**完全不冻结定时器**。失败仅退回旧行为。
+- 坑：`FileSystemFileHandle` 无 getSize 那类静默降级风险已规避——定时器异常只
+  console.error，导航状态由 `_navPath` 空判定自然收敛。
+
+**验证** `scripts/test_nav_background.py` 10/10（3.9 Playwright + 自起 3.10 临时
+服务端/独立库）：覆盖 window.requestAnimationFrame 精确模拟后台冻结 + 伪装
+document.hidden 派发 visibilitychange；对照组（前台+冻结=停步）、隐藏后定时器
+接管且位置持续推进、Web Lock 在 held 列表、回前台停表无双驱动、取消导航后
+隐藏无残留定时器、无页面报错。
+顺带：`test_opfs_cache.py` 的 BASE 改 `JOOTM2_BASE` 环境变量（默认仍 8098）。
+
+纯前端；部署只需镜像。

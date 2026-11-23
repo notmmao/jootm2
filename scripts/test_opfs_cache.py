@@ -13,12 +13,13 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://127.0.0.1:8098"
+BASE = os.environ.get("JOOTM2_BASE", "http://127.0.0.1:8098")
 
 results: list[tuple[str, bool, str]] = []
 
