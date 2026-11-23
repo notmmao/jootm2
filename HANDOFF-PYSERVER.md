@@ -666,3 +666,26 @@ document.hidden 派发 visibilitychange；对照组（前台+冻结=停步）、
 改为独立锚定头顶：`baseY = min(nameY, anchorY-71) - 16`（原版/改良两风格统一
 在头顶-87 起向上叠行）。test_name_style 15/15 + 真实浏览器注入 _sayText 截图
 确认气泡在血条上方。纯前端；部署只需镜像。
+
+## §155 精神力战法不涨修炼值：PSwordSkill 共享指针对齐（2026-11-23，用户反馈）
+
+**根因**（火炬 `ObjBase.pas:4243-4297`）：原版扫描 MagicList 时，战士基本剑术(3)
+与道士精神力战法(4) **共用同一个 PSwordSkill 指针**（case 4 注释「道士的基本剑术」），
+命中怪物的加点（:5463-5471）加的是该指针 → 道士平A应涨精神力战法。旧实现
+`_train_sword_skills` 只写死技能 3，道士永远不涨。
+
+**修复**（handlers_combat.py）：`for mid in (4, 3): if _can_train: train; break`
+（两者都学时 4 优先，与原版 case 顺序一致；现实中职业互斥不会都学）。
+
+**全技能核查**（对照 Magic.pas SpellNow 全部 `train := TRUE` 行）：
+1/5/11/13 命中动物怪、2/29 治疗生效、6 中毒、8 推开>0、9/10 穿透命中、
+14/15 加持>0、16 困住、17/30 召唤成功、18/19 隐身生效、20 诱惑、21 瞬移、
+22 火墙放置、23/33/24 范围命中、28 启示成功、31 开盾、32 圣言秒杀——
+`_resolve_magic` 返回值一一对应，`_finish_cast` 统一加点，无遗漏。
+两处已知差异（不改，记录）：①原版伤害法术只在 `RaceServer>=RC_ANIMAL` 时涨，
+我们对守卫类怪（race<50）命中也涨——边缘；②原版施毒可中玩家（:790
+`RC_USERHUMAN or >=RC_ANIMAL` 都 train），本服施毒拒绝玩家目标，属玩法差距。
+
+**验证**：新增 `scripts/test_skill_train.py` 11/11（道士只学4涨4 / 战士涨3 /
+3+4都学只涨4 / 满级与等级门槛不涨 / 攒满100升级扣点 / 攻杀不受影响）；
+test_durability 19/19、test_pyserver 128/0。纯服务端；部署只需镜像。

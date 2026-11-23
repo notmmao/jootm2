@@ -817,9 +817,16 @@ class CombatHandlers:
           烈火剑法（26, hitMode=7）：每次命中 ``TrainSkill(1)``。
         都要 ``btLevel < 3`` 且 TrainLevel[btLevel] <= 人物等级。
         刺杀/半月的**副目标**不加点（原版只在主目标结算处调用）。
+
+        精神力战法（4）：原版扫描 MagicList 时（ObjBase.pas:4292-4294）道士的 4
+        与战士的 3 **共用同一个 PSwordSkill 指针**（case 4 在 case 3 之后，两者
+        都学则 4 覆盖 3），命中加点（:5463）加的就是该指针——所以道士平A练的
+        是精神力战法。本项目此前只写死技能 3，道士永远不涨（用户 2026-11-23 反馈）。
         """
-        if self._can_train(p, 3):
-            self._train_skill(p, 3, random.randint(1, 3))
+        for mid in (4, 3):
+            if self._can_train(p, mid):
+                self._train_skill(p, mid, random.randint(1, 3))
+                break
         if sword_hit in (26, 7) and self._can_train(p, 7):   # bo21
             self._train_skill(p, 7, random.randint(1, 3))
         for mid in (12, 25, 26):
