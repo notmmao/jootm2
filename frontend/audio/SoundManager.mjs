@@ -301,8 +301,18 @@ class SoundManager {
         this.installed = true;
         this.attach(conn);
         const unlock = () => this._unlock();
-        document.addEventListener('pointerdown', unlock, { capture: true, once: true });
-        document.addEventListener('keydown', unlock, { capture: true, once: true });
+        // 不能 once：移动端（尤其 iPad Safari）在切后台、来电、低电量或并发音过多后
+        // 会撤销音频权限，_playUrl 收到 NotAllowedError 会把 unlocked 置回 false。
+        // 若首次手势后监听就被移除，就再也无法重新解锁 → 永久静音（平板托管后无声
+        // 正是这条路径）。改为常驻监听，每次手势都幂等重试；touchstart 覆盖部分
+        // 只发 touch 不发 pointerdown 的老 WebView。
+        document.addEventListener('pointerdown', unlock, { capture: true });
+        document.addEventListener('keydown', unlock, { capture: true });
+        document.addEventListener('touchstart', unlock, { capture: true, passive: true });
+        // 切后台回来后系统会把 <audio> 暂停且不自动恢复，回前台时主动续播 BGM。
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && this.unlocked && this.enabled) this._startBgm();
+        });
         document.addEventListener('click', (e) => this._onClick(e), true);
         this.setBgm('intro');       // 解锁后自动起播
         this.ready = this._loadMap();
@@ -339,7 +349,12 @@ class SoundManager {
     }
 
     _unlock() {
-        if (this.unlocked) return;
+        if (this.unlocked) {
+            // 已解锁但 BGM 被系统暂停（切后台/被拒后）→ 借这次手势重新起播。
+            // 这里不能 return：移动端每次有效手势都要给一次恢复机会。
+            if (this.enabled && this.bgmKey) this._startBgm();
+            return;
+        }
         this.unlocked = true;
         try {
             const probe = new Audio(silentWavUri());
@@ -371,7 +386,12 @@ class SoundManager {
         if (!tpl.paused && !tpl.ended) el = tpl.cloneNode(true);   // 同名并发
         el.volume = clamp01(volume);
         let fellBack = false;
+        let done = false;
+        let reaper = 0;
         const cleanup = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(reaper);
             el.removeEventListener('ended', cleanup);
             el.removeEventListener('error', onError);
             this.voices.delete(el);
@@ -385,6 +405,9 @@ class SoundManager {
         if (!isBgm) {
             this.voices.add(el);
             el.addEventListener('ended', cleanup);
+            // 移动端（iOS 切后台/被打断）ended 不一定触发，voices 会只增不减，
+            // 撑到 maxVoices 后所有音效静默。加超时兜底回收（普通音效都很短）。
+            reaper = setTimeout(cleanup, 15000);
         }
         el.addEventListener('error', onError);
         const p = el.play();
