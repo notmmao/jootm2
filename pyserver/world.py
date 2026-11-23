@@ -126,6 +126,7 @@ BONUS_TICK_SPEED = (35, 35, 30)
 SKILL_HIT_BONUS = ((3, 9, 3), (4, 8, 3), (7, 3, 3))
 
 U_DRESS, U_WEAPON, U_RIGHTHAND, U_CHARM = 0, 1, 2, 12
+U_BUJUK = 9   # 火炬 Grobal2.pas:1349（StruckDamage 循环 :3528 显式跳过）
 EQUIP_SLOTS = 13
 
 # 与 Java ExperienceTable.NEED_EXPS 完全一致（MAXLEVEL=101，index 0→等级1，index 100→等级101）。
@@ -1643,11 +1644,12 @@ class GameWorld(WorldExtra):
         })
 
     def do_damage_weapon(self, p: Player, amount: int) -> None:
-        """原版 ``TBaseObject.DoDamageWeapon``（ObjBase.pas:18967-19009）。
+        """原版 ``TCreature.DoDamageWeapon``（火炬 ObjBase.pas:5187-5228）。
 
         - 持久扣 amount；扣到 ≤ 0 时武器**直接损毁清槽**（SendDelItems +
           ``wIndex := 0``，GameOfMir 里不是留在身上变「已破坏」）；
-        - 节流：``Round(持久/1.03)``（:18975/19005）变化才发 SM_DURACHANGE。
+        - 节流：火炬 :5194/5224 用 ``Round(持久/1000)``（与衣服一致；
+          GameOfMir 老版 :18975 是 /1.03，以火炬为准）。
         """
         if p.equipment is None:
             return
@@ -1655,7 +1657,7 @@ class GameWorld(WorldExtra):
         if it is None:
             return
         old = int(it.get("durability", 0) or 0)
-        old_point = delphi_round(old / 1.03)
+        old_point = delphi_round(old / 1000)
         dura = old - amount
         if dura <= 0:
             it["durability"] = 0
@@ -1664,7 +1666,7 @@ class GameWorld(WorldExtra):
             self.send_bag_update(p)
             return
         it["durability"] = dura
-        if delphi_round(dura / 1.03) != old_point:
+        if delphi_round(dura / 1000) != old_point:
             self.send_dura_change(p, U_WEAPON, it)
 
     def mark_illegal_attack(self, attacker: Player, victim: Player, now: int) -> None:
@@ -1684,13 +1686,15 @@ class GameWorld(WorldExtra):
 
     def wear_struck(self, target: Player, damage: int,
                     attacker: "Actor | None" = None) -> None:
-        """原版 ``TBaseObject.StruckDamage``（ObjBase.pas:22461-22560）：被击中
+        """原版 ``TCreature.StruckDamage``（火炬 ObjBase.pas:3464-3575）：被击中
         且伤害 > 0 时装备磨损——先对衣服（U_DRESS）固定磨损 ``Random(10)+5``
-        （:22478-22516），再对**全部**装备槽（含武器、含衣服）各 1/8 概率磨损
-        同量（:22517-22560）；到 0 直接损毁清槽（衣服还要 FeatureChanged，
-        本项目用 bagUpdate 刷外观）；节流 ``Round(持久/1000)``（显示 1 点）
-        变化才发 SM_DURACHANGE。POISON_DAMAGEARMOR 的 ×1.2 本项目暂无该毒
-        状态，略。
+        （:3487），再对 i=1..11 各槽 1/8 概率磨损同量（:3527：**从 1 起**，衣服
+        不再二次磨损；**跳过 U_BUJUK(9)** 符不缺耐久；**不含 U_CHARM(12)**，
+        原版注释「护身符是耐久没有，副利都磨不坏」即 12 不在循环内）；到 0
+        Dura:=0 置 bocalc 重算能力（本项目视同损毁清槽，bagUpdate 刷外观）；
+        节流 ``Round(持久/1000)``（火炬 :3489/3520；GameOfMir 老版武器用
+        /1.03，以火炬为准）变化才发 SM_DURACHANGE。POISON_DAMAGEARMOR 的
+        ×1.2 本项目暂无该毒状态，略。
         """
         # 原版 AddPkHiter 在 Struck（挨打）里给攻击者置灰名，不在 _Attack 里。
         # 只在实际造成伤害（damage>0）时才算「动手」，与磨损口径一致；即使
@@ -1700,9 +1704,13 @@ class GameWorld(WorldExtra):
         if damage <= 0 or not target.equipment:
             return
         n_dam = random.randint(5, 14)
-        self._wear_slot_struck(target, U_DRESS, n_dam)   # 22478 衣服固定磨损
-        for slot in range(len(target.equipment)):        # 22517 全槽各 1/8
-            if target.equipment[slot] is None:
+        self._wear_slot_struck(target, U_DRESS, n_dam)   # 3487 衣服固定磨损
+        # 3527: for i := 1 to 11（跳过 9=U_BUJUK；不含 12=U_CHARM）
+        for slot in range(1, 12):
+            if slot == U_BUJUK:
+                continue
+            it = target.equipment[slot] if slot < len(target.equipment) else None
+            if it is None:
                 continue
             if random.randrange(8) != 0:
                 continue

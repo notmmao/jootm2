@@ -566,3 +566,27 @@ localStorage 还有 token 又 `tokenLogin` 自动登回去——退出无效。
 纯前端改动，无 gamedata/资源；部署只需镜像。
 **已部署阿里云**（2026-11-23 18:23，在线 3=3 Bot 无人时段）：`/api/version=619d2f5`、
 容器内 authToken.mjs 在位、smoke_ws 全通；gp-bench-3 未点名不动。
+
+## §149 衣服耐久掉太快：StruckDamage 磨损槽位对齐火炬（2026-11-23，用户反馈）
+
+**根因**（对比火炬 `M2Server/ObjBase.pas:3464-3575 TCreature.StruckDamage`）：
+旧实现受击磨损循环 `for slot in range(len(equipment))`（0..12）**把 U_DRESS(0)
+再次卷入 1/8 概率磨损**——衣服每次被命中期望磨损 9.5×1.125，比原版多耗 12.5%，
+且还错误地磨损 U_CHARM(12)。原版 :3527 是 `for i:=1 to 11`（从 1 起=衣服只吃
+:3487 的固定磨损一次；`i<>U_BUJUK` 符不磨；12 不在循环内）。
+
+**修复**（world.py `wear_struck`）：循环改 `range(1, 12)` + 跳过 `U_BUJUK(9)`
+（world.py 新增常量 U_BUJUK=9，Grobal2.pas:1349）。
+
+**顺带对齐**（火炬为准，用户 2026-11-17 定的蓝本优先级）：`do_damage_weapon`
+节流 `Round(持久/1.03)`（GameOfMir :18975 老版）→ `Round(持久/1000)`
+（火炬 :5194/5224，与衣服一致）。只影响 SM_DURACHANGE 推送频率，数值不变。
+火炬武器到 0 也只是 `Dura:=0` 不删装备（Index:=0 段被注释掉），本项目维持
+损毁清槽（与 GameOfMir 一致、玩家语义更清楚），未改。
+
+**验证**：`test_durability.py` 重写断言后 19/19（新增：衣服不再二次磨损、
+符(9)/护身(12) 豁免、/1000 节流同点不下发/跨点下发）；核心回归
+test_pyserver 128/0、test_all_messages 95/0、test_pk_punishment 22/0、
+test_amulet_depletion 9/0、test_afk_maintain 17/0。
+
+纯服务端逻辑，无资源/gamedata；部署只需镜像。
