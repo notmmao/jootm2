@@ -590,3 +590,37 @@ test_pyserver 128/0、test_all_messages 95/0、test_pk_punishment 22/0、
 test_amulet_depletion 9/0、test_afk_maintain 17/0。
 
 纯服务端逻辑，无资源/gamedata；部署只需镜像。
+
+## §150 原版名字风格补充：NPC 常显名不显血条、怪物永远显血条（2026-11-23，用户反馈）
+
+`MapActor._drawHeadHud` original 分支：`showHp` 改「怪物恒真 + NPC 恒假 + 其余按
+isFocus/isSelf」；`showName` 加 `e.type === 'npc'` 常显。当前改良风格分支不变。
+注意：怪物血条常显是用户新增（原版仅 FocusCret/BoOpenHealth 画条），不是还原。
+test_name_style.mjs 加 3 断言（非选中怪仍有血条 / NPC 有名无条），15/15。
+
+## §151 OPFS 整文件资源缓存 + 载入失败重试（2026-11-23，用户反馈「载入慢/重复载入」）
+
+**根因**：IndexedDB 持久层上限 384MB < resources/Data 全量 1.2GB——一个版本的 WIL
+分片放不满触发淘汰，下次进游戏又走网络（重复载入）；且网络失败原先直接 reject，
+瞬时抖动（隧道断/重启）会让格子/精灵长期空白。
+
+**新文件**：
+- `frontend/gfx/opfsStore.mjs`：OPFS（`navigator.storage.getDirectory()`）整文件缓存。
+  版本目录隔离（asset-version 变→旧目录整体删）；文件名 = mangleKey(url)；启动恢复
+  索引、请求持久存储；配额满淘汰一半。坑：`FileSystemFileHandle` **没有 getSize()**，
+  必须 `getFile().size`（首版在这里抛 TypeError 导致整层静默降级，重载实测才暴露）。
+- `frontend/gfx/fileCache.mjs`：`loadWholeBytes(kind,url)` 整文件加载链
+  OPFS→IndexedDB→网络（重试 2 次指数退避）。Maps.mjs/.map、wil.mjs/WIX、boot.mjs
+  warmMap 全部改走它（顺带修 wil.loadIndex 失败后 rejected promise 永久留在
+  `_indexLoading` 的问题——加 catch 复位）。
+
+**scheduler.mjs**：命中链改 mem→**OPFS**→IndexedDB→网络；网络失败自动重试 2 次
+（abortPending 掐断不重试，保持条纹坑语义）；分片下载完成后 `opfsPrefetch(url)`
+串行队列 + 每次间隔 2.5s 后台整文件回填（不抢首屏带宽）；stats/diag 加 opfsHits、
+retries；`window.__opfs()` 调试钩子。main.mjs init 并行开两级缓存（OPFS 限 1s 超时）。
+
+**验证** `scripts/test_opfs_cache.py`（3.9 Playwright + 3.10:8098）9/9：首开启用、
+预取回填、**重载后索引持久 + 整文件命中零网络**、route 注入 502×2 后成功（retries=2）、
+持续 502 reject 不卡死、无页面报错。
+
+纯前端；部署只需镜像。后续可选：进游戏过场时批量预取本地图用到的 WIL 整文件。
