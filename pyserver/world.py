@@ -24,7 +24,7 @@ from .gamedata import (
 from .templates import ItemTemplate, MagicTemplate, MonsterTemplate
 from .util import (
     AGGRO_RANGE, CHICKEN_DEER_RUN, CHICKEN_DEER_VIEW, DOOR_OPEN_MS, GUARD_RACES,
-    HSET_SHAPES, ILLEGAL_ATTACK_MS, PK_DECAY_INTERVAL_MS,
+    HSET_SHAPES, ILLEGAL_ATTACK_MS,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
     RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT, REGEN_INTERVAL_MS,
@@ -1372,7 +1372,9 @@ class GameWorld(WorldExtra):
     def _tick_pk(self, p: Player, now: int) -> None:
         """PK 点衰减 + 灰名到期（原版 ObjBase.pas:7719-7724 / :2866-2870）。
 
-        - 在线每 ``PK_DECAY_INTERVAL_MS``（2 分钟）``DecPkPoint(1)``，离线不补算。
+        - 在线每 ``config.pk_decay_interval_ms`` 毫秒 ``DecPkPoint(1)``，离线不补算。
+          原版 ObjBase.pas:7719 是 2 分钟/点；用户 2026-11-22 认为偏长，主动
+          偏离改默认 15 秒/点（配置 pk.decayIntervalSec，设回 120 即恢复原版）。
           ``pk_decay_at`` 为 0（读档/新角色）时以当前时刻为基准，避免一上线
           就把积攒的离线时间一次性扣掉（原版也没有离线补算）。
         - 灰名 60 秒到期清 ``BoIllegalAttack``，并通过 RM_CHANGENAMECOLOR
@@ -1385,7 +1387,7 @@ class GameWorld(WorldExtra):
         if p.pk_point > 0:
             if not p.pk_decay_at:
                 p.pk_decay_at = now
-            elif now - p.pk_decay_at >= PK_DECAY_INTERVAL_MS:
+            elif now - p.pk_decay_at >= self.config.pk_decay_interval_ms:
                 p.pk_decay_at = now
                 p.pk_point -= 1
                 changed = True

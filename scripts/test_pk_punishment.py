@@ -147,16 +147,20 @@ def main() -> int:
     w._tick_pk(e, now_ms())
     check("60 秒到点灰名清除", e.illegal_attack_until == 0)
 
-    print("\n[4] PK 点衰减：在线每 2 分钟 -1，离线不补算")
+    # 原版 ObjBase.pas:7719 是 2 分钟/点；用户 2026-11-22 嫌长，主动偏离改
+    # 默认 15 秒/点（配置 pk.decayIntervalSec，设回 120 恢复原版）。测试跟随配置。
+    decay = svc.config.pk_decay_interval_ms
+    print(f"\n[4] PK 点衰减：在线每 {decay // 1000} 秒 -1，离线不补算")
+    check("默认衰减间隔 15 秒（原版 120 秒）", decay == 15_000, f"实际 {decay}ms")
     g, sg = make_player(svc, "g")
     g.pk_point = 200
     t0 = now_ms()
     w._tick_pk(g, t0)
     check("首次 tick 只设基准不扣点", g.pk_point == 200 and g.pk_decay_at == t0)
-    w._tick_pk(g, t0 + PK_DECAY_INTERVAL_MS - 1)
-    check("未到 2 分钟不扣", g.pk_point == 200)
-    w._tick_pk(g, t0 + PK_DECAY_INTERVAL_MS)
-    check("满 2 分钟 -1", g.pk_point == 199, f"实际 {g.pk_point}")
+    w._tick_pk(g, t0 + decay - 1)
+    check("未到间隔不扣", g.pk_point == 200)
+    w._tick_pk(g, t0 + decay)
+    check("满间隔 -1", g.pk_point == 199, f"实际 {g.pk_point}")
 
     print("\n[5] 红名死亡爆全部背包")
     h, sh = make_player(svc, "h")

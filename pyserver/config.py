@@ -109,6 +109,10 @@ class ServerConfig:
     afk_supply_town_map: str = "0"
     afk_supply_max_fails: int = 5      # 连续补给失败上限，达上限转长冷却而非停机
     afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
+    # PK 点衰减间隔（毫秒）。原版 ObjBase.pas:7719 是 2 分钟/点（黄名 200 分钟、
+    # 红名 400 分钟清白），用户 2026-11-22 认为偏长，主动偏离改默认 15 秒/点。
+    # 设回 120000 即恢复原版行为。
+    pk_decay_interval_ms: int = 15_000
     # 在线托管满包行为：0=继续打怪、停止拾取（新默认）；1=回城停机（旧行为）。
     autopilot_bag_full_stop: int = 0
     # ---- 周末双倍活动 ----
@@ -259,6 +263,7 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
         afk_supply_max_fails=max(0, as_int("afk.supplyMaxFails", None, None, 5)),
         afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
+        pk_decay_interval_ms=max(1, as_int("pk.decayIntervalSec", None, None, 15)) * 1000,
         autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
         weekend_enabled=max(0, as_int("weekend.enabled", None, None, 1)),
         weekend_exp_rate=max(0.0, as_float("weekend.expRate", None, None, 2.0)),
