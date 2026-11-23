@@ -362,6 +362,7 @@ export class PlayScene extends Scene {
             onBag: () => this._toggleBag(),
             onMap: () => this._cycleMapView(),
             onMenu: () => { if (!this._closeTopWindow()) this._toggleSystemMenu(); },
+            onChat: () => this._openChatInput(),
         });
         window.__touchControls = this.touch;   // 回归/调试：enabled + 控件状态
 
@@ -471,6 +472,7 @@ export class PlayScene extends Scene {
         this._bigMapCanvas = null;
         this._bigMapTitle = null;
         this._sysMenu = null;
+        this._gmPanel = null;   // GM 辅助菜单（仅 GM 账号，G 键 / 系统菜单入口）
 
         // 聊天记录区（208,470，374×108 = 9 行 × 12px）
         // 原版没有滚动条：固定 9 行窗口 + ChatBoardTop 偏移，↑↓/PgUp/PgDn 滚动（ClMain.pas:1902-1925）
@@ -497,19 +499,37 @@ export class PlayScene extends Scene {
             + 'font-family:SimSun,serif;font-size:12px;padding:0 2px;pointer-events:auto;display:none;';
         this.chatInput.addEventListener('keydown', (e) => {
             e.stopPropagation();
+            // 中文输入法选字中的 Enter 是"确认候选词"，不能当发送（isComposing / keyCode 229）
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter') {
-                const t = this.chatInput.value.trim();
-                if (t) this.conn.send('say', { text: t });
-                this.chatInput.value = '';
-                this.chatInput.blur();
-                this.chatInput.style.display = 'none';
+                e.preventDefault();
+                this._submitChat();
             } else if (e.key === 'Escape') {
-                this.chatInput.value = '';
-                this.chatInput.blur();
-                this.chatInput.style.display = 'none';
+                e.preventDefault();
+                this._closeChatInput();
             }
         });
         root.appendChild(this.chatInput);
+
+        // 触屏聊天操作按钮：软键盘的回车/完成键常不触发 keydown，必须有可见的"发送/关闭"兜底。
+        // 桌面端保持 display:none，仍用 Enter/Esc；仅触屏开框时显示，位置固定在中部输入框旁。
+        const mkChatBtn = (label, fn) => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.style.cssText = 'position:absolute;display:none;z-index:81;pointer-events:auto;'
+                + 'touch-action:manipulation;border:2px solid #8a7448;background:#241d12;'
+                + 'color:#ffe9a8;font-family:SimSun,serif;font-size:16px;'
+                + 'box-shadow:0 2px 8px rgba(0,0,0,.5);';
+            b.addEventListener('pointerdown', (e) => e.stopPropagation());
+            b.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
+            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+            root.appendChild(b);
+            return b;
+        };
+        this.chatSendBtn = mkChatBtn('发送', () => this._submitChat());
+        this.chatSendBtn.style.cssText += 'left:628px;top:270px;width:82px;height:38px;';
+        this.chatCloseBtn = mkChatBtn('×', () => this._closeChatInput());
+        this.chatCloseBtn.style.cssText += 'left:718px;top:270px;width:52px;height:38px;';
 
         // 右上 4 个功能按钮（按下态 Prguse[8..11]，抬起态烘焙在底板上；坐标相对 DBottom）
         const topBtns = [
@@ -1260,7 +1280,40 @@ export class PlayScene extends Scene {
         if (!this.chatInput) return;
         this.chatInput.style.display = 'block';
         this.chatInput.value = prefill || '';
+        // 触屏设备：输入框原本在 (208,580) 贴底，软键盘弹出会被遮住。
+        // 临时移到屏幕中部并放大（逻辑坐标），字号 16px 避免 iOS Safari 自动缩放。
+        if (this.touch && this.touch.enabled) {
+            // 左侧留输入框，右侧让出 86px 给"发送"按钮 + 关闭按钮
+            this.chatInput.style.cssText = 'position:absolute;left:24px;top:270px;width:596px;height:38px;'
+                + 'box-sizing:border-box;background:#f0f0f0;color:#000;border:2px solid #8a7448;'
+                + 'outline:none;font-family:SimSun,serif;font-size:16px;padding:0 8px;'
+                + 'pointer-events:auto;display:block;z-index:80;';
+            if (this.chatSendBtn) this.chatSendBtn.style.display = 'block';
+            if (this.chatCloseBtn) this.chatCloseBtn.style.display = 'block';
+        }
         this.chatInput.focus();
+    }
+
+    /** 提交聊天框内容（回车 /"发送"按钮），对齐原版行为：空内容直接收起。 */
+    _submitChat() {
+        if (!this.chatInput) return;
+        const t = this.chatInput.value.trim();
+        if (t) this.conn.send('say', { text: t });
+        this._closeChatInput();
+    }
+
+    /** 收起聊天输入框并复位样式（桌面/触屏通用）。 */
+    _closeChatInput() {
+        if (!this.chatInput) return;
+        this.chatInput.value = '';
+        this.chatInput.blur();
+        this.chatInput.style.display = 'none';
+        if (this.chatSendBtn) this.chatSendBtn.style.display = 'none';
+        if (this.chatCloseBtn) this.chatCloseBtn.style.display = 'none';
+        // 复位到原版位置（208,580，387×12）——触屏开框时可能改过 cssText。
+        this.chatInput.style.cssText = 'position:absolute;left:208px;top:580px;width:387px;height:14px;'
+            + 'box-sizing:border-box;background:#c0c0c0;color:#000;border:none;outline:none;'
+            + 'font-family:SimSun,serif;font-size:12px;padding:0 2px;pointer-events:auto;display:none;';
     }
 
     // F1-F8 施法：按快捷键 key（F11 技能设置页绑定）查找技能
@@ -1337,9 +1390,15 @@ export class PlayScene extends Scene {
         if (e.code === 'Tab') { e.preventDefault(); this._cycleMapView(); return; }
         // V：小地图 关闭 → 半透明 → 不透明 → 关闭（原版 ViewMiniMapStyle，HUD 按钮上的提示也是 V）
         if (e.code === 'KeyV') { e.preventDefault(); this._toggleMiniMap(); return; }
+        // G：GM 辅助菜单（仅 GM 账号；非 GM 会给提示）
+        if (e.code === 'KeyG') { e.preventDefault(); this._toggleGmPanel(); return; }
         // Esc：优先关闭最上层窗口，没有窗口时打开系统菜单（原版 ESC 关窗口 / 打开系统设置）
         if (e.code === 'Escape') {
             e.preventDefault();
+            if (this._gmPanel && this._gmPanel.style.display === 'block') {
+                this._closeGmPanel();
+                return;
+            }
             if (!this._closeTopWindow()) this._toggleSystemMenu();
             return;
         }
@@ -3139,6 +3198,10 @@ export class PlayScene extends Scene {
 
     /** 关掉最上层的一个窗口；返回 false 表示没有任何窗口可关（此时 Esc 打开系统菜单）。 */
     _closeTopWindow() {
+        if (this._gmPanel && this._gmPanel.style.display === 'block') {
+            this._closeGmPanel();
+            return true;
+        }
         if (this._bigMapOpen) { this._closeBigMap(); return true; }
         if (this._sysMenu && this._sysMenu.style.display === 'block') {
             this._closeSystemMenu();
@@ -3228,13 +3291,198 @@ export class PlayScene extends Scene {
         mk('状态 (F10)', () => { this._closeSystemMenu(); this.statePage = 0; this._toggleStateWin(); });
         mk('技能 (F11)', () => { this._closeSystemMenu(); this._openSkillSetup(); });
         mk('快捷键说明', () => { this._closeSystemMenu(); this._showKeyHints(); });
+        // GM 辅助菜单入口：仅 GM 账号可见（服务端按 GM_ACCOUNTS 判定，前端拿 self.gm 标记）
+        if (this.self && this.self.gm) {
+            mk('GM 辅助菜单 (G)', () => { this._closeSystemMenu(); this._toggleGmPanel(); });
+        }
         mk('返回角色选择', () => { this._closeSystemMenu(); this._backToSelect(); });
         const tip = document.createElement('div');
         tip.style.cssText = 'margin:6px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
-        tip.textContent = 'Esc 关闭';
+        tip.textContent = 'Esc / 点「返回游戏」关闭';
         p.appendChild(tip);
         this.hudEl.appendChild(p);
         this._sysMenu = p;
+    }
+
+    // ---- GM 辅助菜单 -------------------------------------------------------
+    // 仅 GM 账号可用。所有操作最终走 say 通道发 @命令，服务端 _gm_command 校验 is_gm。
+    // 前端只做「简化输入 + 常用参数预设」，不追加任何客户端特权。
+
+    /** 发一条 GM 命令（命令体不含前导 @）。 */
+    _gmSay(cmd) {
+        if (!this.self || !this.self.gm) {
+            this._log('[GM] 当前账号无 GM 权限。', '#c04040');
+            return;
+        }
+        this.conn.send('say', { text: '@' + cmd });
+    }
+
+    _toggleGmPanel() {
+        if (!this.self || !this.self.gm) {
+            this._log('[GM] 当前账号无 GM 权限。', '#c04040');
+            return;
+        }
+        this._buildGmPanel();
+        if (!this._gmPanel) return;
+        const open = this._gmPanel.style.display === 'block';
+        if (!open && this.chatInput && this.chatInput.style.display === 'block') {
+            this._closeChatInput();   // 互斥：打开 GM 面板先收起聊天框
+        }
+        this._gmPanel.style.display = open ? 'none' : 'block';
+    }
+
+    _closeGmPanel() {
+        if (this._gmPanel) this._gmPanel.style.display = 'none';
+    }
+
+    _buildGmPanel() {
+        if (this._gmPanel || !this.hudEl) return;
+        const p = document.createElement('div');
+        p.style.cssText = 'position:absolute;left:200px;top:40px;width:420px;max-height:540px;overflow-y:auto;'
+            + 'padding:8px;background:rgba(10,12,16,0.96);border:2px solid #c9a24a;box-sizing:border-box;'
+            + 'pointer-events:auto;display:none;z-index:78;font-family:SimSun,serif;color:#e8d9b0;font-size:12px;';
+        const title = document.createElement('div');
+        title.style.cssText = 'position:relative;height:26px;line-height:26px;text-align:center;font-size:14px;'
+            + 'color:#ffe9a8;background:#241d12;border-bottom:1px solid #c9a24a;margin-bottom:8px;';
+        title.textContent = 'GM 辅助菜单';
+        // 右上角 × 关闭按钮：触屏无键盘也能关面板（G 键 / Esc 之外）
+        const closeX = document.createElement('button');
+        closeX.textContent = '×';
+        closeX.title = '关闭';
+        closeX.style.cssText = 'position:absolute;right:2px;top:1px;width:24px;height:24px;line-height:20px;'
+            + 'text-align:center;cursor:pointer;background:#3a2f1c;color:#ffe9a8;'
+            + 'border:1px solid #c9a24a;font-size:16px;padding:0;touch-action:manipulation;';
+        closeX.addEventListener('mousedown', (e) => e.stopPropagation());
+        closeX.addEventListener('click', (e) => { e.stopPropagation(); this._closeGmPanel(); });
+        title.appendChild(closeX);
+        p.appendChild(title);
+
+        const section = (label) => {
+            const d = document.createElement('div');
+            d.style.cssText = 'color:#c9a24a;font-weight:bold;margin:8px 4px 4px;border-bottom:1px dashed #5c4d30;';
+            d.textContent = label;
+            p.appendChild(d);
+        };
+        // 每个分区单独建一行，避免按钮与分区标题 DOM 顺序错位。
+        const newRow = () => {
+            const r = document.createElement('div');
+            r.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin:0 4px;';
+            p.appendChild(r);
+            return r;
+        };
+        const btn = (label, cmd, parent) => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.style.cssText = 'cursor:pointer;padding:4px 8px;background:#241d12;color:#ffe9a8;'
+                + 'border:1px solid #5c4d30;font-family:SimSun,serif;font-size:12px;';
+            b.addEventListener('mouseenter', () => { b.style.background = '#3a2f1c'; });
+            b.addEventListener('mouseleave', () => { b.style.background = '#241d12'; });
+            b.addEventListener('mousedown', (e) => e.stopPropagation());
+            b.addEventListener('click', (e) => { e.stopPropagation(); if (cmd) this._gmSay(cmd); });
+            (parent || row).appendChild(b);
+            return b;
+        };
+        const fieldRow = () => {
+            const r = document.createElement('div');
+            r.style.cssText = 'display:flex;gap:4px;margin:4px;align-items:center;';
+            p.appendChild(r);
+            return r;
+        };
+        const input = (placeholder, extra) => {
+            const i = document.createElement('input');
+            i.type = 'text';
+            i.placeholder = placeholder;
+            // 16px 字号：iOS Safari 对 <16px 的输入框 focus 时会自动缩放整个页面
+            i.style.cssText = 'flex:1;min-width:0;height:28px;background:#000;color:#e8d9b0;'
+                + 'border:1px solid #5c4d30;padding:0 4px;font-family:SimSun,serif;font-size:16px;' + (extra || '');
+            i.addEventListener('keydown', (e) => e.stopPropagation());
+            return i;
+        };
+
+        // 快捷操作
+        section('快捷');
+        const quickRow = newRow();
+        btn('满血蓝', '满', quickRow);
+        btn('+10万金币', '金 100000', quickRow);
+        btn('+100万金币', '金 1000000', quickRow);
+        btn('回城(0,289,477)', '移动 0 289 477', quickRow);
+
+        // 等级
+        section('等级 @等级 n (1-100)');
+        const lvRow = fieldRow();
+        const lvIn = input('等级', 'width:100px;flex:none;');
+        lvRow.appendChild(lvIn);
+        const lvBtn = btn('设置等级', '', lvRow);
+        lvBtn.addEventListener('click', () => {
+            const v = parseInt(lvIn.value.replace(/[^0-9]/g, ''), 10);
+            if (v >= 1 && v <= 100) this._gmSay('等级 ' + v);
+        });
+
+        // 传送
+        section('传送 @移动 [地图] x y');
+        const mvRow = fieldRow();
+        const mapIn = input('地图名(空=当前)', 'width:120px;flex:none;');
+        const xIn = input('x', 'width:48px;flex:none;');
+        const yIn = input('y', 'width:48px;flex:none;');
+        mvRow.append(mapIn, xIn, yIn);
+        const mvBtn = btn('传送', '', mvRow);
+        mvBtn.addEventListener('click', () => {
+            const x = parseInt(xIn.value.replace(/[^0-9-]/g, ''), 10);
+            const y = parseInt(yIn.value.replace(/[^0-9-]/g, ''), 10);
+            const map = mapIn.value.trim();
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                this._log('[GM] 请填写 x / y 坐标。', '#c04040');
+                return;
+            }
+            this._gmSay('移动 ' + (map ? map + ' ' : '') + x + ' ' + y);
+        });
+
+        // 制造物品
+        section('制造 @制造 物品名 [数量]');
+        const mkRow = fieldRow();
+        const itemIn = input('物品名', 'width:170px;flex:none;');
+        const itemQty = input('数量', 'width:56px;flex:none;');
+        itemQty.value = '1';
+        mkRow.append(itemIn, itemQty);
+        const mkBtn = btn('制造', '', mkRow);
+        mkBtn.addEventListener('click', () => {
+            const name = itemIn.value.trim();
+            const q = parseInt(itemQty.value.replace(/[^0-9]/g, ''), 10) || 1;
+            if (name) this._gmSay('制造 ' + name + ' ' + q);
+        });
+
+        // 刷怪
+        section('刷怪 @刷怪 怪名 [数量]');
+        const spRow = fieldRow();
+        const monIn = input('怪物名', 'width:170px;flex:none;');
+        const monQty = input('数量', 'width:56px;flex:none;');
+        monQty.value = '1';
+        spRow.append(monIn, monQty);
+        const spBtn = btn('刷怪', '', spRow);
+        spBtn.addEventListener('click', () => {
+            const name = monIn.value.trim();
+            const q = parseInt(monQty.value.replace(/[^0-9]/g, ''), 10) || 1;
+            if (name) this._gmSay('刷怪 ' + name + ' ' + q);
+        });
+
+        // 系统
+        section('系统');
+        const sysRow = newRow();
+        btn('托管开关', '托管', sysRow);
+        btn('托管·安全', '托管 安全', sysRow);
+        btn('托管·效率', '托管 效率', sysRow);
+        btn('机器人列表', '机器人 list', sysRow);
+        btn('重建机器人', '机器人 reload', sysRow);
+        btn('离线代理列表', '离线 list', sysRow);
+        btn('GM 帮助', '帮助', sysRow);
+
+        const tip = document.createElement('div');
+        tip.style.cssText = 'margin:8px 4px 2px;text-align:center;font-size:11px;color:#9fb08a;';
+        tip.textContent = '点右上角 × / G 键关闭 · 结果见聊天栏';
+        p.appendChild(tip);
+
+        this.hudEl.appendChild(p);
+        this._gmPanel = p;
     }
 
     _showKeyHints() {
@@ -5636,6 +5884,7 @@ export class PlayScene extends Scene {
         this._bigMapCanvas = null;
         this._bigMapTitle = null;
         this._sysMenu = null;
+        this._gmPanel = null;
         this._afk = null;
         this._pendingStep = false;
         const gui = this.manager.winManager.container;
