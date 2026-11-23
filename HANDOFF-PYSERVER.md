@@ -529,3 +529,16 @@ compose 的 `image: jootm2:python` 名字不变，`docker tag` 打回本地名�
   新建 18 角色成功、WAL 由运行中的服务自然可见（无需重启）。线上验证
   `POST /api/dash/auth {tpl7/template123}` 200。⚠️ 脚本是 `docker cp` 进容器的临时
   `/app/scripts_seed.py`，容器重建即消失；宿主机 `~/jootm2/scripts/` 也留了一份副本。
+
+## §147 阿里云部署 c37d4b1（2026-11-23，用户要求查在线、无人则部署）
+
+- 查在线：`/api/status` 显示 3 人，`online_count()` 不区分 Bot，对照服务器
+  `gamedata/bots.json` 恰好 3 个 → **真实玩家 0**，符合部署条件。
+- `bash scripts/deploy_image.sh` 一把过：ACR digest 正常，容器重建，
+  `/api/version=c37d4b1`、`/api/status` 200、`smoke_ws.py --host 139.224.24.88` 全通。
+- gamedata 卷挂载需单独 scp（dc2e9a8..HEAD 增量 5 文件）：`MerChant.txt`（宣传员注释）、
+  `Npcs.txt`（玛法领路人）、`Market_Def/9Eht-0113 / 9Ehw-0114 / 9Ewi-0115`（职业之家商店）
+  → `scp … root@aliyun.notmmao.com:/root/jootm2/gamedata/Mir200/Envir/[Market_Def/]`
+  → `docker restart jootm2`（NPC/商店构造时加载）。
+- 容器内抽查：宣传员 9snpc1 行已带 `;` 注释、`pk.decayIntervalSec=15` 在镜像 config 生效；
+  `elite.rate` 走代码默认 0.05。gp-bench-3 模板账号（tpl1..9）本轮也同步可用（镜像同版本）。
