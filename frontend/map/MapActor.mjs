@@ -1340,9 +1340,12 @@ export class MapActor {
         const nameY = anchorY - (original ? 17 : 71);
 
         // 血条。原版时机：仅选中目标/自己（原版靠 BoOpenHealth/心灵启示；这里用
-        // isFocus/isSelf 近似，让选中怪物即可看到血量）。当前风格：沿用 showHpLabel。
+        // isFocus/isSelf 近似）。用户 2026-11-23 补充两条原版风格细则：
+        // - 怪物永远显示血条（挂机/观战直观看剩余血量）；
+        // - NPC 永远不显示血条（不参与战斗，头顶一根红条很怪）。
+        // 当前风格：沿用 showHpLabel。
         const showHp = original
-            ? (e.isFocus || e.isSelf)
+            ? (e.type === 'monster' || e.isFocus || e.isSelf) && e.type !== 'npc'
             : ((hud.showHpLabel !== false) || e.isSelf
                 || (e.openHealth > 0 && e.openHealth > Date.now()));
         // NPC 不参与战斗，增强模式下不画头顶血条（避免商人头顶一根红条）。
@@ -1378,6 +1381,7 @@ export class MapActor {
         }
 
         // 名字。原版：只有选中目标 + 自己显示；无 Lv；画在躯干中部（格顶-17）。
+        // 用户 2026-11-23 补充：原版风格下 NPC 常显名字（否则找商人只能挨个点）。
         // 当前：全部显示（或悬停才显示，跟随细开关）；怪物带 Lv；画在头顶（格顶-71）。
         let dispName = e.name;
         if (!original && e.name && e.type === 'monster' && e.level > 0) {
@@ -1386,7 +1390,7 @@ export class MapActor {
         // 精英怪（任务 23）：名字带「精英」前缀 + 绿色，两种风格都生效。
         if (e.elite && dispName) dispName = `精英·${dispName}`;
         const showName = original
-            ? (e.isFocus || e.isSelf)
+            ? (e.isFocus || e.isSelf || e.type === 'npc')
             : !(hud.hoverNamesOnly && !e.isFocus && !e.isSelf);
         if (dispName && showName) {
             ctx.font = '11px SimSun,serif';

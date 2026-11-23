@@ -52,8 +52,16 @@ function check(name, cond, detail = '') {
 }
 {
     const notFocus = { ...baseMonster, isFocus: false };
-    const { texts } = capture(notFocus, 'original');
+    const { texts, rects } = capture(notFocus, 'original');
     check('原版·非选中怪物不显示名字', !texts.some(t => t.text.includes('稻草人')));
+    // 用户 2026-11-23：怪物永远显示血条（不依赖选中）
+    check('原版·非选中怪物仍显示血条', rects.some(r => r.h === 6), JSON.stringify(rects));
+}
+{
+    const npc = { name: '比奇武器店', type: 'npc', level: 0, hp: 100, maxHp: 100, isFocus: false, isSelf: false };
+    const { texts, rects } = capture(npc, 'original');
+    check('原版·NPC 常显名字', texts.some(t => t.text === '比奇武器店'));
+    check('原版·NPC 不显示血条', !rects.some(r => r.h === 6), JSON.stringify(rects));
 }
 {
     const elite = { ...baseMonster, elite: true };
