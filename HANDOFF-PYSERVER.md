@@ -721,3 +721,29 @@ DropUseItems :2512）逐行更正。
 容器重建启动。本次含 §154~156 三笔改动（气泡头顶 / 精神力战法修炼 /
 死亡掉落阈值），前端随镜像走、无 gamedata 变更故无需 scp。
 验证：`/api/version` = 517cefa，`/api/status` 200，重启后 5 人（bot+重连）在线。
+
+## §158 整文件缓存线上静默失效：OPFS 需安全上下文，补 IndexedDB Blob 降级（2026-11-23，用户反馈「换图/弱网后还是重复下载、地图全黑」）
+
+**实验实锤**（`scripts/debug_map_switch_cache.py`，公网实例 + Playwright 按窗口计数）：
+新 context 登录→比奇→GM 传送 D401 矿区→回比奇，全程 `__opfs().enabled=false`、
+`stored=0`；进矿区一段 **221 个网络 Range 请求**、IDB 分片仅命中 5 次——整文件缓存层
+（§151）在线上从来没生效过。回比奇 50 请求是「已访问地砖」，同样大部分走网络。
+
+**根因**：**OPFS（`navigator.storage.getDirectory`）是「安全上下文」专属 API**——只在
+https 或 http://127.0.0.1 / localhost 下存在。线上是 `http://域名:8080`，属性直接
+undefined，首版 opfsStore 只有 OPFS 一个后端 → 整层静默降级回 384MB 精确区间分片缓存。
+§151 回归跑在 127.0.0.1（唯一免安全位的地址）所以全绿没暴露。弱网症状链：进矿区要现下
+几百个分片（Hum/Hair/Weapon/Mon 各方向帧一批批失败）→ 精灵缺面；退图时新请求堵死
+MAX_CONCURRENT=8 队列 + 地面缓存借像素失败 → 外面也黑。
+
+**修复**（`frontend/gfx/opfsStore.mjs` 重写，对外 API 不变）：双后端——OPFS 可用走 OPFS
+（`mode:'opfs'`）；否则**整文件 Blob 存 IndexedDB**（`mode:'idb'`，库名
+`jootm2-whole-<素材版本>`，天然按版本隔离，其他版本库异步删除）。Blob 与 File 同样有
+`.size/.slice()/.arrayBuffer()`，scheduler / loadWholeBytes 零改动。索引跨重载用 size
+恢复、Blob 惰性读（init 不把所有 Blob 拉进内存）；配额写失败 → 按插入序淘汰后重试一次。
+`opfsGetStats()` 新增 `mode/version` 字段。
+
+**验证**：新增 `scripts/test_whole_cache_modes.py` 双上下文回归（A=127.0.0.1 期望 opfs，
+B=局域网 IP 非安全上下文期望 idb；各 6 项：后端正确/Range 无异常/回填/重载索引恢复/
+二次零网络命中/无 JS 报错）12/12；`test_opfs_cache.py` 9/9 无回归。
+待部署后用 debug 脚本对线上复跑，`enabled=true, mode=idb` 应成立。
