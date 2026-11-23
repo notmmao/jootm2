@@ -148,7 +148,9 @@ def main() -> int:
                 "window.__sceneManager.current && "
                 "window.__sceneManager.current.constructor.name === 'PlayScene'",
                 timeout=25000)
-            page.wait_for_selector("#afkBtn", timeout=25000)
+            page.wait_for_selector("#autoPilotMenuBtn", timeout=25000)
+            page.click("#autoPilotMenuBtn")           # 展开托管菜单（离线入口已折叠进去）
+            page.wait_for_selector("#afkBtn", state="visible", timeout=5000)
             check("进入游戏且「离线」按钮已渲染", True)
 
             print("\n=== afkReport 登录推送弹窗 ===")

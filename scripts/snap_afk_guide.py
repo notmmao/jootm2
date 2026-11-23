@@ -125,7 +125,9 @@ def main() -> int:
                 "window.__sceneManager.current && "
                 "window.__sceneManager.current.constructor.name === 'PlayScene'",
                 timeout=25000)
-            page.wait_for_selector("#afkBtn", timeout=25000)
+            page.wait_for_selector("#autoPilotMenuBtn", timeout=25000)
+            page.click("#autoPilotMenuBtn")           # 展开托管菜单（离线入口已折叠进去）
+            page.wait_for_selector("#afkBtn", state="visible", timeout=5000)
 
             # 1. 登录报告弹窗（先截，截完关闭）
             page.wait_for_selector("#afkReportPanel", timeout=10000)
@@ -149,7 +151,7 @@ def main() -> int:
 
             # 4. 玛法领路人对话：GM 传送到 NPC 旁，点 NPC
             page.fill("#afkMinutes", "10")  # 还原，避免留下奇怪状态（截图已拍完）
-            page.click("#afkBtn")           # 关面板
+            page.click('#afkPanel div[title="关闭"]')  # 用面板 × 关闭（afkPanel 盖住了折叠菜单入口）
             page.click("#screen")           # 聚焦画布
             page.evaluate("""() => {
                 const s = window.__sceneManager.current;

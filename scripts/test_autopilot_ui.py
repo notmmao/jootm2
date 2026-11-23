@@ -144,8 +144,9 @@ def main() -> int:
             check("状态跟随 tick 更新", text_busy != "" and "托管中" in text_busy,
                   text_busy)
 
-            print("\n=== 「不挖肉」勾选框 ===")
-            page.wait_for_selector("#autoPilotNoButch", timeout=5000)
+            print("\n=== 「不挖肉」勾选框（折叠在 ▾ 菜单内）===")
+            page.click("#autoPilotMenuBtn")
+            page.wait_for_selector("#autoPilotNoButch", state="visible", timeout=5000)
             check("不挖肉勾选框已渲染", True)
             page.check("#autoPilotNoButch")
             page.wait_for_timeout(300)
