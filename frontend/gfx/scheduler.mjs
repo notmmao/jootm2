@@ -2,16 +2,24 @@
 // 所有 WIL 库共享，最多 MAX_CONCURRENT 个并发 fetch（先到先得）。
 // 去重：若某请求的字节范围已被「进行中」的请求完全覆盖，则复用其数据（不占并发额度），
 //       空出的额度可以让给后续请求。
-// 持久缓存：分片按资源版本存进 IndexedDB。206 响应不进浏览器 HTTP 缓存，
-//       没有这一层的话，每次打开页面都会把几百个 512KB 分片重新下载一遍。
+// 持久缓存：三级——OPFS 整文件（无体积上限，装得下 1.2GB 全量素材）→ IndexedDB
+//       分片（384MB，OPFS 不可用时的兜底）→ 网络。206 响应不进浏览器 HTTP 缓存，
+//       没有这几层的话，每次打开页面都会把几百个 512KB 分片重新下载一遍。
 
 import { assetCache } from './assetCache.mjs';
+import { opfsGet, opfsPrefetch } from './opfsStore.mjs';
 
 // 并发上限跟着「浏览器每域名 6 条 HTTP/1.1 连接」走：
 // 大于 6 只是把请求塞进浏览器自己的队列，调度器就失去了插队能力——进游戏时
 // 优先下载的地面纹理排在一堆登录阶段的大图（开门动画 10×480KB）后面，
 // 实测 60KB/s 下地面 15 秒一张都没解出来。
 const MAX_CONCURRENT = 8;
+
+// 网络失败自动重试（用户 2026-11-23「载入失败地图/动作显示不出来」）：
+// 瞬时抖动（隧道断连、服务器重启、弱网丢包）重试 2 次、指数退避；
+// abortPending 掐断的不重试（那是要给地面让路，调用方按 null 兜底、之后自然重发）。
+const MAX_RETRY = 2;
+const RETRY_BASE_MS = 400;
 
 /**
  * 应用层协商的分片解压。WIL 虽是二进制，但 8bit 调色板 + 大片透明区让
@@ -32,6 +40,8 @@ class RangeScheduler {
         this.totalRequests = 0;    // 实际发起的 fetch 数（调试统计）
         this.dedupedRequests = 0;  // 被去重复用的请求数（调试统计）
         this.cacheHits = 0;        // 命中 IndexedDB 的分片数
+        this.opfsHits = 0;         // 命中 OPFS 整文件的分片数（零网络）
+        this.retries = 0;          // 网络失败自动重试次数
         this.compressedResponses = 0;  // 走应用层 gzip 的分片数
         this.savedBytes = 0;      // gzip 省下的传输字节
         this.bytesDown = 0;       // 实际传输字节（含 gzip 压缩后）
@@ -87,6 +97,20 @@ class RangeScheduler {
 
     async _run(item) {
         try {
+            // 一级：OPFS 整文件命中 → 本地 slice，零网络（二次打开页的主路径）。
+            // Range 语义 [start, end] 闭区间 → Blob.slice 要 end+1。
+            const fileP = opfsGet(item.url);
+            if (fileP) {
+                const file = await fileP;
+                if (file && item.start < file.size) {
+                    const end = Math.min(item.end, file.size - 1);
+                    const buffer = await file.slice(item.start, end + 1).arrayBuffer();
+                    this.opfsHits++;
+                    this._resolve(item, { start: item.start, buffer, total: file.size });
+                    return;
+                }
+            }
+            // 二级：IndexedDB 分片命中
             const key = assetCache.key('R', item.url, item.start, item.end);
             const hit = assetCache.ready ? await assetCache.get(key) : null;
             if (hit && hit.buf) {
@@ -98,8 +122,28 @@ class RangeScheduler {
             this.totalRequests++;
             const headers = { Range: `bytes=${item.start}-${item.end}` };
             if (typeof DecompressionStream !== 'undefined') headers['X-Jootm2-Gzip'] = '1';
-            const resp = await fetch(item.url, item.ctrl ? { headers, signal: item.ctrl.signal } : { headers });
-            if (!resp.ok && resp.status !== 206) throw new Error(`HTTP ${resp.status}`);
+            let resp = null;
+            let lastErr = null;
+            // 三级：网络（瞬时失败自动重试；abortPending 掐断不重试——那是主动
+            // 让路，重发只会再被掐，消费方按 null 兜底后自然会再次请求）。
+            for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+                try {
+                    resp = await fetch(item.url,
+                        item.ctrl ? { headers, signal: item.ctrl.signal } : { headers });
+                    if (resp.ok || resp.status === 206) break;
+                    lastErr = new Error(`HTTP ${resp.status}`);
+                    resp = null;
+                } catch (e) {
+                    if (item.ctrl && item.ctrl.signal.aborted) throw e;  // 掐断：直接上抛
+                    lastErr = e;
+                    resp = null;
+                }
+                if (attempt < MAX_RETRY) {
+                    this.retries = (this.retries || 0) + 1;
+                    await new Promise(r => setTimeout(r, RETRY_BASE_MS * (1 << attempt)));
+                }
+            }
+            if (!resp) throw lastErr || new Error('fetch failed');
             // 从 Content-Range 提取文件总大小（"bytes 0-1023/267372" -> 267372）
             let total = 0;
             const cr = resp.headers.get('content-range');
@@ -118,6 +162,9 @@ class RangeScheduler {
             }
             this.bytesPlain += buffer.byteLength;
             assetCache.set(key, { buf: buffer, total }, buffer.byteLength);
+            // 后台排队把整个文件抓进 OPFS（串行 + 延迟，不抢首屏带宽）。
+            // 首帧仍走这里的分片结果，预取只服务后续与下次会话。
+            opfsPrefetch(item.url);
             this._resolve(item, { start: item.start, buffer, total });
         } catch (err) {
             for (const c of item.consumers) c.reject(err);
@@ -159,6 +206,7 @@ class RangeScheduler {
             active: this.active.length, queue: this.queue.length,
             total: this.totalRequests, totalRequests: this.totalRequests,
             deduped: this.dedupedRequests, cacheHits: this.cacheHits,
+            opfsHits: this.opfsHits, retries: this.retries || 0,
             bytesDown: this.bytesDown, bytesPlain: this.bytesPlain,
             gzip: this.compressedResponses, gzipSaved: this.savedBytes,
         };

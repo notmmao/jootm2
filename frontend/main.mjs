@@ -10,6 +10,7 @@ import { DWinManager } from './gui/manager.mjs';
 import { loadResources } from './gfx/resource.mjs';
 import { scheduler } from './gfx/scheduler.mjs';
 import { assetCache } from './gfx/assetCache.mjs';
+import { opfsInit, opfsGetStats } from './gfx/opfsStore.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
 import { fitStage, setUiScale, onStageFit } from './core/viewport.mjs';
@@ -114,9 +115,16 @@ async function init() {
     boot.step('正在读取资源清单…');
     const [version] = await Promise.all([fetchAssetVersion(), loadResources()]);
 
-    // 2) 打开持久缓存（版本变化时自动清空旧素材）
+    // 2) 打开持久缓存（版本变化时自动清空旧素材）。
+    // OPFS 整文件缓存与 IndexedDB 分片缓存并行开；OPFS 限 1 秒，卡住不拖启动。
     boot.step('正在检查本地缓存…');
-    await assetCache.init(version);
+    await Promise.all([
+        assetCache.init(version),
+        Promise.race([
+            opfsInit(version),
+            new Promise(r => setTimeout(() => r(false), 1000)),
+        ]),
+    ]);
 
     // 2.5) 立刻并行开下出生地图的 .map 字节（不 await）：进游戏 loadMap()
     // 若现下这份文件，公网上常要等 6~14 秒。此时 Loading 还在，进度条可见。
@@ -197,6 +205,7 @@ async function init() {
     window.__getLib = getLib;
     window.__sound = sound;   // 调试：__sound.play(103) / status() / toggle()
     window.__assetCache = assetCache;   // 调试：__assetCache.stats() / await __assetCache.clear()
+    window.__opfs = opfsGetStats;       // 调试：__opfs() OPFS 整文件缓存状态
     window.__perf = perf;               // 调试：__perf.frames / __perf.stats(['total','floor'])
 }
 

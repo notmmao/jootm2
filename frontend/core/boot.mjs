@@ -10,6 +10,7 @@
 import { getLib } from '../image/Images.mjs';
 import { imageKeys, mapUrl } from '../gfx/resource.mjs';
 import { assetCache } from '../gfx/assetCache.mjs';
+import { loadWholeBytes } from '../gfx/fileCache.mjs';
 import { preloadMapTextures, waitIdle, onPreloadProgress } from './mapPreload.mjs';
 
 const ID_ROOT = 'boot-layer';
@@ -161,13 +162,7 @@ async function pool(items, limit, worker) {
 async function warmMap(mapId) {
     const url = mapUrl(mapId);
     if (!url) return;
-    const key = assetCache.key('MAP', url);
-    const hit = await assetCache.get(key);
-    if (hit && hit.buf) return;
-    const resp = await fetch(url);
-    if (!resp.ok) return;
-    const buf = await resp.arrayBuffer();
-    assetCache.set(key, { buf }, buf.byteLength);
+    await loadWholeBytes('MAP', url);   // 缓存链命中则零网络；失败上抛由调用方静默
 }
 
 let mapBytesPromise = Promise.resolve();

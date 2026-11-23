@@ -4,7 +4,7 @@
 
 import { PALETTE_RGBA, widthBytes, skipBytes } from './palette.mjs';
 import { scheduler } from './scheduler.mjs';
-import { assetCache } from './assetCache.mjs';
+import { loadWholeBytes } from './fileCache.mjs';
 
 // 单个请求的字节范围不再固定 512KB，而是「这张图自己的字节」+ 向后合并相邻图。
 // 原因（2026-11-12 实测）：一屏地面约 231 张图，真实字节只有 1MB 上下，
@@ -142,19 +142,10 @@ export class WIL {
         if (this.indexLoaded) return Promise.resolve();
         if (this._indexLoading) return this._indexLoading;
         this._indexLoading = (async () => {
-            // WIX 索引走持久缓存：虽然浏览器能缓存 200 响应，但公网上仍要一个
-            // RTT 做校验；索引只有几 KB，命中后连这个 RTT 都省掉。
-            const key = assetCache.key('WIX', this.wixUrl);
-            const hit = assetCache.ready ? await assetCache.get(key) : null;
-            let buf;
-            if (hit && hit.buf) {
-                buf = hit.buf;
-            } else {
-                const resp = await fetch(this.wixUrl);
-                if (!resp.ok) throw new Error(`加载 ${this.wixUrl} 失败`);
-                buf = await resp.arrayBuffer();
-                assetCache.set(key, { buf }, buf.byteLength);
-            }
+            // WIX 索引整文件走缓存链（OPFS→IndexedDB→网络）：虽然浏览器能缓存
+            // 200 响应，但公网上仍要一个 RTT 做校验；索引只有几 KB，命中后连这个
+            // RTT 都省掉。
+            const buf = await loadWholeBytes('WIX', this.wixUrl);
             const view = new DataView(buf);
             this.imageCount = view.getUint32(44, true);
             for (let i = 0; i < this.imageCount; i++) {
@@ -167,6 +158,9 @@ export class WIL {
             this.sortedOffsets = this.byOff.map(e => e.off);
             this.indexLoaded = true;
         })();
+        // 失败复位：不把 rejected promise 永久留在 _indexLoading，否则 MapActor
+        // 5 秒过期重试再次调用 loadIndex 拿到的还是同一个死 promise，索引永远坏。
+        this._indexLoading.catch(() => { this._indexLoading = null; });
         return this._indexLoading;
     }
 

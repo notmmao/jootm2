@@ -241,10 +241,13 @@ function buildReport(getScene, getCanvas) {
             })),
         },
         cache: safe(() => assetCache.stats()),
+        opfs: safe(() => window.__opfs ? window.__opfs() : { enabled: false }),
         range: safe(() => ({
             requests: scheduler.totalRequests,
             deduped: scheduler.dedupedRequests,
             cacheHits: scheduler.cacheHits,
+            opfsHits: scheduler.opfsHits,
+            retries: scheduler.retries,
             compressed: scheduler.compressedResponses,
             savedBytes: scheduler.savedBytes,
             bytesDown: scheduler.bytesDown,
