@@ -270,6 +270,14 @@ class Database:
         ).fetchone()
         return Account(*row) if row else None
 
+    def account_by_id(self, account_id: int) -> Account | None:
+        """按 id 查账号（token 免密登录用）。"""
+        row = self.conn.execute(
+            "SELECT id, username, password_hash, salt, created_at, last_login "
+            "FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        return Account(*row) if row else None
+
     def register(self, username: str, password: str) -> Account | None:
         if self.find_account(username) is not None:
             return None

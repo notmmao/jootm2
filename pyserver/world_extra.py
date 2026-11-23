@@ -13,6 +13,7 @@ from typing import Any
 
 from .drop_rates import load_drop_rates
 from .weekend import drop_rate as weekend_drop_rate, exp_rate as weekend_exp_rate
+from .holiday import exp_rate as holiday_exp_rate
 from .gamedata import parse_map_quest, read_lines
 from .util import (
     BAG_SIZE, GROUND_ITEM_TTL_MS, NAME_COLOR_NPC, PK_POINT_PER_KILL,
@@ -832,7 +833,9 @@ class WorldExtra:
         只在**击杀结算**处调用；``add_exp`` 本身保持原样，测试与 GM 加经验
         不受倍率影响。
         """
-        rate = self.drop_rates.exp_for(monster, weekend_exp_rate(self.config))
+        # 活动倍率取「周末」与「法定节假日」最大值，不叠乘（避免 ×4）。
+        boost = max(weekend_exp_rate(self.config), holiday_exp_rate(self.config))
+        rate = self.drop_rates.exp_for(monster, boost)
         if exp <= 0 or rate == 1.0:
             return exp
         if rate <= 0:

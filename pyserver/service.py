@@ -28,7 +28,7 @@ from .handlers_social import SOCIAL_TYPES, SocialHandlers
 from .templates import dumps
 from .util import RED_NAME_PK_POINT, U_DRESS, U_WEAPON
 from .version import load_version
-from . import weekend
+from . import weekend, holiday, auth_token
 from .world import (BAG_SIZE, GameWorld, Monster, Player, SIGHT_RANGE, direction_toward,
                     encode, normalize_exp, now_ms)
 from .world_extra import (BODY_LEATHERY, BUTCH_INTERVAL_MS, BUTCH_WEAR_MAX,
@@ -38,7 +38,7 @@ MAX_CHARS_PER_ACCOUNT = 2
 
 # 46 个 Java switch 分支全部有对应实现。
 MIGRATED_TYPES = frozenset({
-    "ping", "login", "register", "listCharacters", "createCharacter",
+    "ping", "login", "tokenLogin", "register", "listCharacters", "createCharacter",
     "deleteCharacter", "enterGame", "noticeOk", "move", "say", "logout",
     "backToSelect", "butch", "autopilot",
     # 离线修炼（docs/OFFLINE-AFK-PLAN.md §3）：info/start/stop 单入口。
@@ -112,10 +112,13 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         self.bots = BotManager(self, PROJECT_ROOT / "gamedata" / "bots.json")
         # 周末双倍活动：初始状态即进程启动时的状态（停机期间翻转不补广播）。
         self.weekend_active = weekend.is_active(config)
+        # 法定节假日双倍经验：同上，独立跟踪状态翻转。
+        self.holiday_active = holiday.is_active(config)
         self._handlers: dict[str, Callable[[Any, dict], None]] = {
             # 账号 / 角色 / 场景主干
             "ping": self._ping,
             "login": self._login,
+            "tokenLogin": self._token_login,
             "register": self._register,
             "listCharacters": self._list_characters,
             "createCharacter": self._create_character,
@@ -209,7 +212,7 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         # 原版 m_boDeath：死亡后停在黑白屏，只能聊天 / 返回角色选择 / 退出，
         # 不能走动、攻击、施法、吃药、买东西（服务端一并拦，防止绕过客户端）。
         owner = None
-        if msg_type not in ("ping", "login", "register", "listCharacters",
+        if msg_type not in ("ping", "login", "tokenLogin", "register", "listCharacters",
                             "createCharacter", "deleteCharacter", "enterGame",
                             "noticeOk", "say", "logout", "backToSelect"):
             owner = self.find_by_session(session)
@@ -292,9 +295,29 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if account is None:
             session.send_json(_error("loginResult", "账号或密码错误。"))
         else:
-            session.account_id = account.id
-            session.account_name = account.username
-            session.send_json({"type": "loginResult", "ok": True})
+            self._finish_login(session, account)
+
+    def _token_login(self, session: Any, msg: dict) -> None:
+        """免密登录：校验前端存的签名 token（不存密码），成功即沿用登录流程。"""
+        token = _str(msg, "token")
+        payload = auth_token.verify(token) if token else None
+        if payload is None:
+            session.send_json(_error("loginResult", "登录已过期，请重新输入密码。"))
+            return
+        account = self.db.account_by_id(payload["uid"])
+        # token 里的用户名必须与库中一致（防改用别人的 uid）。
+        if account is None or account.username != payload["u"]:
+            session.send_json(_error("loginResult", "登录已过期，请重新输入密码。"))
+            return
+        self._finish_login(session, account)
+
+    def _finish_login(self, session: Any, account: Any) -> None:
+        """登录成功统一出口：写会话 + 回包带 token（用户名也带上供前端记住）。"""
+        session.account_id = account.id
+        session.account_name = account.username
+        session.send_json({"type": "loginResult", "ok": True,
+                           "token": auth_token.issue(account.id, account.username),
+                           "username": account.username})
 
     def _list_characters(self, session: Any, msg: dict) -> None:
         if session.account_id <= 0:
@@ -480,8 +503,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         world.broadcast_entity_add(p)
         # 登录时下发离线修炼的待读报告/通知（重启续挂、结算摘要等）。
         self.afk.on_login(p)
-        # 周末双倍活动状态提示（开启/未开启各一行，不打扰战斗）。
+        # 活动状态提示（周末双倍 / 法定节假日双倍经验，各一行，不打扰战斗）。
         notice = weekend.login_text(self.config)
+        if notice:
+            world.send_system(p, notice)
+        notice = holiday.login_text(self.config)
         if notice:
             world.send_system(p, notice)
 
@@ -789,14 +815,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 pos = w._free_near(p.map, p.x, p.y, 3)
                 if pos is None:
                     break
-                m = Monster(id=w.new_id(), name=t.name,
-                            x=pos[0], y=pos[1], dir=4,
-                            hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
-                            level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
-                            template=t, spawn_x=pos[0], spawn_y=pos[1],
-                            spawn_map=p.map)
-                m.exp = t.exp
-                w.add_actor(m, p.map)
+                # 走统一构造路径（_spawn_monster），这样精英怪掷骰、肉品质、
+                # 种族特性等初始化与天然刷怪一致（旧代码手搓 Monster 会漏掉这些）。
+                m = w._spawn_monster(p.map, t, pos[0], pos[1])
                 w.broadcast_entity_add(m)
             w.send_system(p, f"已在附近刷出 {name} ×{count}。")
             return
@@ -1103,8 +1124,43 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             self.weekend_active = active
             self.world.broadcast_all({"type": "systemMessage",
                                       "text": weekend.START_MSG if active else weekend.END_MSG})
+        # 法定节假日双倍经验：状态翻转时全服广播一次（节日首日 0 点 / 末日 24 点）。
+        hactive = holiday.is_active(self.config)
+        if hactive != self.holiday_active:
+            self.holiday_active = hactive
+            self.world.broadcast_all({"type": "systemMessage",
+                                      "text": holiday.START_MSG if hactive else holiday.END_MSG})
 
     # ---- REST -----------------------------------------------------------
+
+    def _dash_account(self, query: dict[str, str], body: bytes) -> tuple[Any | None, str]:
+        """挂机后台：从 query/body 取 token 校验账号，返回 (account, error)。"""
+        token = query.get("token", "")
+        if not token and body:
+            try:
+                obj = json.loads(body.decode("utf-8"))
+                if isinstance(obj, dict):
+                    token = str(obj.get("token") or "")
+            except (ValueError, UnicodeDecodeError):
+                pass
+        payload = auth_token.verify(token) if token else None
+        if payload is None:
+            return None, "登录已过期，请重新在游戏内登录。"
+        account = self.db.account_by_id(payload["uid"])
+        if account is None or account.username != payload["u"]:
+            return None, "登录已过期，请重新在游戏内登录。"
+        return account, ""
+
+    def _dash_player(self, account, char_id: int):
+        """按 token 账号 + charId 找在线角色（防越权：必须属于该账号）。"""
+        try:
+            cid = int(char_id)
+        except (TypeError, ValueError):
+            return None
+        for p in self.world.players():
+            if p.character_id == cid and getattr(p, "account_id", None) == account.id:
+                return p
+        return None
 
     def handle_admin(self, method: str, path: str, query: dict[str, str],
                      body: bytes) -> str | None:
@@ -1154,6 +1210,89 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                                "expRate": self.config.afk_exp_rate,
                                "restartBonusMinutes": self.config.afk_restart_bonus_minutes,
                            }})
+        # ---- 挂机网页后台（玩家自助 + GM 全服；复用登录 token 认证）----
+        if path == "/api/dash/auth" and method.upper() == "POST":
+            account, err = self._dash_account(query, body)
+            if account is None:
+                return encode({"ok": False, "error": err})
+            chars = self.db.list_characters(account.id)
+            online_ids = {p.character_id for p in world.players()}
+            return encode({
+                "ok": True, "username": account.username,
+                "isGm": account.username in GM_ACCOUNTS,
+                "characters": [{"id": c["id"], "name": c["name"],
+                                "level": c["level"], "job": c["job"],
+                                "online": c["id"] in online_ids}
+                               for c in chars],
+            })
+        if path == "/api/dash/state":
+            account, err = self._dash_account(query, body)
+            if account is None:
+                return encode({"ok": False, "error": err})
+            is_gm = account.username in GM_ACCOUNTS
+            if is_gm and query.get("all") == "1":
+                return encode({"ok": True, "isGm": True,
+                               "autopilot": {"count": len(self.autopilot.snapshot()),
+                                             "pilots": self.autopilot.snapshot()},
+                               "afk": {"count": len(self.afk._pilots),
+                                       "agents": self.afk.snapshot()},
+                               "presets": [{"id": k, "name": v["name"], "desc": v["desc"]}
+                                           for k, v in PRESETS.items()]})
+            p = self._dash_player(account, query.get("charId", 0))
+            if p is None:
+                return encode({"ok": False, "error": "角色未在线，无法读取实时挂机状态。"})
+            pilot = self.autopilot.get(p)
+            ap = self.autopilot.state_dict(p, pilot, pilot.preset if pilot else DEFAULT_PRESET)
+            return encode({"ok": True, "isGm": is_gm, "charId": p.character_id,
+                           "charName": p.name, "level": p.level,
+                           "online": True,
+                           "autopilot": ap,
+                           "afk": self.afk.state_info(p)})
+        if path == "/api/dash/action" and method.upper() == "POST":
+            account, err = self._dash_account(query, body)
+            if account is None:
+                return encode({"ok": False, "error": err})
+            try:
+                data = json.loads(body.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                return encode({"ok": False, "error": "请求格式错误。"})
+            p = self._dash_player(account, data.get("charId", 0))
+            if p is None:
+                return encode({"ok": False, "error": "角色未在线，无法操作挂机。"})
+            scope = str(data.get("scope") or "autopilot")
+            action = str(data.get("action") or "")
+            if scope == "autopilot":
+                if action == "on":
+                    ok, why = self.autopilot.enable(
+                        p, data.get("preset"), no_butch=data.get("noButch"))
+                elif action == "off":
+                    ok, why = True, "托管已关闭"
+                    self.autopilot.disable(p, "后台关闭托管")
+                elif action == "pause":
+                    ok, why = True, "托管已暂停"
+                    self.autopilot.pause(p)
+                elif action == "preset":
+                    preset = str(data.get("preset") or DEFAULT_PRESET)
+                    pilot = self.autopilot.get(p)
+                    if pilot is not None:
+                        pilot.preset = preset
+                        ok, why = True, f"已切换托管档位：{preset}"
+                    else:
+                        ok, why = False, "托管未开启"
+                else:
+                    return encode({"ok": False, "error": f"未知操作：{action}"})
+            elif scope == "afk":
+                if action == "start":
+                    ok, why, _ = self.afk.request_start(
+                        p, int(data.get("minutes") or 0),
+                        str(data.get("preset") or DEFAULT_PRESET))
+                elif action == "stop":
+                    ok, why, _ = self.afk.request_stop(p)
+                else:
+                    return encode({"ok": False, "error": f"未知操作：{action}"})
+            else:
+                return encode({"ok": False, "error": f"未知范围：{scope}"})
+            return encode({"ok": ok, "reason": why})
         if path == "/api/migration":
             return encode({
                 "implementation": "python-stdlib",

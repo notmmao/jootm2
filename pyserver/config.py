@@ -49,6 +49,8 @@ DEFAULTS: dict[str, str] = {
     "afk.supplyEnabled": "1",          # 补给闭环开关（回城卖货买药，§3.4 v2）
     "afk.supplyTownMap": "0",          # 补给城地图 id（默认比奇省）
     "afk.supplyMaxFails": "5",         # 连续补给失败上限（0=永不因补给失败停挂）
+    "afk.supplyRepair": "1",           # 补给时修理背包低持久装备（用户 2026-11-23）
+    "afk.supplyUnbind": "1",           # 补给时拆药水捆（用户 2026-11-23）
     # ---- 周末双倍活动（用户新增功能，全部可配）----
     "weekend.enabled": "1",            # 总开关
     "weekend.expRate": "2.0",          # 击杀经验倍率
@@ -57,6 +59,16 @@ DEFAULTS: dict[str, str] = {
     "weekend.startHour": "0",          # 起始小时（0~24，可含小数如 20.5）
     "weekend.endHour": "24",           # 结束小时（不含；小于起始小时=跨午夜）
     "weekend.force": "0",              # 1=强制开启（临时活动/测试）
+    # ---- 法定节假日双倍经验（用户新增功能）----
+    "holiday.enabled": "1",            # 总开关
+    "holiday.expRate": "2.0",          # 击杀经验倍率（只加经验，不加爆率）
+    "holiday.force": "0",              # 1=强制开启（临时活动/测试）
+    "holiday.dates": "",               # 自定义日期 YYYY-MM-DD 逗号分隔；空=用内置2026表
+    # ---- 精英怪（用户新增功能，原版无此机制）----
+    "elite.rate": "0.05",              # 天然刷怪成为精英的概率（0=关闭）
+    "elite.hpMult": "2.0",             # 精英 HP 倍率
+    "elite.dcMult": "1.5",             # 精英攻击(DC)倍率
+    "elite.expMult": "3.0",            # 精英经验倍率
 }
 
 _ENV_KEYS = {
@@ -109,6 +121,8 @@ class ServerConfig:
     afk_supply_town_map: str = "0"
     afk_supply_max_fails: int = 5      # 连续补给失败上限，达上限转长冷却而非停机
     afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
+    afk_supply_repair: int = 1         # 补给时修理背包低持久装备（用户 2026-11-23）
+    afk_supply_unbind: int = 1         # 补给时拆药水捆（用户 2026-11-23）
     # PK 点衰减间隔（毫秒）。原版 ObjBase.pas:7719 是 2 分钟/点（黄名 200 分钟、
     # 红名 400 分钟清白），用户 2026-11-22 认为偏长，主动偏离改默认 15 秒/点。
     # 设回 120000 即恢复原版行为。
@@ -123,6 +137,16 @@ class ServerConfig:
     weekend_start_hour: float = 0.0
     weekend_end_hour: float = 24.0
     weekend_force: int = 0
+    # ---- 法定节假日双倍经验 ----
+    holiday_enabled: int = 1
+    holiday_exp_rate: float = 2.0
+    holiday_force: int = 0
+    holiday_dates: str = ""
+    # ---- 精英怪 ----
+    elite_rate: float = 0.05
+    elite_hp_mult: float = 2.0
+    elite_dc_mult: float = 1.5
+    elite_exp_mult: float = 3.0
 
     @property
     def mud2_dir(self) -> Path:
@@ -263,6 +287,8 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_supply_town_map=(val("afk.supplyTownMap", None, None, "0").strip() or "0"),
         afk_supply_max_fails=max(0, as_int("afk.supplyMaxFails", None, None, 5)),
         afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
+        afk_supply_repair=max(0, as_int("afk.supplyRepair", None, None, 1)),
+        afk_supply_unbind=max(0, as_int("afk.supplyUnbind", None, None, 1)),
         pk_decay_interval_ms=max(1, as_int("pk.decayIntervalSec", None, None, 15)) * 1000,
         autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
         weekend_enabled=max(0, as_int("weekend.enabled", None, None, 1)),
@@ -272,4 +298,12 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         weekend_start_hour=as_float("weekend.startHour", None, None, 0.0),
         weekend_end_hour=as_float("weekend.endHour", None, None, 24.0),
         weekend_force=max(0, as_int("weekend.force", None, None, 0)),
+        holiday_enabled=max(0, as_int("holiday.enabled", None, None, 1)),
+        holiday_exp_rate=max(0.0, as_float("holiday.expRate", None, None, 2.0)),
+        holiday_force=max(0, as_int("holiday.force", None, None, 0)),
+        holiday_dates=val("holiday.dates", None, None, "").strip(),
+        elite_rate=max(0.0, as_float("elite.rate", None, None, 0.05)),
+        elite_hp_mult=max(0.0, as_float("elite.hpMult", None, None, 2.0)),
+        elite_dc_mult=max(0.0, as_float("elite.dcMult", None, None, 1.5)),
+        elite_exp_mult=max(0.0, as_float("elite.expMult", None, None, 3.0)),
     )

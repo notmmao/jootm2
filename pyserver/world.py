@@ -900,6 +900,9 @@ class Monster(Actor):
     corpse_until: int = 0
     butch_count: int = 0
     skeleton: bool = False
+    # 精英怪（用户 2026-11-23 新增，原版无此机制）：天然刷怪按 elite.rate 概率
+    # 生成，HP/DC/经验按配置倍率加成，名字绿色+「精英」前缀（前端按此字段着色）。
+    elite: bool = False
     # 原版 TakeBagItems 会把尸体背包清空（ObjBase.pas:20537-20556）：race ≥ 80
     # 的蜘蛛/食人花/洞蛆挖空后**不变骷髅**，尸体仍可再挖，但背包已空
     # （第二次起只报「未发现任何物品」），所以要用标记防重复掷骰。
@@ -971,6 +974,8 @@ class Monster(Actor):
         # 骨架帧（Actor.pas:2124 GetDefaultFrame 骷髅走 ActDeath.start 不带方向），
         # 否则玩家走远再回来尸体「变回」未挖状态——挖过肉的尸体重复可挖。
         o["skeleton"] = bool(self.skeleton)
+        # 精英怪（用户 2026-11-23）：前端据此把名字染绿 + 加「精英」前缀。
+        o["elite"] = bool(self.elite)
         return o
 
 
@@ -1293,14 +1298,33 @@ class GameWorld(WorldExtra):
         return spawned
 
     def _spawn_monster(self, game_map: GameMap, t, x: int, y: int,
-                       respawn_interval_ms: int = 0) -> Monster:
+                       respawn_interval_ms: int = 0, allow_elite: bool = True) -> Monster:
+        cfg = getattr(self, "config", None)
+        # 精英怪（用户 2026-11-23 新增，原版无）：天然刷怪按 elite.rate 掷骰。
+        # 只作用于「有战斗力的怪」——血量<=0 / 经验<=0 的摆设怪（练功师等）
+        # 变精英毫无意义，还会污染 HUD，直接跳过。
+        elite = bool(allow_elite and cfg and getattr(cfg, "elite_rate", 0) > 0
+                     and t.hp > 0 and t.exp > 0
+                     and random.random() < float(cfg.elite_rate))
+        hp = t.hp
+        exp = t.exp
         m = Monster(id=self.new_id(), name=t.name,
                     x=x, y=y, dir=4,
-                    hp=t.hp, max_hp=t.hp, mp=t.mp, max_mp=t.mp,
+                    hp=hp, max_hp=hp, mp=t.mp, max_mp=t.mp,
                     level=t.level, race=t.race, race_img=t.raceImg, appr=t.appr,
                     template=t, spawn_x=x, spawn_y=y,
-                    respawn_interval_ms=respawn_interval_ms)
-        m.exp = t.exp
+                    respawn_interval_ms=respawn_interval_ms, elite=elite)
+        m.exp = exp
+        if elite:
+            # HP/经验直接改实例值；攻击加成走 slave_dc_bonus（roll_attack 会加），
+            # 复用既有字段避免给攻击结算链路再加分支。
+            mult_hp = float(getattr(cfg, "elite_hp_mult", 2.0))
+            mult_exp = float(getattr(cfg, "elite_exp_mult", 3.0))
+            mult_dc = float(getattr(cfg, "elite_dc_mult", 1.5))
+            m.max_hp = max(1, int(round(t.hp * mult_hp)))
+            m.hp = m.max_hp
+            m.exp = max(1, int(round(t.exp * mult_exp)))
+            m.slave_dc_bonus = max(0, int(round(max(t.dc, t.maxDc) * (mult_dc - 1.0))))
         init_meat_quality(m)
         self._init_race_traits(m, t)
         self.add_actor(m, game_map)
