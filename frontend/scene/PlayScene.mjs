@@ -1825,8 +1825,13 @@ export class PlayScene extends Scene {
                         cur._corpse = true;
                         cur.alive = false;
                         cur.skeleton = !!msg.entity.skeleton;
-                        cur._action = 'death';
-                        cur._dieUntil = 0;
+                        // 正在播死亡动画（稻草人 SM_NOWDEATH 火焰爆炸）时别掐掉，
+                        // 否则 entityAdd(corpse) 会把刚设的 die 腰斩成定格帧。
+                        const dying = cur._action === 'die' && cur._dieUntil && Date.now() < cur._dieUntil;
+                        if (!dying) {
+                            cur._action = 'death';
+                            cur._dieUntil = 0;
+                        }
                         this._sprite(cur).prefetchDeathFrame(cur);
                     } else {
                         // 换图 / 后进视野时直接看到的是已经躺好的尸体（原版 GetDefaultFrame）
@@ -2080,6 +2085,16 @@ export class PlayScene extends Scene {
                         e._action = 'die';
                         e._actionAt = Date.now();
                         e._dieUntil = Date.now() + 4 * 120;   // HA.die: 4 帧 ×120ms
+                    } else if (e.type !== 'player' && e.raceImg === 18) {
+                        // 稻草人（RaceImg 18 → THuSuABi）死亡当下原版发 SM_NOWDEATH
+                        // （ObjBase.pas:2800 RM_DEATH lparam3=1 → ObjBase.pas:12583），
+                        // 客户端 AxeMon.pas:351-358 置 BoUseEffect=TRUE 播完整 ActDie
+                        // 动画 + 叠死亡火焰（DEATHFIREEFFECTBASE=2860）。用户记得的
+                        // 「爆炸」就是这个火焰。之前一律设 death 定格，火焰从不触发。
+                        // MA14.die = 10 帧 ×120ms；播完由 _dieUntil 到期转 death 定格尸体。
+                        e._action = 'die';
+                        e._actionAt = Date.now();
+                        e._dieUntil = Date.now() + 10 * 120;
                     } else {
                         e._action = 'death';
                         e._actionAt = Date.now();
@@ -4858,12 +4873,15 @@ export class PlayScene extends Scene {
         for (const e of this.entities.values()) {
             // 尸体不该有任何动作：攻击/移动消息的延迟回调可能把 _action 改成
             // struck / walk，随后被下面的归一逻辑切成 stand（「死了又站起来」）。
-            // 非玩家尸体一律强制定格静止帧（原版 SM_DEATH 定格 ActDie 末帧）。
-            if (e._corpse && e.type !== 'player' && e._action !== 'death') {
+            // 非玩家尸体一律强制定格静止帧（原版 SM_DEATH 定格 ActDie 末帧）——
+            // 但正在播死亡动画（die + _dieUntil 未到期，如稻草人火焰爆炸）要放过，
+            // 否则刚在 death 消息里设的 die 会被这里立刻掐掉，火焰从不显示。
+            if (e._corpse && e.type !== 'player' && e._action !== 'death'
+                    && !(e._action === 'die' && e._dieUntil && now < e._dieUntil)) {
                 e._action = 'death';
                 e._dieUntil = 0;
             }
-            // 动物尸体：倒地动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
+            // 死亡动画播完后切到 ActDeath 静止帧，并保持到挖完/过期
             if (e._corpse && e._dieUntil && now >= e._dieUntil) {
                 e._action = 'death';
                 e._dieUntil = 0;
