@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """预置各等级模板测试角色（Python 3.10，幂等可重复执行）。
 
-往默认库 data/jootm2.db 建一个专用账号 ``template / template123``，
-并塞入 1/7/17/25/35/40 级三职业模板角色，登录即可体验各阶段属性/装备/技能。
+往默认库 data/jootm2.db 建 9 个专用账号（每个恰好 2 个角色——服务端
+MAX_CHARS_PER_ACCOUNT=2，一个账号塞多角色会撑爆选角界面），覆盖
+1/7/17/25/35/40 级 × 三职业共 18 个模板角色，登录即可体验各阶段属性/装备/技能。
 
 用法:
     D:/Python310/python.exe scripts/seed_template_chars.py            # 写入默认库
@@ -10,7 +11,7 @@
     D:/Python310/python.exe scripts/seed_template_chars.py --db PATH # 指定库
 
 说明：
-  - 幂等：已存在的同名角色跳过（不覆盖玩家后续改动）。
+  - 幂等：已存在的同名账号/角色跳过（不覆盖玩家后续改动）。
   - HP/MP 按 BASE+成长估算；实际属性在进入游戏时由 Player.recompute 按装备重算。
   - 装备按等级给对应档位的武器/衣服/头盔 + 药水，名字从 StdItems.csv 动态查，
     查不到的跳过（不同版本道具名可能不同）。
@@ -31,10 +32,15 @@ from pyserver.templates import dumps  # noqa: E402
 from pyserver.util import U_DRESS, U_WEAPON, U_HELMET, U_NECKLACE, U_RINGL  # noqa: E402
 from pyserver.world import BASE_HP, BASE_MP, HP_GROWTH, MP_GROWTH, GameWorld  # noqa: E402
 
-ACCOUNT = "template"
 PASSWORD = "template123"
 LEVELS = (1, 7, 17, 25, 35, 40)
 JOBS = (("战士", 0), ("法师", 1), ("道士", 2))
+MAX_CHARS = 2   # 与 service.MAX_CHARS_PER_ACCOUNT 对齐：一个账号最多 2 角色
+
+
+def account_of(index: int) -> str:
+    """18 个角色按展平顺序每 2 个归一个账号：tpl1 … tpl9。"""
+    return f"tpl{index // MAX_CHARS + 1}"
 
 # 各等级段的装备（名字按 StdItems.csv 实际存在与否动态过滤）
 GEAR_BY_TIER = {
@@ -118,44 +124,54 @@ def main():
     world = GameWorld(cfg, db)
 
     print(f"库: {db_path}")
-    print(f"账号: {ACCOUNT} / {PASSWORD}")
-    print(f"等级: {list(LEVELS)} × 三职业 = {len(LEVELS) * 3} 个模板角色")
+    print(f"账号: tpl1..tpl9 / {PASSWORD}（每账号 {MAX_CHARS} 角色，共 "
+          f"{len(LEVELS) * len(JOBS)} 个模板角色）")
 
-    account = db.find_account(ACCOUNT)
-    if account is None and not args.check:
-        account = db.register(ACCOUNT, PASSWORD)
-        print(f"已创建账号 {ACCOUNT}")
-    if account is None:
-        print("（账号尚不存在，--check 模式）")
-        names = set()
-        account_id = 0
-    else:
-        names = {c["name"] for c in db.list_characters(account.id)}
-        account_id = account.id
+    # 旧方案（单账号 template 塞 18 角色）残留提示
+    legacy = db.find_account("template")
+    if legacy is not None:
+        lc = db.list_characters(legacy.id)
+        if lc:
+            print(f"注意：旧账号 template 下还有 {len(lc)} 个角色（超过 "
+                  f"{MAX_CHARS} 个上限的旧方案残留），建议手工清理。")
 
+    # 展平 18 个 (level, job) 组合，两两分组到 tpl1..tpl9
+    combos = [(level, job_name, job) for level in LEVELS for job_name, job in JOBS]
+    acc_cache: dict[str, int] = {}
+    existing_names: set[str] = set()
     made = skipped = 0
-    for level in LEVELS:
-        for job_name, job in JOBS:
-            name = f"模板{job_name}{level}"
-            if name in names:
-                print(f"  跳过（已存在）: {name}")
-                skipped += 1
-                continue
-            rec = make_rec(world, account_id, name, 0, job, level)
-            if not args.check:
-                db.insert_character(rec)
-                # 赠送离线修炼时长，方便直接试离线挂机
-                db.ensure_afk_row(db.find_character(name)["id"], gift_minutes=240)
-            print(f"  {'[check] ' if args.check else '✓ '}{name}  Lv{level} {job_name}  "
-                  f"HP{rec['hp']} MP{rec['mp']} 装备{len(rec['items'])}件 "
-                  f"技能{len(dumps(rec['skills']))}B")
-            made += 1
+    for i, (level, job_name, job) in enumerate(combos):
+        acc_name = account_of(i)
+        name = f"模板{job_name}{level}"
+        if acc_name not in acc_cache:
+            if args.check:
+                acc = db.find_account(acc_name)
+                acc_cache[acc_name] = acc.id if acc else 0
+                existing_names = ({c["name"] for c in db.list_characters(acc.id)}
+                                  if acc else set())
+            else:
+                acc = db.find_account(acc_name) or db.register(acc_name, PASSWORD)
+                acc_cache[acc_name] = acc.id
+                existing_names = {c["name"] for c in db.list_characters(acc.id)}
+        if name in existing_names:
+            print(f"  跳过（已存在）: {acc_name}/{name}")
+            skipped += 1
+            continue
+        rec = make_rec(world, acc_cache[acc_name], name, 0, job, level)
+        if not args.check:
+            db.insert_character(rec)
+            # 赠送离线修炼时长，方便直接试离线挂机
+            db.ensure_afk_row(db.find_character(name)["id"], gift_minutes=240)
+            existing_names.add(name)
+        print(f"  {'[check] ' if args.check else '✓ '}{acc_name}/{name}  Lv{level} {job_name}  "
+              f"HP{rec['hp']} MP{rec['mp']} 装备{len(rec['items'])}件")
+        made += 1
 
     db.conn.close()
     print(f"\n完成: 新建 {made}，跳过 {skipped}"
           + ("（--check 未写入）" if args.check else ""))
     if not args.check:
-        print("生效：重启服务端后，登录账号 template/template123 即可看到这些角色。")
+        print("生效：重启服务端后，登录 tpl1..tpl9 / template123 即可看到对应角色。")
 
 
 if __name__ == "__main__":
