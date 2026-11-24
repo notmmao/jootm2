@@ -14,11 +14,23 @@ from typing import Any
 SIGHT_RANGE = 12
 AGGRO_RANGE = 8
 RESPAWN_MS = 15_000
-REGEN_INTERVAL_MS = 2_000
+# 原版自然回血/回蓝（火炬 ObjBase.pas:11-12，TCreature.Run :7548-7577）：
+# HealthTick/SpellTick 每 tick 累加 (GetTickCount-ticksec)/20（tick 单位 20ms），
+# HEALTHFILLTICK=300 即 6000ms 回一次 HP（MaxHP div 75 + 1），
+# SPELLFILLTICK=800 即 16000ms 回一次 MP（MaxMP div 18 + 1）。
+HP_REGEN_TICK_MS = 6_000
+MP_REGEN_TICK_MS = 16_000
+# 挨打直接置 0（:12559「嘎到就不回血」）；走路 -10
+# （:8995，即 200ms）、跑步 -60（:9049，即 1200ms）恢复延迟。
+WALK_REGEN_PENALTY_MS = 200
+RUN_REGEN_PENALTY_MS = 1_200
 HEALING_INTERVAL_MS = 500
 POISON_INTERVAL_MS = 2_500
 BAG_SIZE = 46
-GROUND_ITEM_TTL_MS = 60_000
+# 原版地面物品存活：TCreature.Run 视野刷新里 `GetTickCount - ATime >
+# 60*60*1000`（火炬 ObjBase.pas:1784「掉到 1 小时才消失」）。旧值 60s 是
+# 拍脑袋（用户反馈「东西掉一会儿就捡不起来」，前端残留 + 服务器提前删除）。
+GROUND_ITEM_TTL_MS = 60 * 60 * 1000
 DOOR_OPEN_MS = 5_000
 USE_ITEM_INTERVAL_MS = 300
 EQUIP_SLOTS = 13
@@ -111,6 +123,10 @@ NAME_COLOR_PKFLAG = 47         # 棕：PK 标记（原版 $2F / Client ENEMYCOLO
 U_DRESS, U_WEAPON, U_RIGHTHAND, U_NECKLACE = 0, 1, 2, 3
 U_HELMET, U_ARMRINGL, U_ARMRINGR = 4, 5, 6
 U_RINGL, U_RINGR, U_BUJUK, U_BELT, U_BOOTS, U_CHARM = 7, 8, 9, 10, 11, 12
+
+# 装备槽位中文名（日志/飘字用；索引=U_* 槽号，与 EQUIP_SLOTS=13 对应）
+SLOT_NAMES = ["衣服", "武器", "右手(火把)", "项链", "头盔", "手镯(左)",
+              "手镯(右)", "戒指(左)", "戒指(右)", "符", "腰带", "鞋子", "护身符"]
 
 
 def _str(msg: dict, key: str) -> str | None:

@@ -183,19 +183,27 @@ def test_recompute(w, p):
 def test_regen_and_buffs(w, p, sess):
     print("\n[2] 回血 / 治愈术 / buff 过期")
     p.max_hp, p.max_mp = 1000, 1000
-    p.hp, p.mp = 980, 970
+    p.hp, p.mp = 980, 900
     p.inc_healing = 20
     p.last_healing_at = 0
-    w.last_regen_at = 0
+    # 新模型（ObjBase.pas:7548-7587）：每角色独立 health_tick/spell_tick，
+    # regen_prev_at=0 首帧仅对齐时间戳，不立即回。
+    p.regen_prev_at = 0
+    p.health_tick = 0
+    p.spell_tick = 0
     now = now_ms()
     sess.drain()
     w._regen(p, now)
     check("治愈术每 500ms 回 5", p.inc_healing == 15, f"inc={p.inc_healing}")
-    check("自然回复 HP/MP 各 +1", p.hp == 986 and p.mp == 971,
-          f"hp={p.hp} mp={p.mp}")
-    hp_after = p.hp
-    w._regen(p, now)
-    check("同帧不重复自然回复", p.hp == hp_after)
+    check("自然回复按 tick 累积（首帧不回，只有治愈池 +5）",
+          p.hp == 985 and p.mp == 900, f"hp={p.hp} mp={p.mp}")
+    # 拨快计时器模拟 6s/16s 到点：HP +（1000//75+1）=14，MP +（1000//18+1）=56
+    p.health_tick, p.spell_tick = 6_000, 16_000
+    w._regen(p, now + 1)
+    check("HP tick 到点回 MaxHP div 75+1", p.hp == 985 + 14 and p.health_tick == 0,
+          f"hp={p.hp}")
+    check("MP tick 到点回 MaxMP div 18+1", p.mp == 900 + 56 and p.spell_tick == 0,
+          f"mp={p.mp}")
 
     p.ac_buff_until = now - 1
     p.ac_buff_bonus = 9
@@ -218,6 +226,9 @@ def test_poison(w, p, sess):
     check("红毒扣血", p.hp == 93, f"hp={p.hp}")
     check("红毒跳数递减", p.poison_ticks == 1)
     check("绿毒到期清除", p.poison_armor_until == 0)
+    st = [m for m in sess.messages if m.get("type") == "stats"]
+    check("中毒掉血飘字字段下发", any(m.get("poisonDamage") == 7 for m in st),
+          str([m.get("poisonDamage") for m in st]))
 
     p.hp, p.poison_damage = 3, 10
     p.poison_ticks, p.last_poison_at = 1, 0

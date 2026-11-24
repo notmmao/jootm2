@@ -27,7 +27,9 @@ from .util import (
     HSET_SHAPES, ILLEGAL_ATTACK_MS,
     NEUTRAL_RACES,
     POISON_INTERVAL_MS, PSET_SHAPES, RANGED_ATTACK_RANGE, RANGED_CHASE_RANGE,
-    RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT, REGEN_INTERVAL_MS,
+    RANGED_KEEP_AWAY, RANGED_RACES, RED_NAME_PK_POINT,
+    HP_REGEN_TICK_MS, MP_REGEN_TICK_MS,
+    WALK_REGEN_PENALTY_MS, RUN_REGEN_PENALTY_MS,
     SHAPE_MANA_TO_HP, SHAPE_PARALYSIS_WEAPON, SHAPE_REVIVAL_RING,
     SHAPE_SUCK_HEALTH, SHAPE_TELEPORT_RING, SLAVE_COLORS, SLAVE_UP_EXP,
     NAME_COLOR_DEFAULT, NAME_COLOR_PK1, NAME_COLOR_PK2, NAME_COLOR_PKFLAG,
@@ -351,6 +353,9 @@ class Actor:
     running: bool = False
     map: GameMap | None = None
     seen: set[int] = field(default_factory=set)
+    # 视野内地面物品 id（update_sight 差分同步：离开半径发 itemRemove，
+    # 消除「前端渲染还在但服务端已删/捡不了」的残留，用户 2026-11-25 反馈）
+    seen_ground: set[int] = field(default_factory=set)
     # 原版 STATE_OPENHEATH（心灵启示）：头顶血条只在被「启示」后显示一段时间
     # （DrawScrn.pas:306 的 actor.m_boOpenHealth；默认不画）。
     open_hp_until: int = 0
@@ -438,6 +443,13 @@ class Player(Actor):
     # 不落库、重启按 gamedata/bots.json 重建；选怪/名单等按需区分。
     is_bot: bool = False
     last_healing_at: int = 0
+    # 原版每角色独立自然回血计时（TCreature.Run，ObjBase.pas:7548-7587）：
+    # HealthTick/SpellTick 以 tick（20ms）为单位累加，回满一次清零；
+    # 挨打置 0（:12559）、走路 -10、跑步 -60（:8995/:9049）。
+    # 本项目以 ms 存储（HEALTHFILLTICK=300 → 6000ms，SPELLFILLTICK=800 → 16000ms）。
+    health_tick: int = 0
+    spell_tick: int = 0
+    regen_prev_at: int = 0
     poison_damage: int = 0
     last_poison_at: int = 0
     ac_buff_until: int = 0
@@ -1107,10 +1119,13 @@ class GameWorld(WorldExtra):
         # AddStoneMine 补 Random(80)。只对 MINE/MINE2 标志地图生效。
         self.mine_state: dict[tuple[str, int, int], list] = {}
         self._id_gen = itertools.count(1)
+        # 装备耐久耗尽「爆掉」回调（用户 2026-11-25 要求挂机日志记录）：
+        # OfflineAgentManager 注册后，wear 归零清槽时写一条 item_broken 事件。
+        # 签名 fn(player, slot:int, item:dict)；异常一律吞掉，不许影响战斗。
+        self.on_item_break = None
         self._item_seq = itertools.count(max(1_000_000, db.max_item_make_index() + 1))
         self.day_bright = day_bright_for_hour(datetime.now().hour)
         self._last_day_check = 0
-        self.last_regen_at = now_ms()
 
         sp = parse_start_point(config.envir_dir / "StartPoint.txt")
         self.start_x, self.start_y = sp.x, sp.y
@@ -1518,6 +1533,15 @@ class GameWorld(WorldExtra):
             return False
         if game_map.occupied(nx, ny):
             return False
+        # 原版移动消耗回血进度：走一步 Dec(HealthTick,10)=200ms（__Walk
+        # ObjBase.pas:8995），跑一步 Dec(HealthTick,60)=1200ms、SpellTick
+        # -10（__Run :9049）。挂机来回跑图时几乎不回血，站桩才回。
+        if isinstance(a, Player):
+            a.health_tick = max(0, a.health_tick
+                                - (RUN_REGEN_PENALTY_MS if a.running
+                                   else WALK_REGEN_PENALTY_MS))
+            if a.running:
+                a.spell_tick = max(0, a.spell_tick - 200)
         game_map.reposition(a, nx, ny)
         return True
 
@@ -1643,6 +1667,16 @@ class GameWorld(WorldExtra):
             "durabilityMax": int(it.get("durabilityMax", 0)),
         })
 
+    def _report_item_break(self, p: "Player", slot: int, it: dict) -> None:
+        """耐久耗尽清槽时通知离线日志（若该玩家正在挂机）。回调异常吞掉。"""
+        fn = self.on_item_break
+        if fn is None:
+            return
+        try:
+            fn(p, slot, it)
+        except Exception:
+            pass
+
     def do_damage_weapon(self, p: Player, amount: int) -> None:
         """原版 ``TCreature.DoDamageWeapon``（火炬 ObjBase.pas:5187-5228）。
 
@@ -1663,6 +1697,7 @@ class GameWorld(WorldExtra):
             it["durability"] = 0
             p.equipment[U_WEAPON] = None
             self.send_system(p, "武器持久用完，已损毁。")
+            self._report_item_break(p, U_WEAPON, it)
             self.send_bag_update(p)
             return
         it["durability"] = dura
@@ -1703,6 +1738,10 @@ class GameWorld(WorldExtra):
             self.mark_illegal_attack(attacker, target, now_ms())
         if damage <= 0 or not target.equipment:
             return
+        # 原版挨打即断回血：RunMsg(RM_HIT) 里 HealthTick/SpellTick := 0
+        # （ObjBase.pas:12559「嘎到就不回了」）。放在 damage>0 之后。
+        target.health_tick = 0
+        target.spell_tick = 0
         n_dam = random.randint(5, 14)
         self._wear_slot_struck(target, U_DRESS, n_dam)   # 3487 衣服固定磨损
         # 3527: for i := 1 to 11（跳过 9=U_BUJUK；不含 12=U_CHARM）
@@ -1728,6 +1767,7 @@ class GameWorld(WorldExtra):
             target.equipment[slot] = None
             if slot == U_DRESS:
                 self.send_system(target, "衣服持久用完，已损毁。")
+            self._report_item_break(target, slot, it)
             self.send_bag_update(target)
             return
         it["durability"] = dura
@@ -1818,6 +1858,10 @@ class GameWorld(WorldExtra):
     def map_snapshot(self, p: Player, msg_type: str) -> dict:
         game_map = p.map or self.default_map
         p.seen.clear()
+        p.seen_ground = set(
+            gi.id for gi in self.ground_items.values()
+            if gi.map is game_map
+            and max(abs(gi.x - p.x), abs(gi.y - p.y)) <= SIGHT_RANGE)
         nearby = []
         for a in self._sight_actors(game_map, p.x, p.y):
             if a.id != p.id:
@@ -1856,6 +1900,25 @@ class GameWorld(WorldExtra):
         for actor_id in p.seen - now_seen:
             p.session.send_json({"type": "entityRemove", "id": actor_id})
         p.seen = now_seen
+        # 地面物品同款差分：进入半径补 itemDrop，离开半径补 itemRemove。
+        # 旧实现只在 map_snapshot（登录/换图）下发全量，走远了/被删了不发
+        # 移除——前端 groundItems Map 越积越脏，出现「看得见捡不了」的幽灵
+        # 掉落（用户 2026-11-25 反馈）。
+        now_ground: set[int] = set()
+        for gi in self.ground_items.values():
+            if gi.map is not game_map:
+                continue
+            if max(abs(gi.x - p.x), abs(gi.y - p.y)) > SIGHT_RANGE:
+                continue
+            now_ground.add(gi.id)
+            if gi.id not in p.seen_ground:
+                t = self.item_templates.get(int(gi.item.get("index", 0))) if gi.item else None
+                o = gi.to_json(t.name if t else "?", t.looks if t else 0)
+                o["type"] = "itemDrop"
+                p.session.send_json(o)
+        for gid in p.seen_ground - now_ground:
+            p.session.send_json({"type": "itemRemove", "id": gid})
+        p.seen_ground = now_ground
 
     # ---- tick ------------------------------------------------------------
 
@@ -2015,18 +2078,34 @@ class GameWorld(WorldExtra):
                 p.inc_spell = 0
             p.last_healing_at = now
             changed = True
-        if now - self.last_regen_at < REGEN_INTERVAL_MS:
-            if changed:
-                self.send_stats(p, extras={"healed": healed} if healed else None)
-            return
-        if p.hp < p.max_hp:
-            p.hp += 1
-            changed = True
-        if p.mp < p.max_mp:
-            p.mp += 1
-            changed = True
+        # ---- 自然回血（原版 TCreature.Run，ObjBase.pas:7548-7587）----
+        # 每角色独立 HealthTick/SpellTick（ms 计），到点回一次并清零：
+        #   HP：6000ms 回 MaxHP div 75 + 1（HEALTHFILLTICK=300 ×20ms）
+        #   MP：16000ms 回 MaxMP div 18 + 1（SPELLFILLTICK=800）
+        # 旧实现是 GameWorld.last_regen_at 全服共享 + 固定 1 点/2s——多个
+        # 在线/离线角色互相抢窗口，后 tick 的玩家整帧被饿死（用户反馈
+        # 「战士站着不动不回血」的根因），且速率与原版差两个数量级。
+        if p.regen_prev_at == 0:
+            p.regen_prev_at = now
+        dt = now - p.regen_prev_at
+        if dt > 0:
+            p.regen_prev_at = now
+            p.health_tick += dt
+            p.spell_tick += dt
+        if p.health_tick >= HP_REGEN_TICK_MS:
+            # :7586 到点即清（血满时空转清零，掉血后不会突然连回）
+            p.health_tick = 0
+            if p.hp < p.max_hp:
+                plus = p.max_hp // 75 + 1        # :7556
+                p.hp = min(p.max_hp, p.hp + plus)
+                changed = True
+        if p.spell_tick >= MP_REGEN_TICK_MS:
+            p.spell_tick = 0
+            if p.mp < p.max_mp:
+                plus = p.max_mp // 18 + 1        # :7565
+                p.mp = min(p.max_mp, p.mp + plus)
+                changed = True
         if changed:
-            self.last_regen_at = now
             self.send_stats(p, extras={"healed": healed} if healed else None)
 
     def _expire_buffs(self, p: Player, now: int) -> None:
@@ -2057,7 +2136,12 @@ class GameWorld(WorldExtra):
         ticks = getattr(a, "poison_ticks", 0)
         if ticks > 0 and now - getattr(a, "last_poison_at", 0) >= POISON_INTERVAL_MS:
             a.last_poison_at = now
+            before = a.hp
             a.hp = max(0, a.hp - getattr(a, "poison_damage", 0))
+            # 中毒掉血飘字（用户 2026-11-25）：本跳真实扣血量随 stats 下发，
+            # 前端紫色飘字。原版毒跳只有 HealthSpellChanged 无飘字，本项目
+            # 用飘字统一表达持续伤害（同治愈池回血口径）。
+            poison_dmg = before - a.hp
             a.poison_ticks = ticks - 1
             if a.poison_ticks <= 0:
                 a.last_poison_at = 0
@@ -2065,7 +2149,8 @@ class GameWorld(WorldExtra):
             # m_nMeatQuality 1000——中毒打死的动物肉品质很低。
             if isinstance(a, Monster) and a.meat_quality > 0:
                 a.meat_quality = max(0, a.meat_quality - 1000)
-            self.send_stats(a)
+            self.send_stats(a, extras={"poisonDamage": poison_dmg}
+                            if poison_dmg else None)
             if a.hp <= 0:
                 if isinstance(a, Monster):
                     self.kill_monster(a, now, None)
