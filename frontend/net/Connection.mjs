@@ -1,8 +1,10 @@
 // WebSocket 连接封装（对接后端 /ws 的 JSON 协议，见 HANDOFF §7）
 // 收发均为 {type, ...} JSON；按 type 分发回调，支持 '*' 通配。
 
+import { resolveWsUrl } from './wsUrl.mjs';
+
 export class Connection {
-    constructor(url = '/ws') {
+    constructor(url = resolveWsUrl()) {
         this.url = url;
         this.ws = null;
         this.connected = false;

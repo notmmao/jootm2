@@ -132,7 +132,7 @@ async function init() {
     if (start) warmMapBytes(start.map);
 
     // 3) WebSocket 与音频索引并行就绪
-    const conn = new Connection('/ws');
+    const conn = new Connection();   // 地址按 wsUrl.mjs 规则解析（CF 域名页→直连源站 IP）
     // 音频模块：'*' 通配监听 WS 消息 + 按钮点击 + 首次手势解锁（服务端零改动）
     sound.install(conn);
     try {
@@ -156,7 +156,7 @@ async function init() {
     // 原版 SelChrExitClick 是 FrmMain.Close 直接关客户端；浏览器不能关标签页，回登录最接近。
     sceneManager.onReturnLogin = async () => {
         try { conn.close(); } catch { /* 连接已断开 */ }
-        const nc = new Connection('/ws');
+        const nc = new Connection();
         sound.attach(nc);               // 新连接重新挂消息钩子（全局手势/点击监听只装一次）
         sceneManager.bind(nc);          // 消息路由指向新连接
         watchDisconnect(nc, sceneManager);   // 新连接同样要监听掉线
