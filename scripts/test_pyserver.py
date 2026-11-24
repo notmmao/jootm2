@@ -314,30 +314,41 @@ def test_http_ws_helpers() -> None:
         trav = Server.handle_http(stub, Request("GET", "/site/../a.json", {}, {}, b""))
         check("/site 前缀阻止 .. 穿越", trav.status == 404)
         # /site 跳转：配置 website_redirect 时 302 到 list2，路径/query 透传
+        # （公网 Host 才跳；本地回环 Host 走本地静态服务，见下方用例）
         stub.config = type("C", (), {
             "resources_root": root, "resources_prefix": "/resources",
             "website_root": site, "website_prefix": "/site", "web_root": root,
             "website_redirect": "https://list.notmmao.com/mir2-wiki/",
             "website_redirect_enabled": True,
         })()
-        jump_root = Server.handle_http(stub, Request("GET", "/site", {}, {}, b""))
+        pub = {"host": "mir2.notmmao.com"}
+        jump_root = Server.handle_http(stub, Request("GET", "/site", {}, dict(pub), b""))
         check("/site 裸路径 302 跳转", jump_root.status == 302
               and jump_root.headers.get("Location") == "https://list.notmmao.com/mir2-wiki/"
               and "no-cache" in jump_root.headers.get("Cache-Control", ""))
-        jump_map = Server.handle_http(stub, Request("GET", "/site/maps.html", {}, {}, b""))
+        jump_map = Server.handle_http(stub, Request("GET", "/site/maps.html", {}, dict(pub), b""))
         check("/site 子路径透传", jump_map.status == 302
               and jump_map.headers.get("Location") ==
               "https://list.notmmao.com/mir2-wiki/maps.html")
-        jump_cn = Server.handle_http(stub, Request("GET", "/site/mon/虹魔教主.html", {}, {}, b""))
+        jump_cn = Server.handle_http(stub, Request("GET", "/site/mon/虹魔教主.html", {}, dict(pub), b""))
         check("/site 中文路径 URL 编码", jump_cn.status == 302
               and jump_cn.headers.get("Location", "").endswith("/mon/%E8%99%B9%E9%AD%94%E6%95%99%E4%B8%BB.html"))
         jump_q = Server.handle_http(stub, Request("GET", "/site/items.html",
-                                                  {"q": "木剑", "c": "2"}, {}, b""))
+                                                  {"q": "木剑", "c": "2"}, dict(pub), b""))
         check("/site query 透传", jump_q.status == 302
               and "q=%E6%9C%A8%E5%89%91" in jump_q.headers.get("Location", "")
               and "c=2" in jump_q.headers.get("Location", ""))
-        jump_head = Server.handle_http(stub, Request("HEAD", "/site/maps.html", {}, {}, b""))
+        jump_head = Server.handle_http(stub, Request("HEAD", "/site/maps.html", {}, dict(pub), b""))
         check("/site HEAD 跳转无 body", jump_head.status == 302 and not jump_head.body)
+
+        # 本地回环 Host：即使配置了跳转也不跳，直接服务本地站点
+        for lh in ("127.0.0.1:8098", "localhost:8098", "localhost"):
+            local = Server.handle_http(stub, Request(
+                "GET", "/site/", {}, {"host": lh}, b""))
+            check(f"/site 本地 Host({lh}) 不跳转", local.status == 200
+                  and "text/html" in local.headers.get("Content-Type", ""))
+        no_host = Server.handle_http(stub, Request("GET", "/site/", {}, {}, b""))
+        check("/site 无 Host 头不跳转", no_host.status == 200)
 
         # 跳转关闭（空串）时回退到本地静态服务
         stub.config = type("C", (), {

@@ -233,6 +233,23 @@ WEBSITE_STATIC_MAX_AGE = 7 * 24 * 3600
 WEBSITE_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")
 
 
+def _is_local_host(req: "Request") -> bool:
+    """Host 头是否指向本机回环（127.x / localhost / ::1）。
+
+    /site 的 302 跳转只应在公网入口生效；本地起服（127.0.0.1:8098）检查
+    wiki 时如果也被跳到 list2，本地未发布的内容根本看不到，所以本地请求
+    一律走本地静态服务。Host 形如 ``127.0.0.1:8098``，先剥端口再比。
+    """
+    host = req.headers.get("host", "").strip().lower()
+    if not host:
+        return True          # 无 Host 头（HTTP/1.0）：按本地处理，不误跳
+    if host.startswith("["):  # IPv6 字面量 [::1]:8098
+        host = host.split("]", 1)[0].lstrip("[")
+        return host == "::1"
+    host = host.rsplit(":", 1)[0] if ":" in host else host
+    return host == "localhost" or host == "::1" or host.startswith("127.")
+
+
 def website_cache_control(name: str) -> str:
     """数据库静态站按文件类型分档：图片长缓存 + 可校验，页面/脚本保持新鲜。
 
@@ -517,7 +534,8 @@ class Server:
             # 数据库静态站：优先跳转到 list2（Vercel CDN 承担图片带宽/缓存）。
             # 302 而非 301：用户在观察期，随时可把 website.redirect 设空回退到本地。
             # 路径与 query 原样透传（/site/maps.html -> /mir2-wiki/maps.html）。
-            if getattr(self.config, "website_redirect_enabled", False):
+            if (getattr(self.config, "website_redirect_enabled", False)
+                    and not _is_local_host(req)):
                 base = self.config.website_redirect.rstrip("/")
                 rel = req.path[len(self.config.website_prefix):].lstrip("/")
                 target = base + "/" + quote(rel, safe="/")
