@@ -211,6 +211,27 @@ def pick_hunting_spot(w, map_id: str):
     gm = w.get_or_load_map(map_id)
     if gm is None:
         return None
+    # 兜底顺序（2026-11-24 修正）：先按刷怪表重心找**空格**；重心周围怪扎堆
+    # 没有空格时放宽为「只要可走」（允许落在怪物身边，代理第一拍就打它）；
+    # 再退到「离重心最近的活怪旁边」。
+    # 旧实现最后直接 ``return cx, cy``，D405 的 (100,100) 是不可走格，
+    # 角色卡在墙里 45 分钟零击杀，被误判成「这张图没收益」。
+    def _near(cx, cy, rmax=10, need_free=True):
+        for r in range(0, rmax):
+            for dx in range(-r, r + 1):
+                for dy in (-r, r):
+                    nx, ny = cx + dx, cy + dy
+                    if gm.inside(nx, ny) and gm.can_walk(nx, ny) \
+                            and (not need_free or not gm.occupied(nx, ny)):
+                        return nx, ny
+            for dy in range(-r, r + 1):
+                for dx in (-r, r):
+                    nx, ny = cx + dx, cy + dy
+                    if gm.inside(nx, ny) and gm.can_walk(nx, ny) \
+                            and (not need_free or not gm.occupied(nx, ny)):
+                        return nx, ny
+        return None
+
     cnt = Counter()
     for x, y, _ in spots:
         cnt[(x // 20, y // 20)] += 1
@@ -218,20 +239,22 @@ def pick_hunting_spot(w, map_id: str):
     cands = [(x, y) for x, y, _ in spots if x // 20 == bx and y // 20 == by]
     cx = sum(x for x, _ in cands) // len(cands)
     cy = sum(y for _, y in cands) // len(cands)
-    for r in range(0, 8):
-        for dx in range(-r, r + 1):
-            for dy in (-r, r):
-                nx, ny = cx + dx, cy + dy
-                if gm.inside(nx, ny) and gm.can_walk(nx, ny) \
-                        and not gm.occupied(nx, ny):
-                    return nx, ny
-        for dy in range(-r, r + 1):
-            for dx in (-r, r):
-                nx, ny = cx + dx, cy + dy
-                if gm.inside(nx, ny) and gm.can_walk(nx, ny) \
-                        and not gm.occupied(nx, ny):
-                    return nx, ny
-    return cx, cy
+    got = _near(cx, cy)
+    if got is not None:
+        return got
+    # 刷怪表重心周围没有空格（怪扎堆）→ 只要求「可走」，允许落在怪物身边
+    got = _near(cx, cy, rmax=20, need_free=False)
+    if got is not None:
+        return got
+    # 真的全被占住 → 退到「离重心最近的活怪旁边」
+    for r in (1, 2, 3):
+        for a in gm.actors.values():
+            if not isinstance(a, Monster):
+                continue
+            got = _near(a.x, a.y, rmax=r, need_free=False)
+            if got is not None:
+                return got
+    return None
 
 
 # ---------------------------------------------------------------- 场景定义
