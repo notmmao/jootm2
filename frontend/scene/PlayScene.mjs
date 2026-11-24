@@ -5,6 +5,7 @@ import { Scene } from './Scene.mjs';
 import { SelectCharScene } from '../ui/SelectCharScene.mjs';
 import { MapActor, FLOOR_FALLBACK } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
+import * as A from '../actor/actorData.mjs';
 import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
 import { perf } from '../core/perf.mjs';
@@ -2057,6 +2058,13 @@ export class PlayScene extends Scene {
                         }
                         this._selfLevel = msg.level;
                     }
+                    // 回血飘字：stats.healed = 本拍药池/治愈池真实加到 HP 的数值
+                    // （服务端 _regen / 宝宝即时加血路径下发，自然回复不带）。
+                    // 原版对应 BoAbilSeeHealGauge 的治疗量可见性（Magic.pas:333），
+                    // 表现上借绿色上飘数字呈现。
+                    if (msg.healed > 0) {
+                        this._spawnDamageNumber(e.x, e.y, msg.healed, null, '#4be04b');
+                    }
                 }
                 // 状态窗口打开时同步刷新当前页（属性页 AC/MAC 随 buff 变化、技能页快捷键变更）
                 if (this.stateWin && this.stateWin.style.display === 'block') {
@@ -2171,16 +2179,31 @@ export class PlayScene extends Scene {
                         e._action = 'die';
                         e._actionAt = Date.now();
                         e._dieUntil = Date.now() + 4 * 120;   // HA.die: 4 帧 ×120ms
-                    } else if (e.type !== 'player' && e.raceImg === 18) {
-                        // 稻草人（RaceImg 18 → THuSuABi）死亡当下原版发 SM_NOWDEATH
-                        // （ObjBase.pas:2800 RM_DEATH lparam3=1 → ObjBase.pas:12583），
-                        // 客户端 AxeMon.pas:351-358 置 BoUseEffect=TRUE 播完整 ActDie
-                        // 动画 + 叠死亡火焰（DEATHFIREEFFECTBASE=2860）。用户记得的
-                        // 「爆炸」就是这个火焰。之前一律设 death 定格，火焰从不触发。
-                        // MA14.die = 10 帧 ×120ms；播完由 _dieUntil 到期转 death 定格尸体。
-                        e._action = 'die';
-                        e._actionAt = Date.now();
-                        e._dieUntil = Date.now() + 10 * 120;
+                    } else if (e.type !== 'player') {
+                        // 原版所有怪物当场死亡都播 ActDie 倒地动画：
+                        // TCreature.Die（ObjBase.pas:2800）无条件 SendRefMsg
+                        // (RM_DEATH, ..., 1) → lparam3=1 → 转发 SM_NOWDEATH
+                        // （ObjBase.pas:12582-12584）；客户端 SM_NOWDEATH
+                        // （Actor.pas:1044-1050）不折叠 startframe，完整播放
+                        // ActDie 段。SM_DEATH 定格末帧（:1036-1043）只用于
+                        // 「新进视野看到已死 actor」（:1865 lparam3=0）。
+                        // 旧实现误读为「怪物不播倒地动画」，只给稻草人
+                        // （raceImg 18）特判，其他怪全走定格，于是只有稻草人
+                        // 看起来会"爆炸"（那是它独有的死亡火焰叠加）。
+                        // 段表无 die 段或 0 帧（MA9 等定格怪帧数=1 也算无动画）
+                        // 维持定格尸体。稻草人的火焰叠加在 ActorSprite
+                        // _frameSpec（AxeMon.pas:351-358 BoUseEffect）。
+                        const segs = A.raceByPM(e.raceImg);
+                        const die = segs && segs.die;
+                        if (die && die.frame > 1 && die.ftime > 0) {
+                            e._action = 'die';
+                            e._actionAt = Date.now();
+                            e._dieUntil = Date.now() + die.frame * die.ftime;
+                        } else {
+                            e._action = 'death';
+                            e._actionAt = Date.now();
+                            e._dieUntil = 0;
+                        }
                     } else {
                         e._action = 'death';
                         e._actionAt = Date.now();

@@ -125,10 +125,13 @@ def main() -> int:
                 s._sprite(s.entities.get(id)).__probeMark = 1;
             }""", corpse_id)
 
-            print("\n=== 死亡后 3 秒内的尸体状态 ===")
+            print("\n=== 死亡后尸体状态（先播 ActDie 倒地动画，播完定格） ===")
+            # 段表最长 die 段 = MA34 20帧×200ms = 4000ms（raceImg 63），采样
+            # 窗口须覆盖到动画播完；原版 TCreature.Die 无条件 lparam3=1 →
+            # SM_NOWDEATH → 所有怪播完整 ActDie（Actor.pas:1044-1050）。
             states = []
             prev = 0
-            for ms in (0, 150, 350, 600, 1200, 2000, 3000):
+            for ms in (0, 150, 350, 600, 1200, 2000, 3000, 3800, 4300, 4800):
                 if ms > prev:
                     page.wait_for_timeout(ms - prev)
                 prev = ms
@@ -147,13 +150,16 @@ def main() -> int:
                 }""", corpse_id))
             print("  状态:", [(s.get("action"), s.get("spriteKept")) for s in states])
             check("尸体始终存在", all(s.get("exists") for s in states))
-            check("动作恒为 death（没有被 struck/stand 覆盖）",
-                  all(s.get("action") == "death" for s in states))
-            check("没有残留倒地动画计时", all(s.get("dieUntil") == 0 for s in states))
+            check("动作只在 die/death 之间（没有被 struck/stand 覆盖）",
+                  all(s.get("action") in ("die", "death") for s in states))
+            check("最终定格 death", states[-1].get("action") == "death")
+            check("动画播完后无残留倒地计时",
+                  all(s.get("dieUntil") == 0 for s in states if s.get("action") == "death"))
             check("entityAdd 未重建 sprite（缓存保持）",
                   all(s.get("spriteKept") for s in states))
-            check("尸体帧纹理已加载", all(s.get("specLoaded") for s in states))
-            check("尸体不是火焰特效层", all(s.get("blendLayers") == 0 for s in states))
+            check("定格后尸体帧纹理已加载", states[-1].get("specLoaded"))
+            check("定格后不是火焰特效层", all(s.get("blendLayers") == 0
+                                              for s in states if s.get("action") == "death"))
             check("无页面 JS 异常", not errors, "; ".join(errors[:2]))
             browser.close()
     finally:
