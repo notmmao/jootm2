@@ -759,7 +759,11 @@ class SoundManager {
                         if (a != null) this._monSound(a, 'attack', { gap: 180, volume: this.volume * 0.5 });
                     }
                 }
-                if (msg.miss) break;
+                // noDamage（打中但 AC 减免后伤害<=0，原版 _Attack ObjBase.pas:5441
+                // `if dam > 0` 才 StruckDamage+RM_STRUCK）同样不播受击音：攻击者
+                // 挥刀音照播（RM_HIT 无条件），受击方弯腰/身体/惨叫全无——修复
+                // 「角色被打不掉血却播挨打音效」（用户 2026-11-24）。
+                if (msg.miss || msg.noDamage) break;
 
                 // 受击方：原版 TActor.RunSound 的 SM_STRUCK 分支连着播三声
                 // （受击武器音 + 身体/护甲音 + 惨叫），见 Actor.pas:2382-2387。

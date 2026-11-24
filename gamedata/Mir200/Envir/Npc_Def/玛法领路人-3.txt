@@ -1,0 +1,94 @@
+﻿;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+check [001] 1
+#ACT
+goto @away
+break
+
+#IF
+checklevel 3
+#SAY
+<$USERNAME>，欢迎来到我本沉默传奇的神秘世界,\
+现在您已经3级了,在玛法大陆生活并不是一件容易的事情\
+不过,您有很多朋友,比如我,我现在将给您一些金钱的补助\
+您愿意接受吗？\
+
+<愿意,谢谢/@next1>    <了解更多/@more>\
+<领取离线修炼补助/@afkgift>    <领取每日金币/@afkgold>
+
+#ELSESAY
+<$USERNAME>，欢迎来到我本沉默传奇的神奇世界,\
+在玛法大陆生活并不是一件容易的事情\
+现在您现在要作的就是去升到3级,然后回来找我\
+我将给您一些帮助\
+
+<好的,我马上会回来/@exit>
+
+
+[@away]
+#IF
+check [001] 0
+#ACT
+goto @next1
+#ELSESAY
+呵呵,您不是领取过一次了吗？要努力赚钱哦：）\
+不过我这里每天还有别的补助可以领\
+<领取离线修炼补助/@afkgift>    <领取每日金币/@afkgold>\
+<好的,知道了/@exit>\
+
+
+
+[@next1]
+#IF
+checklevel 3
+#ACT
+give 金币 5000
+SET [001] 1
+#SAY
+<$USERNAME>祝您游戏愉快!本版本更多功能还在开发中,\
+祝您游戏愉快：）\
+
+<谢谢/@exit>
+
+
+[@more]
+#IF
+#ACT
+#SAY
+<$USERNAME>祝您游戏愉快!本版本更多功能还在开发中,\
+<好的  知道了/@exit>
+
+
+[@afkgift]
+#IF
+checkafk level
+#ELSESAY
+离线修炼需要更资深的冒险者才能使用，先去把等级练起来吧\
+<好的,我马上会回来/@exit>
+
+#IF
+checkafk claim
+#ACT
+giveafk
+#SAY
+已把今天的离线修炼补助发给你了!下线前找城里的传送员设定修炼计划即可\
+注意：设定后下线，角色会在原地自动修炼,消耗修炼时长余额\
+<谢谢/@exit>
+#ELSESAY
+今天的修炼补助已经领过了,明天再来吧\
+<好的,知道了/@exit>
+
+
+[@afkgold]
+#IF
+checkafk gold
+#ACT
+givegold
+#SAY
+这是今天的金币补助,拿去添置些装备药水吧!\
+每天都可以来找我领一次\
+<谢谢/@exit>
+#ELSESAY
+今天的金币补助已经领过了,明天再来吧\
+<好的,知道了/@exit>
