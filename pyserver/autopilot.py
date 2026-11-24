@@ -794,7 +794,14 @@ class AutoPilot:
     def _kite_worthy(self, w, target) -> bool:
         """是否值得为这只怪放风筝。弱鸡（鸡/鹿/稻草人）一发就秒，后退纯
         浪费输出；只有攻击够疼或血够厚的怪贴身才有走位价值。
-        判定只读模板字段（maxDc/hp），不估算技能伤害，稳定可预期。"""
+        判定只读模板字段（maxDc/hp），不估算技能伤害，稳定可预期。
+
+        追加（用户 2026-11-25「法师被怪物近身要学会风筝」）：怪**正在锁定
+        攻击我**（target_id == 自己）时一律撤——强怪阈值（maxDc≥12/hp≥200）
+        是按骷髅洞/僵尸洞数值拍的，沃玛/祖玛系杂兵够不着阈值但群殴法师
+        照样掉血，挨打本身就证明「不该站桩」，不再等模板数值达标。"""
+        if int(getattr(target, "target_id", -1)) == self.player_id:
+            return True
         t = target.template
         if t is None:
             return False
