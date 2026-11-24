@@ -1063,3 +1063,37 @@ afk_maintain 46/46、durability 19/19、death_drop 29/29 全绿。wiki 已按清
 未发布的 wiki 内容才看得到。公网 Host（含伪造头）照旧跳转。
 回归 `test_pyserver.py` 补 3 组用例（本地三种 Host 不跳、无 Host 不跳、公网仍跳），
 132/132 全绿。本地 8098 服务已重启生效。commit `3784574`。
+
+## §164 怪物死亡动画泛化 + 精英爆率 + 回血飘字 + 盟重省数据修正（2026-11-24，用户批量反馈）
+
+1. **所有怪物播死亡动画**（`baf5305` [保真]）：此前只有稻草人（raceImg 18）特判
+   播 ActDie。火炬证实原版**所有怪当场死都播**：`TCreature.Die`
+   （ObjBase.pas:2800）无条件 `SendRefMsg(RM_DEATH,...,1)` → lparam3=1 →
+   SM_NOWDEATH（:12582-12584）→ Actor.pas:1044-1050 不折叠 startframe 完整播
+   ActDie。SM_DEATH 定格（:1036-1043）只用于「新进视野看已死 actor」（:1865
+   lparam3=0）。稻草人特殊在额外叠火焰（AxeMon.pas:351-358），保留。PlayScene
+   death 分支改按段表 `die.frame>1 && ftime>0` 判定，播完定格；
+   `test_monster_death_anim.mjs` 9/9；`test_corpse_fx.py` 断言放宽 die→death
+   两段 + 采样窗延到 4800ms（段表最长 MA34 20帧×200ms），8/8。
+2. **精英爆率×2**：`elite.dropMult=2.0` 新配置（DEFAULTS/ServerConfig/load/
+   server.properties 四处齐）；`drop_loot` 与 `roll_butch_loot` 判定时乘 boost
+   （同周末机制，不回写 MonItems）。`test_elite_monster.py` [6] 段 21/21。
+3. **回血绿色飘字**：`_regen` 药池/治愈池真实加血量经 `stats.healed` 下发
+   （自然回复不带）；宝宝即时加血同款。前端 `case 'stats'` healed>0 绿字。
+4. **道士优先治愈**：在线 `_tick_combat`→`_survive` 与离线补给帧同链路早已
+   实现（`ee5e1e5`），本轮确认无需改动。
+5. **盟重省数据修正**（`5664b23` [数据]）：
+   - 9snpc2 宣传员（地图3,297,302）注释掉，Npcs.txt 同坐标放玛法领路人，
+     复制 `Npc_Def/玛法领路人-3.txt`。NPC 总数持平 207。
+   - 「城里被打」根因：`3 330 330 神鹰 3 3 20` 是我本沉默私货（176 神鹰只在
+     h106），恰刷在 StartPoint(3,330,330) 安全区中心——删该行。**猎鹰是原版
+     怪（176 map3 160,250/500,125 野外）保留**。
+   - 飞火流星非 176 原版怪，删 `3 330 330` 刷新行；足球场 G003/G004 保留。
+     map3 刷怪 228→224（重启日志实证）。
+6. **不掉血却播挨打音效**：服务端 `noDamage` 标记本就正确（_Attack
+   ObjBase.pas:5441 `if dam>0` 才 StruckDamage+RM_STRUCK）；前端 SoundManager
+   attack 分支只挡 miss 没挡 noDamage → 受击三连音照播。修复
+   `if (msg.miss || msg.noDamage) break`（挥刀音在门前，RM_HIT 无条件）。
+   `test_struck_sound.mjs` 6/6。
+Windows 大小写坑：目录真名 `Npc_Def`，git add 小写路径静默漏文件——提交后必须
+`git show --stat` 核对文件数。
