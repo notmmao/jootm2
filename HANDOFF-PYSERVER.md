@@ -1097,3 +1097,37 @@ afk_maintain 46/46、durability 19/19、death_drop 29/29 全绿。wiki 已按清
    `test_struck_sound.mjs` 6/6。
 Windows 大小写坑：目录真名 `Npc_Def`，git add 小写路径静默漏文件——提交后必须
 `git show --stat` 核对文件数。
+
+## §165 自然回血保真 / 耐久爆掉日志 / 中毒飘字 / 法师风筝 / 地面物品 TTL（2026-11-25）
+
+1. **战士站着不动不回血**（`d475a06` [保真]）：双根因——①`GameWorld.last_regen_at`
+   全服共享，一个 tick 只有一个玩家抢到 2s 窗口（多人在线/离线/bots 互相饿死）；
+   ②1 点/2s 与原版差两个数量级。火炬 `TCreature.Run`（ObjBase.pas:7548-7587）：
+   每角色独立 `HealthTick/SpellTick`，HEALTHFILLTICK=300（20ms×300=6s）回
+   `MaxHP div 75 + 1`，SPELLFILLTICK=800（16s）回 `MaxMP div 18 + 1`；挨打置 0
+   （:12559）、走路 -10（=200ms，:8995）、跑步 -60（=1200ms，:9049）。Player 新增
+   `health_tick/spell_tick/regen_prev_at`，`wear_struck`/`try_move` 接线。
+   `test_tick_systems.py` 段[2] 重写，181/181（既有 MonItems 尾随空格 1 FAIL 无关）。
+2. **装备耐久爆掉进挂机日志**（`9f3c9d5` [托管]）：`GameWorld.on_item_break` 回调
+   （world 不反依赖 afk），`do_damage_weapon`/`_wear_slot_struck` 归零清槽处触发；
+   OfflineAgentManager 注册后写 `item_broken` 事件（slot/slotName/item/duraMax/
+   map/deaths/supply）。afk_log_report 新增「耐久爆掉」按件汇总 + 件/分钟速率。
+   注意 `SLOT_NAMES` 按 U_* 索引（util.py）。耐久掉太快本身是原版机制
+   （StruckDamage 1/8 概率 ×5~14 磨损），等实测数据再谈调平衡。
+3. **中毒掉血飘字**（并入 `d475a06`）：`_apply_poison` 每跳真实扣血经
+   `stats.poisonDamage` 下发，前端紫色（#b45ce0）飘字；断言入 test_tick_systems [3]。
+4. **法师风筝「被锁定即撤」**（`bc1297c` [托管]）：旧 `_kite_worthy` 只认模板强怪
+   （maxDc≥12/hp≥200），沃玛/祖玛弱兵贴身站桩对砍。新口径：怪 `target_id ==
+   self.player_id` 一律值得撤（挨打即证据）；弱怪没锁我不撤（别对鸡乱跑）。
+   在线托管与离线挂机共用 `_tick_combat` 自动生效。`test_mage_kite.py` 5/5。
+5. **地面物品「捡不了+前端残留」**（`a7ef47a` [修复]）：三因——①TTL 60s 是拍脑袋，
+   原版 ObjBase.pas:1784 掉物 **1 小时**才删（视野扫描里 Dispose）→
+   `GROUND_ITEM_TTL_MS=3600_000`；②`update_sight` 只做实体差分，地面物品只在
+   map_snapshot 全量下发——走远/被删不发 itemRemove，前端 `groundItems` 越积越脏
+   → Player 新增 `seen_ground`，update_sight 补 itemDrop/itemRemove 差分，
+   `_broadcast_item_drop/remove` 同步维护各玩家 seen_ground，map_snapshot 播种；
+   ③前端 `_touchPick` 支持 1 格外拾取但服务端要求站上格子且静默拒绝（点了没
+   反应）→ 脚下没有就朝 1 格内最近掉落走一步。归属 2 分钟（ANTI_MUKJA_DELAY
+   =2min，ObjBase.pas:45）原本就对，未动。
+回归：afk_offline 50/50、afk_supply 43/43、afk_maintain 46/46、pyserver 132/132、
+tick_systems 全绿（除既有 MonItems FAIL）、mage_kite 5/5。
