@@ -1988,6 +1988,7 @@ class GameWorld(WorldExtra):
         HP 满时清空 inc_health/inc_healing，MP 满时清空 inc_spell。
         """
         changed = False
+        healed = 0
         heal_tick = 600 - min(400, p.level * 10)
         if (p.inc_health > 0 or p.inc_spell > 0 or p.inc_healing > 0) \
                 and now - p.last_healing_at >= heal_tick:
@@ -1999,7 +2000,12 @@ class GameWorld(WorldExtra):
             p.inc_spell -= mp_add
             p.inc_healing -= heal_add
             if hp_add or heal_add:
+                before = p.hp
                 p.hp = min(p.max_hp, p.hp + hp_add + heal_add)
+                # 本拍真正回到 HP 上的数值（药池 + 治愈池），供前端绿色飘字。
+                # 自然回复（每 2s 1 点）不算——原版 HealGauge 只在治愈/药水
+                # 生效时出现（ObjBase.pas:3782-3850 的 IncHealth/IncHealing 池）。
+                healed = p.hp - before
             if mp_add:
                 p.mp = min(p.max_mp, p.mp + mp_add)
             if p.hp >= p.max_hp:
@@ -2011,7 +2017,7 @@ class GameWorld(WorldExtra):
             changed = True
         if now - self.last_regen_at < REGEN_INTERVAL_MS:
             if changed:
-                self.send_stats(p)
+                self.send_stats(p, extras={"healed": healed} if healed else None)
             return
         if p.hp < p.max_hp:
             p.hp += 1
@@ -2021,7 +2027,7 @@ class GameWorld(WorldExtra):
             changed = True
         if changed:
             self.last_regen_at = now
-            self.send_stats(p)
+            self.send_stats(p, extras={"healed": healed} if healed else None)
 
     def _expire_buffs(self, p: Player, now: int) -> None:
         if 0 < p.ac_buff_until <= now:

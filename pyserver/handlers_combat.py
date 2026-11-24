@@ -1311,11 +1311,14 @@ class CombatHandlers:
             if isinstance(target, Player):
                 target.inc_healing = (min(300, target.inc_healing + heal)
                                       if target.inc_healing + heal < 300 else 300)
+                # 玩家走 inc_healing 池，绿色飘字由 _regen 每拍真实加血时下发
+                w.send_stats(target)
             else:
                 # 宝宝没有 inc_healing 池：原版 RM_MAGHEALING 经 SendDelayMsg
                 # 800ms 延迟后即时加血（Magic.pas:316），直接加并广播 stats。
+                before = target.hp
                 target.hp = min(target.max_hp, target.hp + heal)
-            w.send_stats(target)
+                w.send_stats(target, extras={"healed": target.hp - before})
             return True
 
         # 6 施毒术（:318-383）：毒药粉 1 张；AntiPoison 越高中毒越难

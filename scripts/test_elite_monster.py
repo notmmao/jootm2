@@ -94,5 +94,49 @@ random.seed(42)
 n_elite = sum(1 for _ in range(200) if spawn(cfg_half, t).elite)
 check("约一半为精英（80~120）", 80 <= n_elite <= 120, str(n_elite))
 
+print("\n[6] 精英爆率（elite.dropMult 判时乘，默认×2）")
+check("默认爆率×2", cfg.elite_drop_mult == 2.0)
+from pyserver.world_extra import WorldExtra  # noqa: E402
+from pyserver.drop_rates import DropRates  # noqa: E402
+from pyserver.templates import ItemTemplate  # noqa: E402
+
+
+class _Entry:
+    def __init__(self, name, num, den):
+        self.item_name, self.sel_point, self.max_point, self.count = name, num - 1, den, 1
+
+
+def drop_count(config, elite, n=4000, seed=7):
+    """用 drop_loot 真实链路统计 1/10 掉落命中次数。"""
+    random.seed(seed)
+    it = ItemTemplate(index=1, name="金创药", looks=1, stdMode=0)
+    made = []
+    fw = SimpleNamespace(
+        config=config, drop_rates=DropRates(),
+        drop_tables={"稻草人": [_Entry("金创药", 1, 10)]},
+        scatter_pos=lambda gm, x, y: (x, y),
+        add_ground_item=lambda gi: made.append(gi),
+        item_template_by_name=lambda nm: it,
+        new_item_instance=lambda tpl, dura: {"index": tpl.index},
+        new_id=lambda: len(made) + 1,
+    )
+    m = SimpleNamespace(template=SimpleNamespace(name="稻草人"), elite=elite,
+                        map="0", x=5, y=5)
+    hits = []
+    for _ in range(n):
+        made.clear()
+        WorldExtra.drop_loot(fw, m, killer=None)
+        hits.append(len(made))
+    return sum(hits)
+
+
+base = drop_count(cfg, elite=False)
+el = drop_count(cfg, elite=True)
+# 期望 400 对 800（1/10 × 4000），容差按二项 ±4σ
+check(f"精英爆率约为基础×2（{base} vs {el}）",
+      base > 0 and abs(el - 2 * base) < 120, f"base={base} elite={el}")
+boosted = drop_count(replace(cfg, elite_drop_mult=1.0), elite=True)
+check("dropMult=1 时精英与普通一致", abs(boosted - base) < 80, f"{boosted} vs {base}")
+
 print(f"\n结果: {P} PASS / {F} FAIL")
 sys.exit(1 if F else 0)
