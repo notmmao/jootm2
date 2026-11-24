@@ -4350,11 +4350,15 @@ export class PlayScene extends Scene {
             // 负数按诅咒显示）。服务端 instance_json 下发的 lucky = 两者净额。
             if (it.lucky > 0) line2 += '幸运+' + it.lucky + ' ';
             else if (it.lucky < 0) line2 += '诅咒+' + (-it.lucky) + ' ';
-            if (it.dcMax) line2 += '攻击 ' + (it.dc || 0) + '-' + it.dcMax + ' ';
-            if (it.mcMax) line2 += '魔法 ' + (it.mc || 0) + '-' + it.mcMax + ' ';
-            if (it.scMax) line2 += '道术 ' + (it.sc || 0) + '-' + it.scMax + ' ';
-            if (it.acMax) line2 += '防御 ' + (it.ac || 0) + '-' + it.acMax + ' ';
-            if (it.macMax) line2 += '魔御 ' + (it.mac || 0) + '-' + it.macMax + ' ';
+            // 原版判定是整 WORD 非零（FState.pas:3791 `if S.DC > 0`）：本项目拆成
+            // Min/Max 两列后等价于「任一非零」——只判 Max 会漏掉「仅 Min 非零」的
+            // 项链（黑檀/黄色水晶/黑色水晶/魔鬼/琥珀，魔法|道术 1~2 只写在下限列），
+            // 表现为项链悬浮不显示属性（2026-11-24 用户反馈）。
+            if (it.dc || it.dcMax) line2 += '攻击 ' + (it.dc || 0) + '-' + (it.dcMax || 0) + ' ';
+            if (it.mc || it.mcMax) line2 += '魔法 ' + (it.mc || 0) + '-' + (it.mcMax || 0) + ' ';
+            if (it.sc || it.scMax) line2 += '道术 ' + (it.sc || 0) + '-' + (it.scMax || 0) + ' ';
+            if (it.ac || it.acMax) line2 += '防御 ' + (it.ac || 0) + '-' + (it.acMax || 0) + ' ';
+            if (it.mac || it.macMax) line2 += '魔御 ' + (it.mac || 0) + '-' + (it.macMax || 0) + ' ';
             if (it.needLevel) line3 += '需要等级 ' + it.needLevel;
         } else {
             // 其他（食物 std=40 等）：只显示重量
