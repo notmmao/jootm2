@@ -981,3 +981,51 @@ D:/Python310/python.exe scripts/afk_log_report.py --name 角色名 --timeline
 - 刷新密度无异常：复活间隔统一 15s（原版语义），全部图 ≤1 死/小时。
 
 **本轮改动集中在 `pyserver/afk.py`（§162 修复）与 `scripts/`（矩阵/回归），标签：`[逻辑]`。**
+
+## §160 WS 直连源站架构落地：https 走 CF 隧道、wss 走 LE IP 证书（2026-11-24，用户提出「mir2 继续走 tunnel + 申请三级域名证书 + 程序改 WS 直连」）
+
+**实测数据**（浏览器视角，修正过的干净测量）：CF 隧道 wss median=694ms
+（min 410，物理绕路洛杉矶）；直连源站 wss median=11ms（min 10 max 40，
+TLS 复用连接每帧零成本）。用户游戏内高延迟反馈与隧道数字吻合。
+
+**三级域名方案实测否决**：`ws.mir2.notmmao.com` A 记录灰云指源站 + LE
+DNS-01 证书 + nginx 443 反代 /ws 全部就绪后，外网 SNI=ws.mir2.notmmao.com
+仍 **3/3 RST**——阿里云备案名单按**整个 notmmao.com 域名树**（任意子域）
+在 TLS ClientHello 的 SNI 和 HTTP Host 两处匹配拦截；对照组陌生域名 SNI
+到同 IP 同端口 101 正常。结论：**备案前任何 notmmao.com 子域都不能直连
+阿里云 IP**，只能走 CF（代理或隧道）。（11-23 §159 的「SNI 不拦」是当时
+mir2 解析指向 CF 边缘、不在名单扫描范围所致，A 记录一改即翻车。）
+
+**最终出路 = IP 字面量直连（无 SNI）**：浏览器对 IP 主机名按 RFC 6066
+不发 SNI → DPI 看不见任何域名 → 放行（实测无 SNI 200 OK）。证书校验用
+**Let's Encrypt IP 地址证书**：`acme.sh --issue -d 139.224.24.88 --alpn
+--cert-profile shortlived`（**TLS-ALPN-01** 是唯一活路：HTTP-01 的境外
+验证器连大陆 80 超时 2/2 失败；DNS-01 不能签 IP）。签出 SAN=IP 受信证书，
+6 天效期。
+
+**部署形态**（阿里云侧）：
+- `jootm2-nginx`（nginx:alpine, host 网络, 443）：唯一 server 出 IP 证书，
+  仅 `location /ws` 反代 127.0.0.1:8080（Upgrade 透传、read_timeout 3600s、
+  buffering off），其余 404。`--restart unless-stopped`。
+- `jootm2-tunnel` 保留：mir2.notmmao.com CNAME 已恢复（中途我误删过 A/CNAME，
+  已复原），页面+资源继续走隧道。
+- 续期：`/root/jootm2-nginx/acme-cron.sh`（crontab `0 1 * * *`）——先
+  `docker stop jootm2-nginx` 腾 443 再 `acme.sh --cron`（standalone ALPN
+  要占端口，直接跑会「port 443 already used」；install-cert 的 hook 只在
+  续期成功后跑，救不了这个）→ 起回 nginx。mir2/ws.mir2 域证书同 cron 统一续
+  （DNS-01 无端口冲突）。
+- ws.mir2.notmmao.com 的 A 记录已删（留之无用且触发名单）。
+
+**前端改动**（`7384e60`）：新 `frontend/net/wsUrl.mjs`——hostname 为
+`*.notmmao.com` 时 WS 用 `wss://139.224.24.88/ws` 直连；本地/局域网开发
+保持同源 `/ws`；`?ws=<url>` 强制覆盖（`?ws=same` 回同源，排障用）。
+`Connection` 默认参改走 `resolveWsUrl()`，main.mjs 两处 `new Connection('/ws')`
+去掉硬编码。`scripts/test_ws_url.mjs` 11/11。
+**线上验证**：https://mir2.notmmao.com 页面 → 实际连 `wss://139.224.24.88/ws`、
+login/listCharacters 业务握手 OK、RTT median=11ms；OPFS mode='opfs' 不受影响；
+默认同源路径回归正常。
+
+**遗留观察**：①IP 证书 6 天一续，cron 失败无告警——下次巡检要确认
+`/root/jootm2-nginx/acme-cron.log` 有成功续期记录；②玩家如果从 http IP:8080
+旧地址进（非 https），WS 同源走明文，仍可用但无缓存优势；③DPI 政策是流动的，
+若将来连 IP 无 SNI 也拦（技术上可做端口+JA3 统计），退路是整体收口回 CF 隧道。
