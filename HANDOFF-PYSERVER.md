@@ -768,3 +768,76 @@ CF 橙云回源的 Host 头固定等于访客访问的主机名、产品上无�
   后台预取持续回填（stored 20、pending 10）。
 - 遗留观察项：CF 免费版 WS 空闲超时约 100s，长时间挂机若实测掉线需在服务端加 ping/pong
   或调 CF 配置；debug 脚本角色名改为 `JOOTM2_CHAR` 环境变量传入（线上= GmHero）。
+
+---
+
+## §160 离线修炼详细日志 + 拒绝原因文案修复（2026-11-24，用户要求）
+
+**需求两条**：①「给离线挂机加入详细日志，单独存储，以便分析，为以后优化功能找到依据。内容、格式、存储路径你来定，可以用日期+角色名为文件名」；②「我发现拒绝原因没写好，你检查下」。
+
+### A. 运行日志（新增 `pyserver/afk_log.py`）
+
+- **格式**：JSONL，一行一事件，`kind` 区分类型，便于 grep / jq / 脚本聚合。每行同时记墙钟 `t`（`YYYY-MM-DD HH:MM:SS`）与游戏时间 `ms` —— 分析用 `ms`（模拟器会把墙钟压缩成几秒，见下文坑），排查宕机用 `t`。
+- **路径**：`<afk.logDir>/<YYYY-MM-DD>_<角色名>.jsonl`，**追加**模式（同日同角色多轮修炼共用一份，靠 `session_start` 分段）；文件名清掉 `<>:"/\|?*` 等非法字符、截断 64。默认 `data/afk-logs`。
+- **性能/鲁棒性**：内存缓冲 + 批量 flush；`session_start`/`session_end`/`death`/`error`/`reject` 立即落盘；IO 异常一律吞掉并置 `enabled=False`（**日志故障绝不能把挂机搞停**）。纯标准库。
+- **事件类型**：
+
+  | kind | 触发点 | 关键字段 |
+  |---|---|---|
+  | `session_start` | `promote()` 接管成功 / `resume_from_db()` 续挂 | preset、plan、level/exp/gold/hp/map/bag、resumed、bonus |
+  | `sample` | 每分钟（`afk.logSampleMinutes`，0=关） | level、exp、**dExp**、kills、**dKills**、gold、**dGold**、hp/hpPct/mp、map/x/y、bag/bagFree、supply、supplyFails、remaining、deaths、status |
+  | `death` | `handle_death` | deaths/limit、hp、supply、remaining |
+  | `supply_begin` / `supply_end` / `supply_fail` | 补给状态机 | why、seq、map、anchor、gold、bag、potions、fails |
+  | `session_end` | `_settle` | reason、planned、consumed、remaining、expGained、kills、goldDelta、deaths、supplies、errors、restartBonus |
+  | `reject` | `request_start()` / `promote()` 被拒 | stage、reason、map、level、plan |
+  | `error` | `tick()` 捕获异常 | where、type、msg、status、supply、remaining |
+
+  `dExp`/`dKills`/`dGold` 是**区间增量**，聚合即得每分钟收益曲线。逐只击杀不记（体积会翻十倍，分钟级足够定位问题）。
+- **配置**（`config.py` 三处齐改，`config/server.properties` 可覆盖）：`afk.logEnabled`=1、`afk.logDir`=data/afk-logs、`afk.logSampleMinutes`=1。
+- **接入点**：`OfflineAgentManager._open_log/_log_event/_log_close/_log_reject/_log_sample`；`OfflinePilot` 加 `log`、`log_at`、`log_exp/kills/gold`、`log_supplies`、`log_errors` 槽位。`discard()`/`disable()`→`_settle()` 两条收尾路径都关文件。
+
+### B. 分析器（新增 `scripts/afk_log_report.py`）
+
+按会话输出：起止/实耗/计划、收益与**每分钟均值**、地图分布、**补给占时%**、低血量采样比、背包空位、分钟经验曲线、零经验分钟占比、补给成败与触发/失败原因分布、死亡时状态；`--timeline` 打完整事件序列；末尾按角色汇总。参数 `--dir/--day/--name/--timeline/--limit`。
+
+```bash
+D:/Python310/python.exe scripts/afk_log_report.py --day 2026-11-24
+D:/Python310/python.exe scripts/afk_log_report.py --name 角色名 --timeline
+```
+
+### C. ⚠️ 日志上线即抓出一个真实老 bug：满包绕过补给冷却
+
+- **现象**（`sim_afk_longrun.py --hours 1.5 --log` 首次产出）：90 分钟里 **2885 轮补给**、平均每 0.9 秒起一轮、单轮仅 800ms、73% 采样处于补给流程、63% 分钟零经验；背包恒为 46/46、药水恒为 28/27（卖无可卖、药已买满）。
+- **根因**：`OfflinePilot._on_bag_full` 直接 `_supply_begin()`，**没检查 `supply_retry_until`**。而 `_survive` 每 tick 都会在满包时调它；本地商人在身边时一轮空转补给只需 800ms（GOTO_TOWN 已在本地 → SELL 空转 → BUY 已满 → GOTO_ANCHOR 1 格 → FINISH）→ 冷却还没设上就重起一轮。
+- **修法**：`_on_bag_full` 里加冷却判断，冷却期内只 `set_status("背包已满 · 补给冷却中，继续打怪不拾取")`。`_supply_check_trigger` 早就有同样的冷却保护，只有这条 tick 级路径漏了。
+- **修复效果**（同参数同种子重跑）：补给 2885→19 轮、击杀 87→213（+145%）、经验 9523→22914（+141%）、零经验分钟 63%→12%、补给占时 73%→0%。**这正是用户「加日志为以后优化找依据」的第一个产出。**
+- 回归固化：`scripts/test_afk_log.py` §5「冷却期内不重起补给 / 冷却结束后可重起」。
+
+### D. 拒绝原因文案修复（用户「拒绝原因没写好」）
+
+实库审计 `afk_reports` 定位三类病根：
+1. `promote()` 五类门禁全是结论式短句（「等级低于离线修炼门槛」「全服离线修炼名额已满」），玩家不知道差多少、是哪个图/哪个名额；
+2. 「可用修炼时长不足 10 分钟」把**余额 / 每日额度 / 计划值**三个上限混成一条，玩家分不清该去领取还是等明天；
+3. `takeover()` 正常上线收工写成「玩家上线，离线修炼结束」，读起来像被拒绝，也让 minutes>0 的正常记录被误判成异常。
+
+改法：
+- `request_start()` 拆出 `_validate_start()`（六个门禁集中一处），每条都带数据：`当前 X 级/需要 Y 级`、`仅剩 N 分钟（至少 10 分钟）`、`已用 X/Y 分钟`、`余额 A 分钟、今日剩 B 分钟`；计划被余额/额度压到 <10 分钟时单独给「余额/今日剩」两个数。
+- `promote()` 五类门禁同样带数据：`地图（0）禁止`、`当前 10 级/要求 15 级`、`名额 10/10`、`本图 2 个上限`；时长不足细分为**余额不足 / 今日额度用完 / 计划值不足**三条独立文案。拒绝报告加 `notice="未开始的计划不扣除时长，可重新设置"`。
+- `takeover()` → `reason="角色上线，本次修炼正常结束"`。
+- 拒绝同时落 `reject` 日志（`_log_reject`，写一次即关，异常吞掉），日后可按 reason 聚合出「哪道门槛最常挡住玩家」，作为调 `afk.minLevel` / 排除图 / 每日额度的依据。
+
+### E. 测试隔离（重要，别再踩）
+
+`test_afk_offline.py` / `test_afk_supply.py` 的 `make_service()` 默认把 `afk_log_dir` 指到临时目录，**避免测试往仓库 `data/afk-logs` 堆文件**；需要验证日志的用例显式覆盖。`sim_afk_longrun.py` 默认 `afk_log_enabled=0`，加 `--log` 才写（角色名 `SimAfk`，与真实玩家日志可区分）。
+
+### F. 验证
+
+- 新增回归 `scripts/test_afk_log.py` **47/0**（单元行为 / 拒绝文案带数据 / 全生命周期事件序列 / 采样字段齐备 / takeover 文案 / 满包冷却）。
+- 既有：`test_afk_offline` 50/0、`test_afk_supply` 43/0、`test_afk_maintain` 17/0、`test_afk_dashboard` 19/0。
+- `py_compile` 全过；模拟器 1.5h 长跑 + 分析器实跑通过。
+
+### G. 部署提醒
+
+改的是服务端代码 + 新增配置项，**要更新镜像并重启**；`config/server.properties` 不必动（有内置默认值，想改 `afk.logEnabled`/`afk.logDir` 才需要，那种情况走 gamedata 卷 scp + restart）。日志目录 `data/afk-logs` 在容器 `/app/data` 下（compose 已挂 `./data`），随容器持久化，注意长期堆积（每角色每轮约 1 行/分钟，`--timeline` 分析后可定期归档清理）。
+
+**本轮改 `pyserver/afk.py`、`pyserver/config.py`、新增 `pyserver/afk_log.py` / `scripts/test_afk_log.py` / `scripts/afk_log_report.py`、改 `scripts/sim_afk_longrun.py` / `test_afk_offline.py` / `test_afk_supply.py`、本文档。标签：服务端日志与 bug 修复 `[逻辑]`，文档 `[文档]`。**
