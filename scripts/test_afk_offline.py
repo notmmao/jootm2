@@ -47,8 +47,11 @@ class FakeSession:
 
 def make_service(**afk_overrides):
     cfg = load()
-    if afk_overrides:
-        cfg = replace(cfg, **afk_overrides)
+    # 日志默认落到临时目录，避免测试把自己写进 data/afk-logs；
+    # 专门验证日志的用例再显式覆盖 afk_log_dir。
+    afk_overrides.setdefault("afk_log_dir",
+                             Path(tempfile.mkdtemp()) / "afk-logs")
+    cfg = replace(cfg, **afk_overrides)
     db_path = Path(tempfile.mkdtemp()) / "afk-offline-test.db"
     db = Database(db_path)
     db.seed_game_data(cfg.mud2_dir)

@@ -51,6 +51,11 @@ DEFAULTS: dict[str, str] = {
     "afk.supplyMaxFails": "5",         # 连续补给失败上限（0=永不因补给失败停挂）
     "afk.supplyRepair": "1",           # 补给时修理背包低持久装备（用户 2026-11-23）
     "afk.supplyUnbind": "1",           # 补给时拆药水捆（用户 2026-11-23）
+    # ---- 离线修炼运行日志（JSONL，用户 2026-11-24 要求）----
+    # 一行一事件，路径 <logDir>/<日期>_<角色名>.jsonl；关掉只需 logEnabled=0。
+    "afk.logEnabled": "1",
+    "afk.logDir": "data/afk-logs",
+    "afk.logSampleMinutes": "1",       # 运行采样间隔（分钟），0=不采样只记关键事件
     # ---- 周末双倍活动（用户新增功能，全部可配）----
     "weekend.enabled": "1",            # 总开关
     "weekend.expRate": "2.0",          # 击杀经验倍率
@@ -123,6 +128,10 @@ class ServerConfig:
     afk_gold_per_day: int = 5000       # 玛法领路人每日金币补助（用户 2026-11-18：金币紧张）
     afk_supply_repair: int = 1         # 补给时修理背包低持久装备（用户 2026-11-23）
     afk_supply_unbind: int = 1         # 补给时拆药水捆（用户 2026-11-23）
+    # ---- 离线修炼运行日志（JSONL）----
+    afk_log_enabled: int = 1           # 总开关（0=完全不写日志）
+    afk_log_dir: Path = PROJECT_ROOT / "data" / "afk-logs"
+    afk_log_sample_minutes: int = 1    # 运行采样间隔（分钟），0=只记关键事件
     # PK 点衰减间隔（毫秒）。原版 ObjBase.pas:7719 是 2 分钟/点（黄名 200 分钟、
     # 红名 400 分钟清白），用户 2026-11-22 认为偏长，主动偏离改默认 15 秒/点。
     # 设回 120000 即恢复原版行为。
@@ -289,6 +298,9 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         afk_gold_per_day=as_int("afk.goldPerDay", None, None, 5000),
         afk_supply_repair=max(0, as_int("afk.supplyRepair", None, None, 1)),
         afk_supply_unbind=max(0, as_int("afk.supplyUnbind", None, None, 1)),
+        afk_log_enabled=max(0, as_int("afk.logEnabled", None, None, 1)),
+        afk_log_dir=_resolve(root, val("afk.logDir", None, None, "data/afk-logs")),
+        afk_log_sample_minutes=max(0, as_int("afk.logSampleMinutes", None, None, 1)),
         pk_decay_interval_ms=max(1, as_int("pk.decayIntervalSec", None, None, 15)) * 1000,
         autopilot_bag_full_stop=as_int("autopilot.bagFullStop", None, None, 0),
         weekend_enabled=max(0, as_int("weekend.enabled", None, None, 1)),

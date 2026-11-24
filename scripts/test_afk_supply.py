@@ -56,6 +56,9 @@ class FakeSession:
 
 def make_service():
     cfg = load()
+    # 日志隔离：补给测试不该往仓库的 data/afk-logs 里堆文件
+    cfg = dataclasses.replace(cfg,
+                              afk_log_dir=Path(tempfile.mkdtemp()) / "afk-logs")
     db_path = Path(tempfile.mkdtemp()) / "afk-supply-test.db"
     db = Database(db_path)
     db.seed_game_data(cfg.mud2_dir)

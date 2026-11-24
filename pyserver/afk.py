@@ -24,6 +24,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from .afk_log import AfkSessionLog
 from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
                         attack_interval_ms, normalize_preset)
 from .util import RED_NAME_PK_POINT
@@ -202,6 +203,14 @@ class OfflinePilot(AutoPilot):
     restart_bonus: int = 0        # 重启续挂补偿（分钟，写进报告通知）
     deaths: int = 0
     remaining: int = 0            # 剩余修炼分钟（每 60s 递减，= afk_sessions 记账）
+    # ---- 运行日志采样快照（pyserver/afk_log.py）----
+    log: Any = None               # AfkSessionLog 或 None（日志关闭/打开失败）
+    log_at: int = 0               # 上次采样时刻（0=还没采过）
+    log_exp: int = 0              # 上次采样经验（算区间增量）
+    log_kills: int = 0
+    log_gold: int = 0
+    log_supplies: int = 0         # 已开始的补给轮数（统计补给频率）
+    log_errors: int = 0           # 异常计数（熔断阈值观察用）
     # ---- 补给闭环状态机 ----
     supply_state: str = ""        # ""=挂机中，其余见 SUPPLY_* 常量
     supply_reason: str = ""       # 本轮补给的原因（背包满/药水耗尽）
@@ -295,6 +304,15 @@ class OfflinePilot(AutoPilot):
         if self.supply_state:
             return          # 补给状态机正在处理背包问题（卖货腾格子）
         if self._supply_enabled(srv):
+            # ⚠️ 必须尊重补给冷却。这里曾被漏掉：满包时 _survive 每 tick 都会
+            # 调到本方法，而「卖无可卖 + 药已买满 + 商人就在身边」的一轮补给
+            # 只需 800ms 就能走完一圈（GOTO_TOWN 已在本地 → SELL 空转 → BUY
+            # 已满 → GOTO_ANCHOR 1 格 → FINISH），于是每 tick 重起一轮。
+            # 2026-11-24 日志实测：90 分钟刷出 2885 轮补给、73% 时间耗在补给
+            # 流程里、63% 分钟零经验——诊断手段直接抓出了一个老 bug。
+            if now < self.supply_retry_until:
+                self.set_status("背包已满 · 补给冷却中，继续打怪不拾取", now)
+                return
             self._supply_begin(srv, w, p, now, "背包已满")
             return
         AutoPilot._on_bag_full(self, srv, w, p, now)      # v1：回城卷/停机
@@ -424,6 +442,15 @@ class OfflinePilot(AutoPilot):
         self.supply_return_tries = 0
         self.anchor_map = new_map
         self.anchor_x, self.anchor_y = self._safe_anchor(w, p, p.x, p.y)
+        self.log_supplies += 1
+        self.manager._log_event(self, p, "supply_begin", why=why,
+                                seq=self.log_supplies,
+                                map=self.anchor_map,
+                                anchor=[self.anchor_x, self.anchor_y],
+                                gold=p.gold, bag=len(p.bag),
+                                hp=p.hp, maxHp=p.max_hp,
+                                fails=self.supply_fails,
+                                remaining=self.remaining)
         self.set_status(f"补给开始 · {why} · 记忆锚点 {self.anchor_map}", now, force=True)
 
     # ---- 补给状态机骨架 -------------------------------------------------
@@ -845,6 +872,12 @@ class OfflinePilot(AutoPilot):
         self.supply_fails = 0
         self.supply_return_tries = 0
         self.supply_route = []
+        self.manager._log_event(self, p, "supply_end", seq=self.log_supplies,
+                                ok=True, map=p.map.name if p.map else "",
+                                gold=p.gold, bag=len(p.bag),
+                                hp=p.hp, maxHp=p.max_hp,
+                                potions=list(count_potions(w, p)),
+                                remaining=self.remaining)
         # 回锚点了：刷新进展快照，避免被零进展熔断误杀
         self.last_exp, self.last_bag, self.last_gold = p.exp, len(p.bag), p.gold
         self.last_progress_at = now
@@ -865,6 +898,14 @@ class OfflinePilot(AutoPilot):
         """
         self.supply_fails += 1
         self.supply_last_fail_at = now
+        self.manager._log_event(self, p, "supply_fail", why=why,
+                                seq=self.log_supplies, fails=self.supply_fails,
+                                state=self.supply_state,
+                                map=p.map.name if p.map else "", x=p.x, y=p.y,
+                                anchorMap=self.anchor_map,
+                                gold=p.gold, bag=len(p.bag),
+                                hp=p.hp, maxHp=p.max_hp,
+                                potions=list(count_potions(w, p)))
         max_fails = max(0, int(getattr(srv.config, "afk_supply_max_fails", 5)))
         if max_fails and self.supply_fails >= max_fails:
             hp, _mp = count_potions(w, p)
@@ -910,6 +951,54 @@ class OfflineAgentManager:
         self._last_charge_at = 0      # 分钟记账节拍
         self._last_persist_at = 0     # 周期落库节拍（降低宕机损失）
 
+    # ---- 运行日志（pyserver/afk_log.py）--------------------------------
+
+    def _log_config(self) -> tuple[bool, Any, int]:
+        cfg = self.service.config
+        enabled = bool(int(getattr(cfg, "afk_log_enabled", 1)))
+        log_dir = getattr(cfg, "afk_log_dir", None)
+        if log_dir is None:
+            log_dir = self.service.config.root / "data" / "afk-logs"
+        interval = max(0, int(getattr(cfg, "afk_log_sample_minutes", 1)))
+        return enabled, log_dir, interval
+
+    def _open_log(self, p):
+        """为一次修炼会话开日志；关闭或打开失败返回 None（挂机照常跑）。"""
+        enabled, log_dir, _ = self._log_config()
+        if not enabled:
+            return None
+        try:
+            return AfkSessionLog(log_dir,
+                                 getattr(p, "name", "") or "",
+                                 getattr(p, "character_id", 0) or 0)
+        except Exception as e:
+            print(f"[afk] 日志打开失败 {getattr(p, 'name', '?')}: "
+                  f"{type(e).__name__}: {e}")
+            return None
+
+    def _log_reject(self, p, stage: str, reason: str, cur_map: str = "",
+                    plan: dict | None = None) -> None:
+        """开启/续挂被拒时记一条 reject。
+
+        ``stage`` 标明拒绝发生在哪个环节（request_start / promote / resume），
+        日后可以按 reason 聚合出「哪道门槛最常挡住玩家」，作为调整
+        ``afk.minLevel`` / ``excludedMaps`` / 每日额度的依据。
+        被拒时没有存活会话，这里开一个一次性写入器、写完即关。
+        """
+        enabled, log_dir, _ = self._log_config()
+        if not enabled:
+            return
+        try:
+            log = AfkSessionLog(log_dir, getattr(p, "name", "") or "",
+                                getattr(p, "character_id", 0) or 0)
+            log.reject(now_ms(), stage, reason, map=cur_map or "",
+                       level=getattr(p, "level", 0) or 0,
+                       plan=dict(plan) if plan else None)
+            log.close()
+        except Exception:
+            pass          # 日志问题绝不能反过来影响拒绝流程本身
+
+
     # ---- 接口面（AutoPilot 决策循环会调用） -----------------------------
 
     def get(self, p) -> OfflinePilot | None:
@@ -920,6 +1009,8 @@ class OfflineAgentManager:
         pilot = self._pilots.pop(player_id, None)
         if pilot is not None:
             pilot.active = False
+            # 角色已不在世界，拿不到 p，只能直接关文件避免句柄泄漏
+            self._log_close(pilot)
 
     def push(self, player_id: int, now: int, force: bool = False) -> None:
         """离线没有客户端可推，只同步 pushed_status 避免重复字符串比较；
@@ -996,6 +1087,12 @@ class OfflineAgentManager:
         """
         cfg = self.service.config
         pilot.deaths += 1
+        self._log_event(pilot, p, "death", deaths=pilot.deaths,
+                        limit=max(1, int(cfg.afk_death_stop)),
+                        level=p.level,
+                        map=p.map.name if p.map else "", x=p.x, y=p.y,
+                        hp=p.hp, maxHp=p.max_hp,
+                        supply=pilot.supply_state, remaining=pilot.remaining)
         if pilot.deaths >= max(1, int(cfg.afk_death_stop)):
             self.disable(p, f"死亡 {pilot.deaths} 次，离线修炼已停止（防止药尽送死）")
             return
@@ -1049,25 +1146,52 @@ class OfflineAgentManager:
         """在线时配置离线修炼计划；下线瞬间生效。"""
         cfg = self.service.config
         info = self.state_info(p)
-        if p.map is None or p.map.name in cfg.afk_excluded_maps:
-            return False, "当前地图禁止离线修炼。", info
-        if p.level < cfg.afk_min_level:
-            return False, f"离线修炼需要 {cfg.afk_min_level} 级以上。", info
-        if getattr(p, "dead", False) or not p.alive:
-            return False, "角色已死亡，无法开启离线修炼。", info
+        ok, why = self._validate_start(p, info, minutes)
+        if not ok:
+            self._log_reject(p, "request_start", why,
+                             p.map.name if p.map is not None else "")
+            return False, why, info
         minutes = int(minutes)
-        if minutes <= 0:
-            return False, "修炼时长无效。", info
+        key = normalize_preset(preset)
+        clipped = min(minutes, info["balance"], info["dailyRemaining"])
+        p.afk_plan = {"minutes": clipped, "preset": key}
+        info = self.state_info(p)
+        note = ""
+        if clipped < minutes:
+            note = f"（原计划 {minutes} 分钟，受余额/今日额度限制缩减）"
+        return True, (f"已设定离线修炼计划：下线后自动修炼 {clipped} 分钟"
+                      f"（{PRESETS[key]['name']}档）{note}。"), info
+
+    def _validate_start(self, p, info: dict, minutes: int) -> tuple[bool, str]:
+        """在线配置阶段的全部门禁；返回 (ok, 拒绝原因)。
+
+        抽成独立方法是为了让 ``request_start`` 只在返回原因处写一次日志，
+        不用在六个 return 分支上各贴一行 ``_log_reject``。
+        """
+        cfg = self.service.config
+        cur_map = p.map.name if p.map is not None else ""
+        if p.map is None or cur_map in cfg.afk_excluded_maps:
+            return False, (f"当前地图（{cur_map or '未知'}）禁止离线修炼，"
+                           f"请换到允许的地图。")
+        if p.level < cfg.afk_min_level:
+            return False, (f"等级不足：当前 {p.level} 级，"
+                           f"离线修炼需要 {cfg.afk_min_level} 级以上。")
+        if getattr(p, "dead", False) or not p.alive:
+            return False, "角色已死亡，无法开启离线修炼。"
+        if int(minutes) <= 0:
+            return False, "修炼时长无效（计划时长必须大于 0）。"
         balance = info["balance"]
         if balance < 10:
-            return False, "修炼时长余额不足，请找比奇城的玛法领路人领取。", info
-        minutes = min(minutes, balance, info["dailyRemaining"])
-        if minutes < 10:
-            return False, "今日可用修炼时长不足 10 分钟。", info
-        key = normalize_preset(preset)
-        p.afk_plan = {"minutes": minutes, "preset": key}
-        info = self.state_info(p)
-        return True, f"已设定离线修炼计划：下线后自动修炼 {minutes} 分钟（{PRESETS[key]['name']}档）。", info
+            return False, (f"修炼时长余额不足：仅剩 {balance} 分钟（至少 10 分钟），"
+                           f"请找比奇城的玛法领路人领取。")
+        if info["dailyRemaining"] < 10:
+            return False, (f"今日修炼额度已用完：已用 {info['usedToday']}/"
+                           f"{info['dailyLimit']} 分钟，明天再来。")
+        if min(int(minutes), balance, info["dailyRemaining"]) < 10:
+            # 计划值本身够 10 分钟，这里只可能是余额/额度把它压下来了
+            return False, (f"可用时长不足 10 分钟：余额 {balance} 分钟、"
+                           f"今日剩 {info['dailyRemaining']} 分钟。")
+        return True, ""
 
     def request_stop(self, p) -> tuple[bool, str, dict]:
         if getattr(p, "afk_plan", None) is None:
@@ -1118,25 +1242,47 @@ class OfflineAgentManager:
         p.afk_plan = None
         cfg = self.service.config
         reason = ""
-        if p.map is None or p.map.name in cfg.afk_excluded_maps:
-            reason = "下线时所在地图已禁止离线修炼"
+        # 每条拒绝都要写清「卡在哪、差多少、上限多少」，玩家看报告才知道怎么改。
+        # 旧文案只有「等级低于门槛」「名额已满」这类结论，玩家无法判断要升多少级、
+        # 是哪个名额满了，实测反馈「拒绝原因没写好」。
+        cur_map = p.map.name if p.map is not None else ""
+        if p.map is None or cur_map in cfg.afk_excluded_maps:
+            reason = (f"下线时所在地图（{cur_map or '未知'}）禁止离线修炼，"
+                      f"请换到允许的地图再下线")
         elif p.level < cfg.afk_min_level:
-            reason = "等级低于离线修炼门槛"
+            reason = (f"等级不足：当前 {p.level} 级，离线修炼要求 "
+                      f"{cfg.afk_min_level} 级")
         elif len(self._pilots) >= cfg.afk_max_agents:
-            reason = "全服离线修炼名额已满"
+            reason = (f"全服离线修炼名额已满：{len(self._pilots)}/"
+                      f"{cfg.afk_max_agents}，稍后再试")
         elif sum(1 for q in self._pilots.values()
-                 if q and self._pilot_map(q) == (p.map.name if p.map else "")) >= cfg.afk_per_map_limit:
-            reason = "当前地图离线修炼名额已满"
+                 if q and self._pilot_map(q) == cur_map) >= cfg.afk_per_map_limit:
+            reason = (f"当前地图（{cur_map}）名额已满："
+                      f"{cfg.afk_per_map_limit} 个上限，换张地图或稍后再试")
         minutes = int(plan.get("minutes", 0))
         afk = self.service.db.get_afk(p.character_id)
         used_today = afk["used_minutes"] if afk["used_date"] == today() else 0
-        minutes = min(minutes, afk["balance"],
-                      max(0, cfg.afk_daily_minutes - used_today))
+        daily_left = max(0, cfg.afk_daily_minutes - used_today)
+        minutes = min(minutes, afk["balance"], daily_left)
         if not reason and minutes < 10:
-            reason = "可用修炼时长不足 10 分钟"
+            # 三个上限到底撞了哪个：余额 / 每日额度 / 计划值。旧实现统一报
+            # 「可用修炼时长不足 10 分钟」，玩家分不清是该领取还是等明天。
+            if afk["balance"] < 10:
+                reason = (f"修炼时长余额不足：仅剩 {afk['balance']} 分钟，"
+                          f"请找比奇城的玛法领路人领取")
+            elif daily_left < 10:
+                reason = (f"今日修炼额度已用完：已用 {used_today}/"
+                          f"{cfg.afk_daily_minutes} 分钟，明天再来")
+            else:
+                reason = (f"可用时长不足 10 分钟：余额 {afk['balance']}、"
+                          f"今日剩 {daily_left}、计划 {int(plan.get('minutes', 0))}")
         if reason:
             self._report(p.character_id, now_ms(), now_ms(), 0, 0, 0, 0, 0,
-                         f"离线修炼未能开启：{reason}")
+                         f"离线修炼未能开启：{reason}",
+                         notice="未开始的计划不扣除时长，可重新设置")
+            # 拒绝原因入日志：日后可统计「哪类拒绝最多」（等级/地图/名额/时长），
+            # 作为调整门槛的依据。
+            self._log_reject(p, "promote", reason, cur_map, plan)
             return False
         # 预扣余额 → 会话落库 → 假会话顶替真会话 → 代理开跑
         db = self.service.db
@@ -1155,6 +1301,14 @@ class OfflineAgentManager:
                              last_exp=p.exp, last_bag=len(p.bag),
                              last_gold=p.gold, last_progress_at=now_ms(),
                              remaining=minutes)
+        pilot.log = self._open_log(p)
+        pilot.log_at = pilot.log_exp = pilot.log_kills = pilot.log_gold = 0
+        self._log_event(pilot, p, "session_start",
+                        preset=pilot.preset, plan=minutes,
+                        level=p.level, exp=p.exp, gold=p.gold,
+                        hp=p.hp, maxHp=p.max_hp,
+                        map=p.map.name if p.map else "", x=p.x, y=p.y,
+                        bag=len(p.bag))
         self._pilots[p.id] = pilot
         return True
 
@@ -1167,7 +1321,10 @@ class OfflineAgentManager:
         if p is None or not getattr(p, "afk_offline", False):
             return False
         pilot = self._pilots.get(p.id)
-        reason = "玩家上线，离线修炼结束"
+        # 玩家主动上线是**正常收工**，不是失败。reason 写「结束原因」供报告
+        # 显示；旧文案「玩家上线，离线修炼结束」读起来像被拒绝，也导致
+        # 结算报告里 minutes>0 的正常记录被误认为是异常。
+        reason = "角色上线，本次修炼正常结束"
         if pilot is not None:
             self._pilots.pop(p.id, None)
             pilot.active = False
@@ -1212,6 +1369,11 @@ class OfflineAgentManager:
                 pilot.tick(now)
             except Exception as e:
                 print(f"[afk] tick 异常 id={pilot.player_id}: {type(e).__name__}: {e}")
+                self._log_event(pilot, None, "error",
+                                where="tick", type=type(e).__name__,
+                                msg=str(e), status=pilot.status,
+                                supply=pilot.supply_state,
+                                remaining=pilot.remaining)
                 self.discard(pilot.player_id)
         if now - self._last_charge_at < 60_000:
             return
@@ -1226,6 +1388,11 @@ class OfflineAgentManager:
             pilot.remaining = remaining
             db.update_afk_remaining(p.character_id, remaining, pilot.deaths,
                                     pilot.restart_bonus)
+            # 运行日志采样：默认每分钟一条（afk.logSampleMinutes 可配，0=关）。
+            _, _, sample_min = self._log_config()
+            if sample_min and (not pilot.log_at
+                               or now - pilot.log_at >= sample_min * 60_000):
+                self._log_sample(pilot, p, self.service.world)
             if self._watchers.get(pilot.player_id):
                 # 观战心跳：战斗平稳、状态不变时也能确认代理活着。
                 self._notify_watchers(
@@ -1278,6 +1445,13 @@ class OfflineAgentManager:
                                  restart_bonus=bonus, deaths=int(row["deaths"]))
             pilot.remaining = remaining
             db.update_afk_remaining(p.character_id, remaining, pilot.deaths, bonus)
+            pilot.log = self._open_log(p)
+            self._log_event(pilot, p, "session_start", preset=pilot.preset,
+                            resumed=True, plan=remaining, bonus=bonus,
+                            level=p.level, exp=p.exp, gold=p.gold,
+                            hp=p.hp, maxHp=p.max_hp,
+                            map=p.map.name if p.map else "", x=p.x, y=p.y,
+                            bag=len(p.bag))
             self._pilots[p.id] = pilot
             notice = (f"服务器重启，离线修炼已自动续挂（剩余 {remaining} 分钟，"
                       f"含补偿 {bonus} 分钟）。") if bonus > 0 else \
@@ -1327,14 +1501,26 @@ class OfflineAgentManager:
         except Exception:
             remaining = 0
         consumed = max(0, planned - remaining)
+        exp_gained = self._exp_gained(self.service.world, pilot, p)
+        gold_delta = p.gold - pilot.gold_start
+        # 结算收尾先记日志再动世界状态：remove_player 之后 p.map 可能已失效
+        self._log_event(pilot, p, "session_end", reason=reason,
+                        planned=planned, consumed=consumed,
+                        remaining=remaining, expGained=exp_gained,
+                        kills=pilot.kills, goldDelta=gold_delta,
+                        deaths=pilot.deaths, level=p.level,
+                        exp=p.exp, gold=p.gold,
+                        map=p.map.name if p.map else "", x=p.x, y=p.y,
+                        bag=len(p.bag), supplies=pilot.log_supplies,
+                        errors=pilot.log_errors, restartBonus=pilot.restart_bonus)
+        self._log_close(pilot)
         # 退回未用完的余额
         used_date = afk["used_date"] if afk["used_date"] == today() else today()
         used_minutes = (afk["used_minutes"] if afk["used_date"] == used_date else 0) + consumed
         db.save_afk(p.character_id, afk["balance"] + remaining,
                     afk["claim_date"], afk["claim_count"], used_date, used_minutes)
         self._report(p.character_id, pilot.started_at, now_ms(), consumed,
-                     self._exp_gained(self.service.world, pilot, p),
-                     pilot.kills, p.gold - pilot.gold_start, pilot.deaths,
+                     exp_gained, pilot.kills, gold_delta, pilot.deaths,
                      reason,
                      notice=(f"（含重启补偿 {pilot.restart_bonus} 分钟）"
                              if pilot.restart_bonus else ""))
@@ -1351,6 +1537,63 @@ class OfflineAgentManager:
             self.service.db.settle_afk_session(p.character_id)
         except Exception:
             pass
+
+    def _log_event(self, pilot: OfflinePilot, p, kind: str, **fields: Any) -> None:
+        """安全地把一条事件写进会话日志；任何异常都吞掉（不影响挂机）。
+
+        ``p`` 允许为 None（tick 异常那条路径角色对象可能已不可用）。
+        """
+        log = pilot.log
+        if log is None:
+            return
+        try:
+            log.event(kind, now_ms(), **fields)
+        except Exception as e:
+            pilot.log_errors += 1
+            print(f"[afk] 日志写入失败 id={pilot.player_id}: "
+                  f"{type(e).__name__}: {e}")
+
+    def _log_close(self, pilot: OfflinePilot) -> None:
+        log = pilot.log
+        pilot.log = None
+        if log is None:
+            return
+        try:
+            log.close()
+        except Exception:
+            pass
+
+    def _log_sample(self, pilot: OfflinePilot, p, w) -> None:
+        """周期采样：经验/击杀/金币/等级/HP/地图/补给状态。
+
+        字段设计目标是「事后能还原这轮挂机的运行曲线」：
+        ``dExp``/``dKills``/``dGold`` 是**区间增量**（两次采样之间），
+        直接聚合就能算每分钟收益；``supply``/``hpPct``/``bag`` 是瞬时状态。
+        击杀明细（哪只怪、什么等级）不在这里记——每分钟一条足够定位
+        「这轮为什么只打 55 只怪」，逐只记会让日志体积翻十倍。
+        """
+        if pilot.log is None:
+            return
+        exp_now = self._exp_gained(w, pilot, p)
+        hp_pct = int(p.hp * 100 / max(1, p.max_hp))
+        self._log_event(
+            pilot, p, "sample",
+            level=p.level, exp=exp_now,
+            dExp=max(0, exp_now - pilot.log_exp),
+            kills=pilot.kills, dKills=max(0, pilot.kills - pilot.log_kills),
+            gold=p.gold, dGold=p.gold - pilot.log_gold,
+            hp=p.hp, maxHp=p.max_hp, hpPct=hp_pct,
+            mp=p.mp, maxMp=p.max_mp,
+            map=p.map.name if p.map else "", x=p.x, y=p.y,
+            bag=len(p.bag), bagFree=BAG_SIZE - len(p.bag),
+            supply=pilot.supply_state, supplyFails=pilot.supply_fails,
+            remaining=pilot.remaining, deaths=pilot.deaths,
+            status=pilot.status,
+        )
+        pilot.log_at = now_ms()
+        pilot.log_exp = exp_now
+        pilot.log_kills = pilot.kills
+        pilot.log_gold = p.gold
 
     def _report(self, character_id: int, started_at: int, ended_at: int,
                 minutes: int, exp_gained: int, kills: int, gold_delta: int,

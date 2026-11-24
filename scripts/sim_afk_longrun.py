@@ -237,6 +237,9 @@ def run(args) -> int:
         afk_per_map_limit=5,
         afk_death_stop=args.death_stop,
         afk_supply_enabled=1 if args.supply else 0,
+        # 模拟器默认不写 JSONL：长跑模拟会产出大量数据，需要时用 --log 打开
+        # （打开后落到 data/afk-logs，文件名带 SimAfk，和真实玩家日志可区分）。
+        afk_log_enabled=1 if getattr(args, "log", False) else 0,
     )
     db_path = Path(tempfile.mkdtemp()) / "sim-afk.db"
     db = Database(db_path)
@@ -490,6 +493,8 @@ def main() -> int:
     ap.add_argument("--death-stop", type=int, default=3)
     ap.add_argument("--supply", type=int, default=1)
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--log", action="store_true",
+                    help="同时写 pyserver 的离线修炼 JSONL 日志（data/afk-logs）")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
     return run(args)
