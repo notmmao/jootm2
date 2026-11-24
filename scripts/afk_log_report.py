@@ -73,6 +73,7 @@ def report_session(idx: int, recs: list[dict], timeline: bool) -> None:
     s_fail = [r for r in recs if r.get("kind") == "supply_fail"]
     rejects = [r for r in recs if r.get("kind") == "reject"]
     errors = [r for r in recs if r.get("kind") == "error"]
+    broken = [r for r in recs if r.get("kind") == "item_broken"]
 
     print(f"\n--- 会话 #{idx} ---")
     print(f"  开始 {start.get('t', '?')}  等级 {start.get('level', '?')}  "
@@ -140,6 +141,17 @@ def report_session(idx: int, recs: list[dict], timeline: bool) -> None:
     if deaths:
         states = Counter(r.get("supply", "") or "打怪中" for r in deaths)
         print("  死亡时状态 " + ", ".join(f"{k}:{v}" for k, v in states.items()))
+    if broken:
+        # 装备耐久耗尽爆掉（用户 2026-11-25：怀疑首饰掉太快，需实证）
+        by_item = Counter(f"{r.get('slotName', '?')}·{r.get('item', '?')}"
+                          for r in broken)
+        print("  耐久爆掉 " + ", ".join(f"{k}:{v}" for k, v in by_item.most_common(6))
+              + f"（共 {len(broken)} 件）")
+        end_ms = int(end.get("ms", 0)) if end and end.get("ms") else 0
+        if end_ms:
+            per_min = len(broken) / max(1, (end_ms - int(start.get("ms", end_ms))) / 60_000)
+            if per_min:
+                print(f"  爆掉速率 ≈ {per_min:.2f} 件/分钟")
 
     if timeline:
         print("  时间线：")

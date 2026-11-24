@@ -27,7 +27,7 @@ from typing import Any
 from .afk_log import AfkSessionLog
 from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
                         attack_interval_ms, normalize_preset)
-from .util import RED_NAME_PK_POINT, U_DRESS, U_WEAPON
+from .util import RED_NAME_PK_POINT, SLOT_NAMES, U_DRESS, U_WEAPON
 from .world import BAG_SIZE, Monster, Player, now_ms
 
 
@@ -1453,6 +1453,22 @@ class OfflineAgentManager:
         self._watchers: dict[int, set[int]] = {}   # 代理 id → 观战 GM 的 player_id
         self._last_charge_at = 0      # 分钟记账节拍
         self._last_persist_at = 0     # 周期落库节拍（降低宕机损失）
+        # 装备耐久耗尽「爆掉」→ 挂机日志（用户 2026-11-25：首饰掉太快，
+        # 需要实证到底是哪件、什么时候爆的）。world 侧只在有回调时调用。
+        service.world.on_item_break = self._on_item_break
+
+    def _on_item_break(self, p, slot: int, it: dict) -> None:
+        pilot = self._pilots.get(getattr(p, "id", -1))
+        if pilot is None or pilot.log is None:
+            return                      # 不在线挂机的玩家（在线托管/手动）不记
+        w = self.service.world
+        t = getattr(w, "item_templates", {}).get(int(it.get("index", 0) or 0))
+        self._log_event(pilot, p, "item_broken",
+                        slot=slot, slotName=SLOT_NAMES[slot] if slot < len(SLOT_NAMES) else str(slot),
+                        item=t.name if t else it.get("name", "?"),
+                        duraMax=int(it.get("durabilityMax", 0) or 0),
+                        map=p.map.name if p.map else "", x=p.x, y=p.y,
+                        deaths=pilot.deaths, supply=pilot.supply_state)
 
     # ---- 运行日志（pyserver/afk_log.py）--------------------------------
 
