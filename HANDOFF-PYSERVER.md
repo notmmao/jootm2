@@ -1055,3 +1055,11 @@ index 引用）。备份 `StdItems-NONE.csv` / `Monster-NONE.csv`（与主表同
 test_all_messages 的 3 个 FAIL 经 stash 对照为**既有问题**（怪物选取+覆盖清单），与本清理无关。
 服务端导入回归正常（content policy 后 items=300 monsters=199）；afk_supply 43/43、
 afk_maintain 46/46、durability 19/19、death_drop 29/29 全绿。wiki 已按清理后数据重生成。
+
+## §162 /site 跳转排除本地回环 Host（2026-11-24，用户反馈「127.0.0.1:8098/site 也会跳转」）
+
+`net.py` 新增 `_is_local_host(req)`：Host 剥端口后为 `localhost` / `127.*` / `::1`
+（或无 Host 头）时，`/site` 的 302→list2 不生效，直接走本地静态服务——本地检查
+未发布的 wiki 内容才看得到。公网 Host（含伪造头）照旧跳转。
+回归 `test_pyserver.py` 补 3 组用例（本地三种 Host 不跳、无 Host 不跳、公网仍跳），
+132/132 全绿。本地 8098 服务已重启生效。commit `3784574`。
