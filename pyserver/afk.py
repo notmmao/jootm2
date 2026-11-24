@@ -27,7 +27,7 @@ from typing import Any
 from .afk_log import AfkSessionLog
 from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
                         attack_interval_ms, normalize_preset)
-from .util import RED_NAME_PK_POINT
+from .util import RED_NAME_PK_POINT, U_DRESS, U_WEAPON
 from .world import BAG_SIZE, Monster, Player, now_ms
 
 
@@ -61,12 +61,40 @@ SUPPLY_SELL_MAX_PRICE = 100     # 「杂物」卖价阈值：低于它的装备�
 # 为几十金币跑 200 格纯属浪费挂机时间（实测补给占时 74%）。太远就不卖，
 # 满包靠 bagFullStop=0 继续打怪不拾取，经验照赚。
 SUPPLY_SELL_MAX_DIST = 40
+# 「专门进城补给」时的距离预算：整图级。
+# 与上面那 40 格语义完全不同——40 格是「就地随手卖，别为小钱绕远」；
+# 而我们是**专程**从挂机图跨图跑到补给城的，比奇省落点 (42,109) 到最近的
+# 商人聚落 (300,250) 就有 260 格。若这里还按 40 格判「没人收」，后果是
+# 全背包物品一次性进 unsellable 黑名单 + `_supply_repair_npc` 返回 None，
+# 于是背包永远 46/46 满、身上装备永远脱不下来、武器一路磨到 0 也不修
+# （2026-11-24 实测：40 分钟挂机 0 次修理，武器 2200→1169）。
+# 进城后走几百格是必须付的成本，不是浪费。
+SUPPLY_TOWN_MAX_DIST = 1200
+# 跨图补给的门段数上限。超过就不专程去补给了（继续打怪等背包满/药尽）：
+# 祖玛系列（D505/D5063）到比奇省要跨 11 段门，单程 10+ 分钟，往返把整段
+# 挂机时间吃光——实测 D505 补给占时 91%、每杀净亏 95 金币（2026-11-24）。
+SUPPLY_MAX_ROUTE_LEGS = 6
 SUPPLY_BAG_TRIGGER = 4          # 背包剩余空位 ≤4 触发补给
 SUPPLY_POTION_MIN_LEVEL = 10    # 药尽触发门槛
 SUPPLY_POTIONS_PER_30MIN = 6    # 按剩余修炼时长粗估的买药量（每 30 分钟）
 # 装备维护（用户 2026-11-23）：补给进城时顺手修背包里低持久装备 + 拆药水捆。
 SUPPLY_REPAIR_DURA_PCT = 50     # 耐久低于上限 50% 才修（省金币）
 SUPPLY_UNBIND_WHEN_LOW = True   # 药水（StdMode 0）少于目标量时拆捆补货
+# 身上装备维护（用户 2026-11-24）：原版 ClientRepairItem 只认背包物品
+# （ObjBase.pas:24653，身上不在 m_ItemList），所以必须先脱下再修、修完穿回。
+# 只在补给城内做，且同一时刻只处理一个槽（避免半途换槽把装备丢在背包里）。
+SUPPLY_EQUIP_SLOTS = (U_WEAPON, U_DRESS)   # 只维护主力消耗品：武器 + 衣服
+# 「装备耐久过低」单独触发补给的门槛（比修理阈值 50% 更低）。
+# 修理阈值决定「进城后修不修」，这里决定「值不值得为一趟修理专门进城」：
+# 只有磨到 25% 才值得跑一趟，否则等背包满/药尽顺路修，避免补给占时上升。
+SUPPLY_EQUIP_TRIGGER_PCT = 25
+# 为「腾 1 格修身上装备」而卖高价杂物的兜底通道（用户 2026-11-24）。
+# 背景：``takeOffItem`` 满包时拒绝卸下（handlers_items「背包已满，无法卸下」），
+# 而身上装备必须先脱下来才能修（原版 ClientRepairItem 只认背包物品）。只要背包
+# 常年 46/46，武器就永远修不上——实测 3 小时挂机磨到 44 点也一次没修。
+# 这里允许「满包 + 身上确有该修装备」时，卖掉**最便宜的那件非药品**换 1 格；
+# 只卖一件、只卖最便宜的，避免为修一把武器把整包战利品清空。
+SUPPLY_SELL_FOR_ROOM = True
 
 
 def supply_gate_route(gates_by_src: dict, src_map: str,
@@ -228,6 +256,12 @@ class OfflinePilot(AutoPilot):
     supply_unsellable: set = field(default_factory=set) # 无商人收购的 makeIndex
     supply_repaired: set = field(default_factory=set)   # 本轮已修的 makeIndex（防重复）
     supply_unbound: set = field(default_factory=set)    # 本轮已拆的卷包 makeIndex
+    # ---- 身上装备「脱下→修理→穿回」（原版只认背包物品，见 _supply_repair_equipped）----
+    maint_slot: int = -1          # 正在脱/穿的装备槽（-1=没有进行中的流程）
+    maint_mi: int = 0             # 该装备的 makeIndex
+    maint_stage: str = ""         # ""=空闲，"off"=已脱下待修，"on"=修好待穿回
+    gear_no_npc_maps: set = field(default_factory=set)  # 没修理商的地图（别为修理反复跑）
+    gear_retry_until: int = 0     # 「装备耐久低」触发补给的长冷却（防空转）
     anchor_map: str = ""          # 挂机锚点（补给出发前记忆）
     anchor_x: int = 0
     anchor_y: int = 0
@@ -259,30 +293,67 @@ class OfflinePilot(AutoPilot):
                 return p.map.name
         return fallback
 
+    @staticmethod
+    def _npc_reachable(w, p, npc) -> bool:
+        """这个商人**真的走得到**吗（同图 + 同连通块）。
+
+        为什么必须校验：祖玛阁（D5063）是原版「十二个独立小房间靠传送门
+        串联」的迷宫地图，房间之间**没有任何步行走廊**（实测：挂机区所在
+        房间 77 格，药品小贩所在房间另 77 格，两者 BFS 互不可达）。图里
+        「有药商」不等于「买得到药」——只按 npcs_by_map 判断，代理会认为
+        本地能补给，于是每轮都去撞墙，走到药尽、血低，最后停机。
+        判定用 PathPlanner（和真正走路同一套 A*），单次预算很小：
+        8 邻域搜索下 77 格房间几十毫秒就能搜完。
+        """
+        if p.map is None or npc.map is not p.map:
+            return False
+        if max(abs(p.x - npc.x), abs(p.y - npc.y)) <= 1:
+            return True
+        from .autopilot import PathPlanner
+        plan = PathPlanner(p.map, p.x, p.y, npc.x, npc.y, False)
+        state = plan.advance(budget_ms=12, max_nodes=4000)
+        return state == "done" and bool(plan.build())
+
     def _can_supply_locally(self, srv, w, p) -> bool:
-        """当前地图是否同时有药商（补到所需药）与收购商（卖得掉背包杂物）。"""
+        """当前地图是否可就地补给：有**走得到**的药商，且背包腾得出格子。
+
+        旧判据是「至少一件背包杂物能本地卖掉」——这个判据把「卖不掉也
+        不需要卖」的情况误杀了：背包里只有一根卖价 10 的蜡烛（stdMode 30）时，
+        本地没有商人收蜡烛 → 判「不能本地补给」→ 跨图跑去比奇省。
+        而实际需求只是买药，蜡烛占 1 格不影响（背包 14/46 远没满）。
+        2026-11-24 实测后果：D5063 本图有「药品小贩」（3 种血药，最猛 +90），
+        代理却跨图赶路，撞上不可达的门 D5064 连续失败 → 停在原地被怪打死 /
+        血低无药停机，整组「零金币、最低 HP 31%」。
+
+        现在的判据按**真实需求**分两类：
+        * 药不够 + 背包有空位 → 就地买药，不必卖任何东西；
+        * 药不够 + 背包已满   → 必须能卖掉至少一件腾格子。
+        另外所有商人候选都要过连通性校验（见 ``_npc_reachable``）。
+        """
         want_mp = p.job == 1
         offers = self._supply_potion_offers(srv, w, p, want_mp)
         if not offers:
             return False
-        hp_ok = any(o[2].acMin > 0 for o in offers)
-        mp_ok = (not want_mp) or any(o[2].macMin > 0 for o in offers)
+        hp_ok = any(o[2].acMin > 0 and self._npc_reachable(w, p, o[0])
+                    for o in offers)
+        mp_ok = (not want_mp) or any(o[2].macMin > 0 and self._npc_reachable(w, p, o[0])
+                                    for o in offers)
         if not (hp_ok and mp_ok):
             return False
-        # 至少一件背包物品能在本地卖掉（否则背包腾不出格子买药）。
-        # 空背包 / 全是药品时无需卖货，只要有药商即可就地补给。
+        # 背包还有空位 → 只要有走得到的药商就能就地补给
+        if len(p.bag) < BAG_SIZE:
+            return True
+        # 背包已满：必须有走得到的商人肯收某件非药品，否则腾不出格子买药
         for it in p.bag:
             t = w.item_templates.get(int(it.get("index", 0)))
             if t is None or t.stdMode == 0:
                 continue
             for npc in w.npcs_by_map.get(p.map.name, ()):
-                if npc.merchant and npc.map is p.map and srv._sell_price(npc, t, it) > 0:
+                if npc.merchant and npc.map is p.map \
+                        and srv._sell_price(npc, t, it) > 0 \
+                        and self._npc_reachable(w, p, npc):
                     return True
-        # 没有待卖杂物（背包只有药/空）→ 药商足够，就地补给
-        return not any(
-            (w.item_templates.get(int(it.get("index", 0))) or type("T", (), {"stdMode": -1})()).stdMode != 0
-            for it in p.bag
-        )
+        return False
 
     def _on_danger_no_potion(self, srv, w, p, now: int) -> None:
         if self.supply_state:
@@ -373,18 +444,94 @@ class OfflinePilot(AutoPilot):
             elif hp == 0:
                 why = "药水耗尽"
         if not why:
+            # 身上的武器/衣服磨到阈值以下也该补给一次（否则只有「背包满/药尽」
+            # 才会进城，武器可能一路磨到归零才被人发现）。用更低的 25% 门槛
+            # 触发，避免和背包满的常规补给抢节奏。
+            #
+            # ⚠️ 必须带长冷却：``_supply_maintain`` 做完会 clear ``supply_repaired``，
+            # 若补给点没有修理商（如 D011 这类纯猎场），装备永远修不上、
+            # ``_gear_needs_supply`` 永远为 True，就会每 10 秒触发一次补给，
+            # 退化回 2885 轮空转的老坑。所以失败/做不成都要记一张长冷却。
+            if (self._supply_enabled(srv) and now >= self.gear_retry_until
+                    and getattr(srv.config, "afk_supply_repair", 1)
+                    and self._gear_needs_supply(w, p)):
+                why = "装备耐久过低"
+        if not why:
             return False
         # 预检可达性：图链路不通是确定性的，别每 10 秒重算一次门序列；
         # 也不直接停机——打怪升级本身还在产出，只是这趟补给不做了。
         town = self._supply_town_map(srv, w, p)
         if p.map is not None and p.map.name != town:
-            if supply_gate_route(w.gates_by_src, p.map.name, town) is None:
+            route = supply_gate_route(w.gates_by_src, p.map.name, town)
+            if route is None:
                 self.supply_retry_until = now + SUPPLY_LONG_RETRY_MS
                 self.set_status(f"当前地图无可达补给点（{why}），继续打怪",
                                 now, force=True)
                 return True
+            if len(route) > SUPPLY_MAX_ROUTE_LEGS:
+                # 链路太长（祖玛系列要跨 11 段门才到比奇省）：单程就要
+                # 10+ 分钟，来回把整段挂机时间吃光（实测 D505 补给占时 91%、
+                # 每杀金币 -95 的净亏损）。这种图宁可「不补给、只打怪」，
+                # 等背包满/药尽再说；装备磨损靠 25% 门槛那趟顺路修。
+                self.supply_retry_until = now + SUPPLY_LONG_RETRY_MS
+                self.set_status(
+                    f"补给路线过长（{len(route)} 段门 / {why}），先继续打怪",
+                    now, force=True)
+                return True
         self._supply_begin(srv, w, p, now, why)
         return True
+
+    def _equipment_needs_repair(self, w, p) -> bool:
+        """身上武器/衣服是否低于**修理阈值**（50%，而非进城的 25%）。
+
+        与 ``_gear_needs_supply`` 的区别：那个决定「要不要专门跑一趟补给」，
+        用更低的 25% 门槛；这个决定「要不要为腾格子卖一件杂物」，用与
+        背包修理一致的 50% 阈值——只要进城后该修，
+        就值得卖一件腾位置。
+        """
+        for slot in SUPPLY_EQUIP_SLOTS:
+            if slot >= len(p.equipment):
+                continue
+            it = p.equipment[slot]
+            if it is None:
+                continue
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.supply_repaired:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None:
+                continue
+            dura = int(it.get("durability", 0) or 0)
+            dmax = int(it.get("durabilityMax", 0) or 0)
+            if dmax > 0 and dura * 100 < dmax * SUPPLY_REPAIR_DURA_PCT:
+                return True
+        return False
+
+    def _gear_needs_supply(self, w, p) -> bool:
+        """身上武器/衣服是否已磨到需要专门跑一趟补给的程度。
+
+        与背包修理（50% 阈值）不同：这里只看身上
+        两个主力槽，且用更低的 ``SUPPLY_EQUIP_TRIGGER_PCT``——进城是笔开销
+        （跨图来回 3~8 分钟），只有磨得够狠才值得专门跑。同一个 makeIndex
+        修过就跳过（``supply_repaired``），避免修完立刻又触发。
+        """
+        for slot in SUPPLY_EQUIP_SLOTS:
+            if slot >= len(p.equipment):
+                continue
+            it = p.equipment[slot]
+            if it is None:
+                continue
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.supply_repaired:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None:
+                continue
+            dura = int(it.get("durability", 0) or 0)
+            dmax = int(it.get("durabilityMax", 0) or 0)
+            if dmax > 0 and dura * 100 < dmax * SUPPLY_EQUIP_TRIGGER_PCT:
+                return True
+        return False
 
     def _safe_anchor(self, w, p, x: int, y: int) -> tuple[int, int]:
         """锚点避开门格邻域：回锚点时若落脚贴着双向门，A* 最短路会穿过门格
@@ -601,10 +748,33 @@ class OfflinePilot(AutoPilot):
                                   f"补给门 {leg[0]}({gx},{gy}) 无法抵达")
         return False
 
-    # ---- 卖货 -----------------------------------------------------------
+    def _ensure_equipment(self, srv, w, p, now: int) -> None:
+        """覆盖父类：修理流程占用该槽时不要「自动补装」把它塞回背包去。
+
+        父类 ``AutoPilot._ensure_equipment``（autopilot.py:584）见到空武器槽
+        就无条件从背包挑一把穿上。而「脱下→修→穿回」流程中该槽**必然**是空的
+        （装备正躺在背包里等着修），于是父类每 1 秒就把待修的武器穿回去，
+        修理流程被反复打断 —— 实测（2026-11-24）一次脱穿后 repair 从未执行，
+        装备持久照样单调下降。这里把该槽让给修理流程。
+        """
+        if self.maint_stage:
+            slot = self.maint_slot
+            if 0 <= slot < len(p.equipment) and p.equipment[slot] is None:
+                # 该槽归修理流程所有：不做自动补装，也不重复扣检查节流
+                return
+        # ⚠️ 必须显式写 AutoPilot._ensure_equipment：OfflinePilot 是 slots
+        # dataclass 子类，Python 3.10~3.12 不修正零参数 super() 的 __class__
+        # cell，会抛「super(type, obj): obj must be an instance or subtype of type」
+        AutoPilot._ensure_equipment(self, srv, w, p, now)
 
     def _supply_sell(self, srv, w, p, now: int) -> None:
         """逐个卖掉肉（StdMode 40）与低于阈值的杂物；卖空转买药。"""
+        # 已经脱下的装备必须**优先**修完穿回：这时它躺在背包里，若继续走卖货
+        # 循环，最坏会被当杂物卖掉（备用武器 price 可能 ≤ 阈值）。所以流程
+        # 一旦开始就独占，直到 _maint_reset。
+        if self.maint_stage:
+            self._supply_maintain_equipped(srv, w, p, now)
+            return
         cand = cand_t = None
         for it in p.bag:
             t = w.item_templates.get(int(it.get("index", 0)))
@@ -617,9 +787,44 @@ class OfflinePilot(AutoPilot):
                                    and t.price <= SUPPLY_SELL_MAX_PRICE):
                 cand, cand_t = it, t
                 break
+        if cand is None and SUPPLY_SELL_FOR_ROOM \
+                and len(p.bag) >= BAG_SIZE \
+                and self._equipment_needs_repair(w, p):
+            # 满包 + 身上确有该修的装备 → 卖掉最便宜的非药品，换 1 格出来。
+            # 只挑一件、且要求该行商人也收（_supply_sell_npc 会二次校验价格）。
+            # ⚠️ 优先「就近」而非「最便宜」：为修装备腾格子只是一次性动作，
+            # 走 200 格去找一个多出 3 金币的买家会把补给占时拉爆（实测补给
+            # 阶段本来就占 30~50% 时间）。只在 SUPPLY_SELL_MAX_DIST 内挑。
+            best, best_t, best_p = None, None, 1 << 60
+            for it in p.bag:
+                t = w.item_templates.get(int(it.get("index", 0)))
+                if t is None or t.stdMode in (0, 3, 25):
+                    continue          # 药品/卷轴/符不能卖（是补给物资）
+                mi = int(it.get("makeIndex", 0))
+                if mi in self.supply_unsellable:
+                    continue
+                npc_ok = self._supply_sell_npc(srv, w, p, t, it)
+                if npc_ok is None:
+                    continue
+                d = max(abs(p.x - npc_ok.x), abs(p.y - npc_ok.y))
+                price = srv._sell_price(npc_ok, t, it)
+                # 就近卖：距离上限取「就地 20 格 / 专程进城半张图」。
+                # 腾格子卖价不重要（本来就是要清掉），关键是别为了 3 金币
+                # 多跑半个地图——所以按距离挑，不按卖价挑。
+                room_d = max(20, self._supply_npc_max_dist(p) // 2)
+                if price > 0 and d <= room_d and d < best_p:
+                    best, best_t, best_p = it, t, d
+            if best is not None:
+                cand, cand_t = best, best_t
+                # 只卖一件：下 tick 买卖完之后 `_supply_maintain_equipped` 才有空格可用
+                self.set_status("补给 · 背包已满，卖掉一件杂物腾出修理空间", now,
+                                force=True)
         if cand is None:
             # 装备维护（用户 2026-11-23）：卖空后顺手修低持久装备 + 拆药水捆，
             # 全部做完再进入买药阶段。复用现有 handler，进城补给点即可完成。
+            # 身上装备（用户 2026-11-24）：先处理「脱下→修→穿回」，再管背包。
+            if self._supply_maintain_equipped(srv, w, p, now):
+                return
             if self._supply_maintain(srv, w, p, now):
                 return
             self.supply_state = SUPPLY_BUY
@@ -649,6 +854,19 @@ class OfflinePilot(AutoPilot):
         srv._sell_item(p.session, {"type": "sellItem", "npcId": npc.id,
                                    "makeIndex": int(cand.get("makeIndex", 0))})
 
+    def _supply_npc_max_dist(self, p) -> int:
+        """找商人时的距离预算：挂机图上就近卖（40 格），专程进补给城走全图。
+
+        判据是「当前图和挂机锚点是不是同一张」——不在锚点说明这趟是
+        为了补给专门跑出来的，几百格也得走完；在锚点则只是顺手卖，
+        绝不为了几十金币绕远（那会把补给占时拉爆）。
+        """
+        if p.map is None:
+            return SUPPLY_SELL_MAX_DIST
+        if self.anchor_map and p.map.name != self.anchor_map:
+            return SUPPLY_TOWN_MAX_DIST
+        return SUPPLY_SELL_MAX_DIST
+
     def _supply_sell_npc(self, srv, w, p, t, it):
         """找当前地图上肯收购这件东西的最近商人（价格校验走 _sell_price）。"""
         best, best_d = None, 10 ** 9
@@ -660,41 +878,76 @@ class OfflinePilot(AutoPilot):
             d = max(abs(p.x - npc.x), abs(p.y - npc.y))
             if d < best_d:
                 best, best_d = npc, d
-        if best_d > SUPPLY_SELL_MAX_DIST:
+        if best_d > self._supply_npc_max_dist(p):
             return None          # 太远：这件杂物不值得专门跑一趟
         return best
 
     # ---- 装备维护：修理 + 药水解捆（用户 2026-11-23）---------------------
 
-    def _supply_repair_npc(self, srv, w, p):
-        """找当前地图上能修理的最近商人（脚本头 @repair 或默认商人）。"""
+    @staticmethod
+    def _npc_really_repairs(npc) -> bool:
+        """这个商人**确实**能修装备（脚本真声明了修理能力）。
+
+        为什么不能直接用 ``srv._repair_allowed``：那个函数给玩家点链接用，
+        对没有能力头的 1.80 老脚本做了「是商人就允许」的宽松兜底
+        （handlers_npc.py:290-297）。机器人用它挑目标时，比奇省的
+        「彩票员」「仓库保管员」都会被判成能修（彩票员只卖彩票、仓库只存取），
+        走过去照样修不成——实测（2026-11-24）代理就是这样选了彩票员，
+        结果流程空转、装备脱不下来。
+        这里只认硬证据：脚本头 ``(@repair)`` / ``(@s_repair)``，
+        或者脚本里存在 ``[@repair]`` / ``[@s_repair]`` 段（1.80 老写法）。
+        """
+        script = getattr(npc, "script", None)
+        if script is None:
+            return False
+        abilities = getattr(script, "abilities", None) or set()
+        if abilities:
+            return "repair" in abilities or "s_repair" in abilities
+        for sec in ("repair", "s_repair"):
+            if script.section(sec) is not None:
+                return True
+        return False
+
+    def _supply_repair_npc(self, srv, w, p, item=None, item_tpl=None):
+        """找当前地图上**能修这件东西**的最近商人。
+
+        两段式筛选：
+        1. 只认「真声明了修理能力」的商人（``_npc_really_repairs``）；
+        2. 而且要能真的修**这一件**——原版 ``_get_item_price``
+           （handlers_npc.py:162）先看商人经不经销该类货（脚本头 ``+N``
+           即 ``item_types``），不经销就返回 -1 → 修理价 -1 → 原版回
+           「这个物品无法修理」。
+           实际踩坑：比奇省「高家店老板」脚本有 ``[@repair]`` 但
+           ``item_types=[10,11,15]`` 是服装店，修不了武器（stdMode 5），
+           代理却当它是最近修理商 → 跑了 12 格过去、修理被拒、白耗一轮
+           （2026-11-24 实测「修理未生效 ... 高家店老板 距离 12」）。
+        整张图都没有严格匹配的商人时，退回 ``srv._repair_allowed`` 的宽松
+        判定（对 1.80 老脚本兼容），但**仍要求对该件修理价 ≥0**——否则
+        走过去也修不成，不如直接放弃。
+        """
+        strict_npcs = [n for n in w.npcs_by_map.get(p.map.name if p.map else "", ())
+                       if n.merchant and n.map is p.map
+                       and self._npc_really_repairs(n)]
+        if not strict_npcs:
+            strict_npcs = [n for n in w.npcs_by_map.get(p.map.name if p.map else "", ())
+                           if n.merchant and n.map is p.map
+                           and srv._repair_allowed(n, "repair")]
         best, best_d = None, 10 ** 9
-        for npc in w.npcs_by_map.get(p.map.name if p.map else "", ()):
-            if not npc.merchant or npc.map is not p.map:
-                continue
-            if not srv._repair_allowed(npc, "repair"):
-                continue
+        for npc in strict_npcs:
+            if item is not None and item_tpl is not None:
+                try:
+                    if srv._repair_price(npc, item_tpl, item, "repair") < 0:
+                        continue      # 这家店不经营这类货：修不了
+                except AttributeError:
+                    pass              # 单测桩里没有该函数：按可修处理
             d = max(abs(p.x - npc.x), abs(p.y - npc.y))
             if d < best_d:
                 best, best_d = npc, d
-        if best_d > SUPPLY_SELL_MAX_DIST:
+        if best is None:
+            return None
+        if best_d > self._supply_npc_max_dist(p):
             return None
         return best
-
-    def _supply_repair_candidate(self, w, p):
-        """背包里耐久低于阈值的可修装备（StdMode 43 矿石不可修，由 price<0 兜底）。"""
-        for it in p.bag:
-            mi = int(it.get("makeIndex", 0))
-            if mi in self.supply_repaired or mi in self.supply_unsellable:
-                continue
-            t = w.item_templates.get(int(it.get("index", 0)))
-            if t is None or t.stdMode in (0, 31):   # 药品/卷包不修
-                continue
-            dura = int(it.get("durability", 0) or 0)
-            dmax = int(it.get("durabilityMax", 0) or 0)
-            if dmax > 0 and dura * 100 < dmax * SUPPLY_REPAIR_DURA_PCT:
-                return it, t
-        return None
 
     def _supply_unbind_candidate(self, w, p):
         """背包里能拆出药水的卷包（StdMode 31 + UnbindList 目标是 StdMode 0）。"""
@@ -713,6 +966,223 @@ class OfflinePilot(AutoPilot):
                 return it
         return None
 
+    def _supply_maintain_equipped(self, srv, w, p, now: int) -> bool:
+        """维护**身上**的武器/衣服：脱下 → 修理 → 穿回。返回 True=本 tick 已占用。
+
+        为什么必须脱下来：原版 ``ClientRepairItem``（ObjBase.pas:24653-24681）
+        只在 ``m_ItemList``（背包）里按 MakeIndex 找 UserItem，身上的 ``m_UseItems``
+        不在其中，所以玩家在原版里修身上装备也得先卸下。离线代理此前只遍历
+        ``p.bag``（``_supply_maintain``），于是**身上那件从不被修**——
+        矩阵实测武器 4000 持久每分钟磨 25~38，约 105~158 分钟就归零，而
+        ``do_damage_weapon`` 归零时直接把槽位置 None（不进背包、不落地），
+        等于一轮 2 小时挂机就永久报废一把武器。
+
+        流程约束（每一条都是为了避免「把玩家的装备搞丢」）：
+        * **只在补给城内做**：调用方保证 ``supply_state == SUPPLY_SELL``，
+          人已在城门口/商人旁，脱装期间只挨安全区的打（甚至没怪）。
+        * **同时只处理一个槽**：``maint_stage`` 非空时只推进当前流程，
+          绝不中途换槽——换槽会让前一件停在背包里，而补给结束的
+          ``_supply_finish`` 不负责穿回。
+        * **背包必须有空格**：``_take_off_item`` 在满包时会拒绝卸下
+          （「背包已满，无法卸下」），所以先确认 ``len(p.bag) < BAG_SIZE``；
+          这也正好是补给阶段刚卖完的状态。
+        * **穿回用 takeOnItem**：走原版 ``_take_on_slot`` 全量校验（等级/重量/
+          男女装），不绕过任何规则；万一穿不回（例如中途升级把负重算法变了），
+          装备仍在背包里，最坏情况是「裸装打怪」而不是丢失。
+        * 复制品不参与：只按 ``makeIndex`` 精确定位，避免同名装备串号。
+        """
+        cfg = getattr(srv, "config", None)
+        if not getattr(cfg, "afk_supply_enabled", 1):
+            return False
+        if not getattr(cfg, "afk_supply_repair", 1):
+            return False
+
+        # ---- 已有未完成的流程：只推进它，绝不换槽 ----
+        if self.maint_stage:
+            return self._supply_maint_step(srv, w, p, now)
+
+        # ---- 挑一件需要修的身上装备 ----
+        cand_slot, cand_it, cand_t = -1, None, None
+        for slot in SUPPLY_EQUIP_SLOTS:
+            if slot >= len(p.equipment):
+                continue
+            it = p.equipment[slot]
+            if it is None:
+                continue
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.supply_repaired:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None:
+                continue
+            dura = int(it.get("durability", 0) or 0)
+            dmax = int(it.get("durabilityMax", 0) or 0)
+            if dmax > 0 and dura * 100 < dmax * SUPPLY_REPAIR_DURA_PCT:
+                cand_slot, cand_it, cand_t = slot, it, t
+                break
+        if cand_it is None:
+            return False        # 没有要修的：交给背包那套逻辑
+
+        mi = int(cand_it.get("makeIndex", 0))
+        # 没有**能修这件**的商人在本图 → 记入黑名单（本轮不再反复尝试），
+        # 交给背包逻辑。候选要传进去：服装店有 [@repair] 但修不了武器。
+        npc = self._supply_repair_npc(srv, w, p, cand_it, cand_t)
+        if npc is None:
+            self.supply_repaired.add(mi)
+            return False
+        # 背包满 → 卸不下来。标记跳过（卖货阶段会先腾格子，下轮再来）
+        if len(p.bag) >= BAG_SIZE:
+            return False
+
+        self.maint_slot, self.maint_mi = cand_slot, mi
+        self.supply_npc_id = npc.id
+        # 离商人太远先走过去（复用补给赶路的节流与重试计数）
+        if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+            self.maint_stage = "off"
+            if self._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+                             f"补给 · 前往{npc.name}修理{t.name}", now):
+                self.supply_leg_try = 0
+            else:
+                self.supply_leg_try += 1
+                if self.supply_leg_try >= SUPPLY_LEG_RETRY:
+                    self.maint_stage = ""
+                    self.supply_repaired.add(mi)
+            return True
+        self.maint_stage = "off"
+        return self._supply_maint_step(srv, w, p, now)
+
+    def _supply_maint_step(self, srv, w, p, now: int) -> bool:
+        """推进「脱下→修理→穿回」流程一步。"""
+        slot, mi = self.maint_slot, self.maint_mi
+        if slot < 0 or slot >= len(p.equipment):
+            self._maint_reset()
+            return False
+
+        if self.maint_stage == "off":
+            it = p.equipment[slot]
+            if it is None or int(it.get("makeIndex", 0)) != mi:
+                # 装备已经不在原位（死亡掉落/被换掉）→ 放弃，别穿错东西
+                self._maint_reset()
+                return False
+            if len(p.bag) >= BAG_SIZE:
+                self._maint_reset()      # 背包满：留给卖货腾格子，下轮再来
+                return False
+            # ⚠️ 距离校验必须在**脱下之前**：原版 takeOffItem 不校验距离，但
+            # repairItem 走 `_npc_and_player` 要求 ≤15 格。若先脱下再赶路，
+            # 中途一旦中断（寻路失败/补给超时）就得 reclaim 穿回，形成
+            # 「脱了又穿」的活锁（2026-11-24 实测 12 分钟脱穿 8 次 нуль 修成）。
+            # 先贴着商人再脱，这是唯一安全的顺序。
+            npc = self._supply_repair_npc(srv, w, p, it, w.item_templates.get(
+                int(it.get("index", 0))))
+            if npc is None:
+                self._maint_reclaim(srv, w, p)
+                return False
+            if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+                if self._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+                                 f"补给 · 前往{npc.name}修理", now):
+                    self.supply_leg_try = 0
+                else:
+                    self.supply_leg_try += 1
+                    if self.supply_leg_try >= SUPPLY_LEG_RETRY:
+                        self._maint_reclaim(srv, w, p)
+                return True
+            if now - self.supply_last_act_at < SUPPLY_ACT_MS:
+                return True
+            self.supply_last_act_at = now
+            srv._take_off_item(p.session, {"type": "takeOffItem",
+                                           "slot": slot, "makeIndex": mi})
+            self.maint_stage = "on"     # 下一步：就地修它
+            self.set_status("补给 · 卸下装备准备修理", now, force=True)
+            return True
+
+        # ---- maint_stage == "on"：找背包里这件，修，然后穿回 ----
+        it = p.bag_item(mi) if hasattr(p, "bag_item") else None
+        if it is None:
+            # 不在背包（卖掉了/丢了）→ 放弃
+            self._maint_reset()
+            return False
+        npc = self._supply_repair_npc(srv, w, p, it, w.item_templates.get(
+            int(it.get("index", 0))))
+        if npc is None:
+            # 本图没有能修这件的商人：装备必须**先穿回去**（不能留在背包里裸装）
+            self._maint_reclaim(srv, w, p)
+            return False
+        # ⚠️ 原版 `_npc_and_player`（handlers_npc.py:34）要求
+        # `p.distance_to(npc) <= 15`，超距直接把请求丢弃且**不报错**。
+        # 之前这里没做距离校验：跨图进城后角色落在 (42,109)、铁匠在 (302,219)，
+        # 请求被静默扔掉，`before == after`、金币不变，但代码照样把该件记进
+        # `supply_repaired` 并「穿回」——于是每次补给都白跑，武器一路磨到 0
+        # （2026-11-24 实修 5 次全失败，就是这条）。先走过去，贴近了再修。
+        if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+            if self._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+                             f"补给 · 前往{npc.name}修理", now):
+                self.supply_leg_try = 0
+            else:
+                self.supply_leg_try += 1
+                if self.supply_leg_try >= SUPPLY_LEG_RETRY:
+                    self._maint_reclaim(srv, w, p)      # 走不过去 → 穿回，放弃本件
+                    self.supply_repaired.add(mi)
+            return True
+        if now - self.supply_last_act_at < SUPPLY_ACT_MS:
+            return True
+        self.supply_last_act_at = now
+        dura_before = int(it.get("durability", 0) or 0)
+        srv._repair_item(p.session, {"type": "repairItem", "npcId": npc.id,
+                                     "makeIndex": mi, "mode": "repair"})
+        # 修理是否真生效：耐久没涨就是失败（价格负数/金币不足/被 handler 拒），
+        # 不能盲目记成「已修」——否则本轮不会重试，小事拖成整轮白跑。
+        it2 = p.bag_item(mi)
+        dura_after = int(it2.get("durability", 0) or 0) if it2 is not None else 0
+        if dura_after <= dura_before:
+            self.supply_repaired.add(mi)
+            print(f"[afk] 修理未生效 {p.name} {getattr(it2, 'get', lambda k, d=None: d)('index', 0)}"
+                  f" mi={mi} dura {dura_before}→{dura_after} "
+                  f"(npc={npc.name} 距离 {max(abs(p.x - npc.x), abs(p.y - npc.y))})")
+        else:
+            self.supply_repaired.add(mi)
+        self.set_status("补给 · 穿回修好的装备", now, force=True)
+        # 修完立刻穿回（takeOnItem 会把它从背包挪回槽位）
+        if hasattr(p, "bag_item") and p.bag_item(mi) is not None:
+            srv._take_on_item(p.session, {"type": "takeOnItem",
+                                          "slot": slot, "makeIndex": mi})
+        self._maint_reset()
+        return True
+
+    def _maint_reset(self) -> None:
+        self.maint_slot = -1
+        self.maint_mi = 0
+        self.maint_stage = ""
+
+    def _maint_reclaim(self, srv, w, p) -> None:
+        """兜底：中断（补给失败/结束/停机）时若装备还躺在背包，立刻穿回去。
+
+        这是整套流程的最后一道保险。触发场景：修到一半补给失败转长冷却、
+        状态超时熔断、停机结算——任何一种都可能让 ``maint_stage`` 停在 "on"
+        而装备留在背包里。虽然背包里不会丢（死亡掉落只扫 ``equipment``），
+        但「裸装去打怪」等于白挨打，所以这里尽量穿回；穿不回（等级/负重变了）
+        就保持原样并清状态，至少装备还在玩家背包里。
+
+        ⚠️ 放弃本件时要把它记进 ``supply_repaired``：否则同一件装备下一拍
+        又被 ``_supply_maintain_equipped`` 选中 → 脱下 → reclaim 再穿回，
+        在「能选到商人但走不过去」时形成每 tick 脱穿一次的活锁
+        （2026-11-24 实测 12 分钟内脱穿 8 次、一次没修成）。
+        """
+        if not self.maint_stage:
+            return
+        slot, mi = self.maint_slot, self.maint_mi
+        if 0 <= slot < len(p.equipment) and p.equipment[slot] is None \
+                and hasattr(p, "bag_item") and p.bag_item(mi) is not None \
+                and hasattr(srv, "_take_on_item"):
+            try:
+                srv._take_on_item(p.session, {"type": "takeOnItem",
+                                              "slot": slot, "makeIndex": mi})
+            except Exception as e:
+                print(f"[afk] 穿回装备失败 {getattr(p, 'name', '?')}: "
+                      f"{type(e).__name__}: {e}")
+        if mi:
+            self.supply_repaired.add(mi)    # 本轮不再反复脱穿这件
+        self._maint_reset()
+
     def _supply_maintain(self, srv, w, p, now: int) -> bool:
         """做一件维护动作（修装备/拆药捆）。返回 True=本 tick 已处理，需下 tick 继续。"""
         srv_cfg = getattr(srv, "config", None)
@@ -724,10 +1194,27 @@ class OfflinePilot(AutoPilot):
 
         cand = None
         mode = ""
+        npc = None
         if do_repair:
-            found = self._supply_repair_candidate(w, p)
-            if found:
-                (cand, _t), mode = found, "repair"
+            # 先按耐久筛出「想修的」，再逐件找**能修它**的商人（服装店有
+            # [@repair] 但 item_types 只有服装，武器给它修不了）。
+            for it in p.bag:
+                mi0 = int(it.get("makeIndex", 0))
+                if mi0 in self.supply_repaired or mi0 in self.supply_unsellable:
+                    continue
+                t0 = w.item_templates.get(int(it.get("index", 0)))
+                if t0 is None or t0.stdMode in (0, 31):
+                    continue
+                dura0 = int(it.get("durability", 0) or 0)
+                dmax0 = int(it.get("durabilityMax", 0) or 0)
+                if dmax0 <= 0 or dura0 * 100 >= dmax0 * SUPPLY_REPAIR_DURA_PCT:
+                    continue
+                nn = self._supply_repair_npc(srv, w, p, it, t0)
+                if nn is None:
+                    self.supply_repaired.add(mi0)   # 没人能修这件，本轮跳过
+                    continue
+                cand, mode, npc = it, "repair", nn
+                break
         if cand is None and do_unbind:
             found = self._supply_unbind_candidate(w, p)
             if found:
@@ -739,10 +1226,8 @@ class OfflinePilot(AutoPilot):
             return False
 
         mi = int(cand.get("makeIndex", 0))
-        npc = None
         if mode == "repair":
             # 修理必须靠近能修的 NPC（原版 ClientRepairItem 校验距离）。
-            npc = self._supply_repair_npc(srv, w, p)
             if npc is None:
                 self.supply_repaired.add(mi)   # 没有修理商人：本轮跳过，避免每 tick 白找
                 return True
@@ -761,10 +1246,20 @@ class OfflinePilot(AutoPilot):
             return True
         self.supply_last_act_at = now
         if mode == "repair":
+            dura_before = int(cand.get("durability", 0) or 0)
             srv._repair_item(p.session, {"type": "repairItem", "npcId": npc.id,
                                          "makeIndex": mi, "mode": "repair"})
-            self.supply_repaired.add(mi)
-            self.set_status("补给 · 修理装备", now, force=True)
+            # 同样校验生效：耐久没涨说明被拒（价格 -1 / 金币不足 / 临时超距），
+            # 别记成「已修」——否则同一件每轮都白试，还把金币账算错。
+            after = p.bag_item(mi) if hasattr(p, "bag_item") else None
+            if after is not None and int(after.get("durability", 0) or 0) > dura_before:
+                self.supply_repaired.add(mi)
+                self.set_status("补给 · 修理装备", now, force=True)
+            else:
+                self.supply_repaired.add(mi)   # 本轮不再重试，但日志留痕
+                print(f"[afk] 背包修理未生效 {getattr(p, 'name', '?')} mi={mi} "
+                      f"dura {dura_before}→{int(after.get('durability', 0) or 0) if after else '丢失'} "
+                      f"(npc={npc.name})")
         else:
             srv._use_item(p.session, {"type": "useItem", "makeIndex": mi})
             self.supply_unbound.add(mi)
@@ -868,6 +1363,8 @@ class OfflinePilot(AutoPilot):
     # ---- 补给收尾 / 失败 -------------------------------------------------
 
     def _supply_finish(self, srv, w, p, now: int) -> None:
+        # 中断兜底：若装备还躺在背包（修理流程没走完），先穿回去再收尾
+        self._maint_reclaim(srv, w, p)
         self.supply_state = ""
         self.supply_fails = 0
         self.supply_return_tries = 0
@@ -883,6 +1380,10 @@ class OfflinePilot(AutoPilot):
         self.last_progress_at = now
         # 关键：3 分钟冷却，防止贴商人的锚点导致「卖完立刻又补给」死循环
         self.supply_retry_until = now + SUPPLY_FINISH_COOLDOWN_MS
+        # 「装备耐久低」单独触发补给时，如果这趟没修成（补给城无修理商等），
+        # 也要给长冷却，否则会每轮补给都因同一条理由重跑，退化成空转。
+        if self._gear_needs_supply(w, p):
+            self.gear_retry_until = now + SUPPLY_LONG_RETRY_MS
         self.set_status("补给完成 · 继续修炼", now, force=True)
 
     def _supply_fail(self, srv, w, p, now: int, why: str) -> None:
@@ -898,6 +1399,8 @@ class OfflinePilot(AutoPilot):
         """
         self.supply_fails += 1
         self.supply_last_fail_at = now
+        # 中断兜底：修理到一半就失败时，装备还躺在背包，先穿回去再说
+        self._maint_reclaim(srv, w, p)
         self.manager._log_event(self, p, "supply_fail", why=why,
                                 seq=self.log_supplies, fails=self.supply_fails,
                                 state=self.supply_state,
@@ -1074,6 +1577,19 @@ class OfflineAgentManager:
         pilot.active = False
         pilot.reason = reason
         pilot.status = "已停止"
+        # 停机兜底：装备若还躺在背包（修理流程被打断），结算前先穿回去，
+        # 免得玩家下次登录看到自己「裸装」站着
+        try:
+            w2 = self.service.world
+            # GameWorld.players 是**方法**（返回所有在线玩家列表），不是字典；
+            # 要按 id 取就用 actor(id)。之前写成 w2.players.get(...) 会抛
+            # AttributeError，被下面 except 吞掉 → 兜底穿回形同不存在。
+            p2 = w2.actor(p.id) or p
+            if p2 is not None:
+                pilot._maint_reclaim(self.service, w2, p2)
+        except Exception as e:
+            print(f"[afk] 停机身装备兜底失败 id={getattr(p, 'id', '?')}: "
+                  f"{type(e).__name__}: {e}")
         self._notify_watchers(p.id, f"已停止：{reason}")
         self._watchers.pop(p.id, None)
         pilot.on_disabled(reason)
