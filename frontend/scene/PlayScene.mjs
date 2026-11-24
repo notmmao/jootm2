@@ -1569,18 +1569,26 @@ export class PlayScene extends Scene {
         }
     }
 
-    /** 拾取键：优先脚下，其次 1 格内最近掉落物。 */
+    /** 拾取键：只捡脚下（原版 GetItem(m_nCurrX,m_nCurrY)，ObjBase.pas:1696
+     *  必须站上去；服务端对不在脚下的 itemId 静默拒绝，旧版「1 格内最近」
+     *  点了没反应）。脚下没东西时朝 1 格内最近的掉落走一步。 */
     _touchPick() {
         if (!this.self || this._selfDead) return;
         this._takeOverAuto();
-        let target = this._groundAt(this.self.x, this.self.y), best = 0;
-        if (!target) {
-            for (const g of this.groundItems.values()) {
-                const d = this._dist(this.self, g);
-                if (d <= 1 && (best === 0 || d < best)) { best = d; target = g; }
+        const target = this._groundAt(this.self.x, this.self.y);
+        if (target) { this.conn.send('pickup', { itemId: target.id }); return; }
+        let best = 0, near = null;
+        for (const g of this.groundItems.values()) {
+            const d = this._dist(this.self, g);
+            if (d <= 1 && (best === 0 || d < best)) { best = d; near = g; }
+        }
+        if (near && this._isIdle()) {
+            const dir = this._dirTo(near.x, near.y);
+            if (dir >= 0) {
+                this.conn.send('move', { dir, run: false });
+                this._lastMoveAt = Date.now();
             }
         }
-        if (target) this.conn.send('pickup', { itemId: target.id });
     }
 
     // 角色是否空闲（动作已完成）：self 无动作或已回到 stand
@@ -2064,6 +2072,11 @@ export class PlayScene extends Scene {
                     // 表现上借绿色上飘数字呈现。
                     if (msg.healed > 0) {
                         this._spawnDamageNumber(e.x, e.y, msg.healed, null, '#4be04b');
+                    }
+                    // 中毒掉血飘字（stats.poisonDamage = 本跳红毒真实扣血）：
+                    // 紫色贴合毒雾主题，与挨打的红字、回血的绿字区分。
+                    if (msg.poisonDamage > 0) {
+                        this._spawnDamageNumber(e.x, e.y, msg.poisonDamage, null, '#b45ce0');
                     }
                 }
                 // 状态窗口打开时同步刷新当前页（属性页 AC/MAC 随 buff 变化、技能页快捷键变更）

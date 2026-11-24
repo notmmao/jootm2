@@ -524,10 +524,18 @@ class WorldExtra:
         o = gi.to_json(t.name if t else "?", t.looks if t else 0)
         o["type"] = "itemDrop"
         self.broadcast_around(gi.map, o, gi.x, gi.y, SIGHT_RANGE)
+        # 同步视野记录（update_sight 的 itemDrop/itemRemove 差分校准，
+        # 避免刚广播过的人下一帧又被补发一次）。
+        for a in list(getattr(gi.map, "players", {}).values()):
+            if a.session is not None and a.alive \
+                    and max(abs(a.x - gi.x), abs(a.y - gi.y)) <= SIGHT_RANGE:
+                a.seen_ground.add(gi.id)
 
     def _broadcast_item_remove(self, gi: GroundItem) -> None:
         self.broadcast_around(gi.map, {"type": "itemRemove", "id": gi.id},
                               gi.x, gi.y, SIGHT_RANGE)
+        for a in list(getattr(gi.map, "players", {}).values()):
+            a.seen_ground.discard(gi.id)
 
     def drop_instance(self, p, it: dict) -> GroundItem:
         # 原版玩家丢物品也走 DropItemDown(1) 的 GetDropPosition，但脚下格通常
