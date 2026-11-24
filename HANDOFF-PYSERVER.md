@@ -1029,3 +1029,29 @@ login/listCharacters 业务握手 OK、RTT median=11ms；OPFS mode='opfs' 不受
 `/root/jootm2-nginx/acme-cron.log` 有成功续期记录；②玩家如果从 http IP:8080
 旧地址进（非 https），WS 同源走明文，仍可用但无缓存优势；③DPI 政策是流动的，
 若将来连 IP 无 SNI 也拦（技术上可做端口+JA3 统计），退路是整体收口回 CF 隧道。
+
+## §161 无获取途径的物品/怪物清理（2026-11-24，用户要求「整理为脚本 + NONE.csv 备份 + 重生成 wiki」）
+
+**脚本** `scripts/clean_unused_data.py`（dry-run 默认 / `--apply` 落盘 / `--restore` 恢复）。
+判定「保留」的引用源（任一命中即保留）：
+1. 存活怪物的 MonItems 掉落行（**两遍法**：先算存活怪，被清怪独有的掉落物跟着清）
+2. Market_Def `[goods]` 商店货
+3. Envir 各脚本 `give <名>` 行、MakeItem.txt 行首
+4. **代码字符串常量**（ast 提取 pyserver/*.py + seed_template_chars.py，排除
+   docstring/注释——防「火炬」「木剑」这类项目名/注释误伤；覆盖挖矿铜矿/铁矿/
+   宝石矿、召唤变异骷髅/神兽、AVOID_NAMES 弓箭护卫等硬编码路径）
+5. GuardList.txt / Castle/*.txt 提到的卫士/城门体系怪
+6. 玩家库存保护：扫 data/jootm2.db characters.items/storage 的 index 集合
+
+**结果**：物品 541→388（清 153，含 NewNecklace1..9 等）、怪物 273→240（清 33，
+全是无刷新副本变体如 跳跳蜂1×7、鹿20/30、赤月恶魔1）。Idx 不重编号（库存按
+index 引用）。备份 `StdItems-NONE.csv` / `Monster-NONE.csv`（与主表同 header 同列序）。
+清单报告 `docs/CLEAN_UNUSED_REPORT.md`。
+
+**已知边角**：MonItems 目录有 GBK 乱码遗留文件名（`¹.txt`=鹿、`˫ͷѪħ.txt`=双头
+血魔）——这些掉落表本来就被游戏按正名查找不到（服务端从不加载成功），其独有的
+鹿血/鹿茸 判定「仅被不刷新的怪掉落」一并清出，无行为变化。
+`test_pyserver.py` 行数基线 500/250 → 380/230（清理后新基线，注释说明）。
+test_all_messages 的 3 个 FAIL 经 stash 对照为**既有问题**（怪物选取+覆盖清单），与本清理无关。
+服务端导入回归正常（content policy 后 items=300 monsters=199）；afk_supply 43/43、
+afk_maintain 46/46、durability 19/19、death_drop 29/29 全绿。wiki 已按清理后数据重生成。

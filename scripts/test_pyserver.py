@@ -73,8 +73,10 @@ def test_csv_templates() -> None:
     items = read_csv_rows(mud2 / "StdItems.csv")
     monsters = read_csv_rows(mud2 / "Monster.csv")
     magics = read_csv_rows(mud2 / "Magic.csv")
-    check("StdItems.csv 行数", len(items) >= 500, f"{len(items)} 行")
-    check("Monster.csv 行数", len(monsters) >= 250, f"{len(monsters)} 行")
+    # 基线为 2026-11-24 clean_unused_data.py 清理后的行数（无获取途径的
+    # 物品/怪物移入 StdItems-NONE.csv / Monster-NONE.csv，可 --restore 恢复）
+    check("StdItems.csv 行数", len(items) >= 380, f"{len(items)} 行")
+    check("Monster.csv 行数", len(monsters) >= 230, f"{len(monsters)} 行")
     check("Magic.csv 行数", len(magics) >= 30, f"{len(magics)} 行")
     t = item_from_csv(items[0])
     check("物品模板字段映射", t.name == items[0][1] and t.stdMode == int(items[0][2] or 0))
