@@ -27,7 +27,35 @@ from typing import Any
 from .world import (BAG_SIZE, Monster, Player, direction_delta,
                     direction_toward, now_ms)
 from .handlers_combat import spell_cost, skill_level, direction_from
-from .util import U_ARMRINGL, U_BUJUK, U_WEAPON, slot_accepts
+from .util import (U_ARMRINGL, U_ARMRINGR, U_BUJUK, U_DRESS, U_NECKLACE,
+                   U_RINGL, U_RINGR, U_WEAPON, slot_accepts)
+
+
+def npc_really_repairs(npc) -> bool:
+    """这个商人**确实**能修装备（脚本真声明了修理能力）。
+
+    为什么不能直接用 ``srv._repair_allowed``：那个函数给玩家点链接用，
+    对没有能力头的 1.80 老脚本做了「是商人就允许」的宽松兜底
+    （handlers_npc.py:290-297）。机器人用它挑目标时，比奇省的
+    「彩票员」「仓库保管员」都会被判成能修（彩票员只卖彩票、仓库只存取），
+    走过去照样修不成——实测（2026-11-24）代理就是这样选了彩票员，
+    结果流程空转、装备脱不下来。
+    这里只认硬证据：脚本头 ``(@repair)`` / ``(@s_repair)``，
+    或者脚本里存在 ``[@repair]`` / ``[@s_repair]`` 段（1.80 老写法）。
+
+    离线补给（OfflinePilot._supply_repair_npc）与在线一键维护
+    （MaintenanceFlow）共用此判定。
+    """
+    script = getattr(npc, "script", None)
+    if script is None:
+        return False
+    abilities = getattr(script, "abilities", None) or set()
+    if abilities:
+        return "repair" in abilities or "s_repair" in abilities
+    for sec in ("repair", "s_repair"):
+        if script.section(sec) is not None:
+            return True
+    return False
 
 # ---- 节拍（与前端 PlayScene.mjs 一致）------------------------------------
 WALK_INTERVAL_MS = 540           # PlayScene.mjs:26 WALK_INTERVAL
@@ -80,6 +108,9 @@ SPELL_INPUT_BASE_MS = 1100
 # 三招都是 ``_resolve_magic`` 里对单目标生效的 RM_DELAYMAGIC（Magic.pas:279/407），
 # 均不吃护身符；按「已学 + 有蓝 + 不在冷却」从高到低挑第一招。
 MAGE_ATTACK_SKILLS = (11, 5, 1)
+# 道士耗蓝吃饭技能：治愈术(2)、灵魂火符(13)——补蓝判据只看这两招
+# （毒系(4/15 等)施放同耗蓝，纳入会让「最低耗蓝」更宽松，无害）。
+TAOIST_MP_SKILLS = (2, 13)
 
 # 法师放风筝：被「强怪」贴身时不站着硬扛，先拉开到约 4 格再施法。
 # 这是托管策略（原版无托管，玩家手动走位），不是原版对齐项，数值为可调经验值。
@@ -368,6 +399,264 @@ def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int,
 
 
 
+# ---------------------------------------------------------------- 一键维护
+MAINT_ACT_MS = 600               # 卖/修动作节奏（与离线补给 SUPPLY_ACT_MS 同值）
+MAINT_NPC_MAX_DIST = 120         # 本图找商人/修理商的距离预算
+MAINT_TOTAL_TIMEOUT_MS = 180_000  # 整个维护流程上限（超时收尾，绝不无限挂着）
+MAINT_LEG_RETRY = 3              # 单段路连续失败次数
+# 一键维护检查的装备槽（用户 2026-11-26 点名：武器、衣服、项链、戒指、手镯）
+MAINT_EQUIP_SLOTS = (U_WEAPON, U_DRESS, U_NECKLACE,
+                     U_RINGL, U_RINGR, U_ARMRINGL, U_ARMRINGR)
+MAINT_REPAIR_DURA_PCT = 50       # 耐久低于上限该比例才修（与离线补给一致）
+
+MAINT_SELL = "sell"
+MAINT_REPAIR = "repair"
+
+
+@dataclass(slots=True)
+class MaintenanceFlow:
+    """在线托管「一键维护」：原地（当前地图）卖肉 + 修理身上装备。
+
+    与离线补给的 ``_supply_sell/_supply_maintain_equipped`` 语义一致但刻意
+    独立轻量实现：
+
+    * **不跨图**：玩家点按钮时人就在城里/挂机图，维护只找**当前地图**的
+      商人；找不到（如纯猎场没修理商）就跳过该项并在状态里说明，绝不
+      自作主张跑回比奇（在线玩家随时可能接管，长距离擅自移动很危险）。
+    * **修理走「脱下→修→穿回」**：原版 ``ClientRepairItem`` 只认背包物品
+      （ObjBase.pas:24653），流程与离线代理相同：先贴近商人（≤12 格，
+      ``_npc_and_player`` 硬限 15）再卸，避免「脱了修不成」的活锁。
+    * **维护期间托管继续保命**（``_survive`` 喝药/治愈照常跑），只做卖/修
+      不做战斗；``_ensure_equipment`` 自动补装会跟修理流程抢背包槽位，
+      维护中跳过（离线代理 §162 同样处理）。
+    * 流程结束（成功/超时/无对象）自动回到正常打怪循环；玩家任何手动
+      动作经 MANUAL_TYPES 照常接管暂停。
+    """
+    started_at: int
+    stage: str = MAINT_SELL
+    npc_id: int = 0
+    leg_try: int = 0
+    last_act_at: int = 0
+    sold: int = 0
+    repaired: int = 0
+    skipped: int = 0             # 没有可修商人的件数（状态文案用）
+    r_slot: int = -1             # 当前修理槽（-1 = 没有进行中的件）
+    r_mi: int = 0
+    r_off: bool = False          # True = 已脱下待修（中断时必须穿回）
+    failed_mis: set = field(default_factory=set)
+    unsellable: set = field(default_factory=set)
+    notes: list = field(default_factory=list)
+
+    # ---- 主推进 ----
+    def tick(self, pilot, srv, w, p, now: int) -> None:
+        if now - self.started_at > MAINT_TOTAL_TIMEOUT_MS:
+            self._finish(pilot, srv, w, p, now, "维护超时，提前收尾")
+            return
+        if self.r_off or self.r_slot >= 0:
+            self._repair_step(pilot, srv, w, p, now)
+            return
+        if self.stage == MAINT_SELL:
+            self._sell_step(pilot, srv, w, p, now)
+        else:
+            self._repair_pick(pilot, srv, w, p, now)
+
+    def abort(self, pilot, srv, w, p) -> None:
+        """中断兜底：装备躺在背包里没穿回时，立刻穿回（防死亡掉落前裸装）。"""
+        if self.r_off:
+            self._reclaim(srv, w, p)
+
+    # ---- 卖肉 ----
+    def _sell_step(self, pilot, srv, w, p, now: int) -> None:
+        cand = cand_t = None
+        for it in p.bag:
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.unsellable:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is not None and t.stdMode == 40:     # 肉（怪物肉/鹿肉…）
+                cand, cand_t = it, t
+                break
+        if cand is None:
+            self.stage = MAINT_REPAIR
+            self.leg_try = 0
+            self.npc_id = 0
+            self._repair_pick(pilot, srv, w, p, now)
+            return
+        npc = self._buy_back_npc(srv, w, p, cand_t, cand)
+        if npc is None:
+            self.unsellable.add(int(cand.get("makeIndex", 0)))
+            return
+        self.npc_id = npc.id
+        if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+            if not self._walk(pilot, srv, w, p, npc, now):
+                self.unsellable.add(int(cand.get("makeIndex", 0)))
+            return
+        if now - self.last_act_at < MAINT_ACT_MS:
+            return
+        self.last_act_at = now
+        srv._sell_item(p.session, {"type": "sellItem", "npcId": npc.id,
+                                   "makeIndex": int(cand.get("makeIndex", 0))})
+        self.sold += 1
+        pilot.set_status(f"维护 · 卖肉 {self.sold} 块", now)
+
+    def _buy_back_npc(self, srv, w, p, t, it):
+        """本图肯收购这件肉的最近商人（口径同离线 _supply_sell_npc）。"""
+        best, best_d = None, 10 ** 9
+        for npc in w.npcs_by_map.get(p.map.name if p.map else "", ()):
+            if not npc.merchant or npc.map is not p.map:
+                continue
+            if srv._sell_price(npc, t, it) <= 0:
+                continue
+            d = max(abs(p.x - npc.x), abs(p.y - npc.y))
+            if d < best_d:
+                best, best_d = npc, d
+        if best is None or best_d > MAINT_NPC_MAX_DIST:
+            return None
+        return best
+
+    # ---- 修装备 ----
+    def _repair_pick(self, pilot, srv, w, p, now: int) -> None:
+        """挑下一件需要修的装备；全部处理完 → 收尾。"""
+        for slot in MAINT_EQUIP_SLOTS:
+            if slot >= len(p.equipment):
+                continue
+            it = p.equipment[slot]
+            if it is None:
+                continue
+            mi = int(it.get("makeIndex", 0))
+            if mi in self.failed_mis:
+                continue
+            t = w.item_templates.get(int(it.get("index", 0)))
+            if t is None:
+                continue
+            dura = int(it.get("durability", 0) or 0)
+            dmax = int(it.get("durabilityMax", 0) or 0)
+            if not (dmax > 0 and dura * 100 < dmax * MAINT_REPAIR_DURA_PCT):
+                continue
+            npc = self._repair_npc(srv, w, p, it, t)
+            if npc is None:
+                self.failed_mis.add(mi)      # 本图没人会修这件：跳过
+                self.skipped += 1
+                continue
+            self.r_slot, self.r_mi = slot, mi
+            self.npc_id = npc.id
+            self.leg_try = 0
+            if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+                pilot.set_status(f"维护 · 前往{npc.name}修理", now, force=True)
+                self._walk(pilot, srv, w, p, npc, now)
+                return
+            self._repair_step(pilot, srv, w, p, now)
+            return
+        # 没有待修装备（或全被跳过）→ 完成
+        tail = f"，{self.skipped} 件本图无修理商" if self.skipped else ""
+        self._finish(pilot, srv, w, p, now,
+                     f"维护完成：卖肉 {self.sold} 块，修理 {self.repaired} 件{tail}")
+
+    def _repair_npc(self, srv, w, p, item, item_tpl):
+        """本图**确实能修这件**的最近商人。判定与离线 _supply_repair_npc
+        同源：严格能力（npc_really_repairs）+ 对该件修理价 ≥0。"""
+        strict = [n for n in w.npcs_by_map.get(p.map.name if p.map else "", ())
+                  if n.merchant and n.map is p.map and npc_really_repairs(n)]
+        best, best_d = None, 10 ** 9
+        for npc in strict:
+            try:
+                if srv._repair_price(npc, item_tpl, item, "repair") < 0:
+                    continue
+            except AttributeError:
+                pass
+            d = max(abs(p.x - npc.x), abs(p.y - npc.y))
+            if d < best_d:
+                best, best_d = npc, d
+        if best is None or best_d > MAINT_NPC_MAX_DIST:
+            return None
+        return best
+
+    def _repair_step(self, pilot, srv, w, p, now: int) -> None:
+        """推进当前件：贴近 → 脱下 → (下拍) 修理+穿回。"""
+        slot, mi = self.r_slot, self.r_mi
+        npc = w.npc(self.npc_id) if hasattr(w, "npc") else None
+        if npc is None or npc.map is not p.map:
+            self._give_up(pilot, srv, w, p, now, "修理商不在了")
+            return
+        if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
+            self._walk(pilot, srv, w, p, npc, now)
+            return
+        if now - self.last_act_at < MAINT_ACT_MS:
+            return
+        if not self.r_off:
+            it = p.equipment[slot] if slot < len(p.equipment) else None
+            if it is None or int(it.get("makeIndex", 0)) != mi:
+                self.r_slot = -1
+                return                      # 装备没了（死亡掉落/手动卸下）：换下一件
+            if len(p.bag) >= BAG_SIZE:
+                self._give_up(pilot, srv, w, p, now, "背包已满腾不出格子")
+                return
+            self.last_act_at = now
+            srv._take_off_item(p.session, {"type": "takeOffItem",
+                                           "slot": slot, "makeIndex": mi})
+            self.r_off = True
+            pilot.set_status("维护 · 卸下装备准备修理", now)
+            return
+        # 已脱下：修 → 穿回
+        it = p.bag_item(mi) if hasattr(p, "bag_item") else None
+        if it is None:
+            self._give_up(pilot, srv, w, p, now, "装备不在背包（异常），放弃")
+            return
+        self.last_act_at = now
+        dura_before = int(it.get("durability", 0) or 0)
+        srv._repair_item(p.session, {"type": "repairItem", "npcId": npc.id,
+                                     "makeIndex": mi, "mode": "repair"})
+        it2 = p.bag_item(mi)
+        dura_after = int(it2.get("durability", 0) or 0) if it2 is not None else 0
+        if dura_after > dura_before:
+            self.repaired += 1
+        else:
+            self.failed_mis.add(mi)         # 修不动（金币不足/价格负）：别再试
+        if it2 is not None:
+            srv._take_on_item(p.session, {"type": "takeOnItem",
+                                          "slot": slot, "makeIndex": mi})
+        self.r_slot, self.r_mi, self.r_off = -1, 0, False
+        pilot.set_status(f"维护 · 修理 {self.repaired} 件", now, force=True)
+
+    def _give_up(self, pilot, srv, w, p, now: int, why: str) -> None:
+        if self.r_off:
+            self._reclaim(srv, w, p)
+        self.failed_mis.add(self.r_mi)
+        self.r_slot, self.r_mi, self.r_off = -1, 0, False
+        pilot.set_status(f"维护 · 跳过一件（{why}）", now)
+
+    def _reclaim(self, srv, w, p) -> None:
+        """兜底穿回：装备若还在背包，立即 takeOnItem 回原槽。"""
+        if hasattr(p, "bag_item") and p.bag_item(self.r_mi) is not None \
+                and 0 <= self.r_slot < len(p.equipment) \
+                and p.equipment[self.r_slot] is None:
+            srv._take_on_item(p.session, {"type": "takeOnItem",
+                                          "slot": self.r_slot,
+                                          "makeIndex": self.r_mi})
+        self.r_off = False
+
+    # ---- 公共 ----
+    def _walk(self, pilot, srv, w, p, npc, now: int) -> bool:
+        """走向商人；返回 False = 连续失败放弃。"""
+        if pilot._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+                          f"维护 · 前往{npc.name}", now):
+            self.leg_try = 0
+            return True
+        self.leg_try += 1
+        if self.leg_try >= MAINT_LEG_RETRY:
+            self._give_up(pilot, srv, w, p, now, f"走不到 {npc.name}")
+            return False
+        return True
+
+    def _finish(self, pilot, srv, w, p, now: int, msg: str) -> None:
+        if self.r_off:
+            self._reclaim(srv, w, p)
+        pilot.maint = None
+        pilot.last_progress_at = now     # 维护不算零进展，别让熔断误停
+        pilot.set_status(msg, now, force=True)
+        srv.world.send_system(p, f"[托管] {msg}。")
+
+
 # ---------------------------------------------------------------- 实例
 @dataclass(slots=True)
 class AutoPilot:
@@ -421,6 +710,8 @@ class AutoPilot:
     blocked_steps: int = 0
     # AI Bot 专用：选怪时跳过已被真人玩家锁定的怪（§4.1 决不抢怪）。
     avoid_real_targets: bool = False
+    # 在线一键维护（MaintenanceFlow）：None = 未在维护。
+    maint: Any = None
 
     # ---- 状态回包 -------------------------------------------------------
     def set_status(self, text: str, now: int, force: bool = False) -> None:
@@ -457,6 +748,11 @@ class AutoPilot:
         self.last_hp_seen = p.hp
 
         cfg = self.adjust_cfg(PRESETS[self.preset])
+        # 一键维护优先：只做卖/修（保命照旧），不打怪，也不做零进展熔断
+        # （维护本来就没经验）。
+        if self.maint is not None:
+            self._tick_maint(srv, w, p, cfg, now)
+            return
         # 熔断：长时间一点进展都没有（经验/背包/金币都不变），说明卡住 /
         # 打不到怪 / 断在奇怪状态。挖肉不涨经验但会进肉、捡钱也只动金币，
         # 都要算进展，否则新手纯挖肉赚钱 3 分钟就被误停。
@@ -499,6 +795,57 @@ class AutoPilot:
             return
         self.set_status(self.status, now)
 
+    # ---- 一键维护循环 ---------------------------------------------------
+    def _tick_maint(self, srv, w, p, cfg, now: int) -> None:
+        """维护期间：保命照做，跳过自动补装（会和「脱下待修」抢槽位——
+        离线代理 §162 同款处理），只做卖/修状态机。"""
+        try:
+            self.acted = False
+            self._survive(srv, w, p, cfg, now)
+            if not self.active:
+                return
+            if self.maint is not None:
+                self.maint.tick(self, srv, w, p, now)
+        except Exception as e:
+            print(f"[autopilot] {p.name} 维护异常: {type(e).__name__}: {e}")
+            if self.maint is not None:
+                try:
+                    self.maint.abort(self, srv, w, p)
+                except Exception:
+                    pass
+                self.maint = None
+            self.manager.disable(p, "一键维护内部错误，托管已停止")
+            return
+        self.set_status(self.status, now)
+
+    def start_maint(self, srv, w, p) -> tuple[bool, str]:
+        """启动一键维护；返回 (ok, 说明)。"""
+        if self.maint is not None:
+            return False, "维护已在进行中"
+        if getattr(p, "dead", False) or not p.alive:
+            return False, "角色已死亡"
+        meat = sum(1 for it in p.bag
+                   if (t := w.item_templates.get(int(it.get("index", 0))))
+                   is not None and t.stdMode == 40)
+        worn = 0
+        for slot in MAINT_EQUIP_SLOTS:
+            if slot < len(p.equipment) and p.equipment[slot] is not None:
+                it = p.equipment[slot]
+                d, dm = int(it.get("durability", 0) or 0), int(it.get("durabilityMax", 0) or 0)
+                if dm > 0 and d * 100 < dm * MAINT_REPAIR_DURA_PCT:
+                    worn += 1
+        if not meat and not worn:
+            return False, "背包里没有肉、身上也没有低耐久装备，无需维护"
+        self.maint = MaintenanceFlow(started_at=now_ms())
+        self.path.clear()
+        self.path_key = ()
+        self.plan = None
+        self.target_id = 0
+        self.loot_id = 0
+        self.set_status(f"一键维护 · 肉 {meat} 块 · 待修 {worn} 件", now_ms(),
+                        force=True)
+        return True, f"开始维护：卖 {meat} 块肉、修 {worn} 件装备（本图商人）"
+
     # ---- 生存：喝药 / 血线 / 背包满 ------------------------------------
     def _survive(self, srv, w, p, cfg, now: int) -> None:
         max_hp = max(1, p.max_hp)
@@ -524,11 +871,12 @@ class AutoPilot:
                 srv._use_item(p.session, {"type": "useItem",
                                           "makeIndex": int(potion.get("makeIndex", 0))})
                 self.set_status("喝药中", now)
-        # 法师没有治愈术，蓝见底就只能站桩挨打。喝蓝改为「空蓝才喝」：
+        # 法师没有治愈术，蓝见底就只能站桩挨打；道士没蓝则治愈/火符全哑
+        # （用户 2026-11-26：施法没蓝就要补蓝药）。喝蓝改为「空蓝才喝」：
         # 当前蓝量（含 inc_spell 回蓝池）连最便宜的一招都放不出来时才补，
         # 不再按固定蓝线 35% 一掉就灌（用户 2026-11-18 反馈太激进）。
-        if p.job == 1:
-            need = _min_mage_spell_cost(w, p)
+        if p.job in (1, 2):
+            need = _min_spell_cost(w, p)
             if need is not None:
                 available = p.mp + int(getattr(p, "inc_spell", 0) or 0)
                 if available < need:
@@ -1525,15 +1873,23 @@ def _find_mana_potion(w, p):
     return best
 
 
-def _min_mage_spell_cost(w, p):
-    """法师已学单体技能里的最低耗蓝；一招都没学返回 None（无需补蓝）。
+def _min_spell_cost(w, p):
+    """该职业「吃饭技能」里的最低耗蓝；一招都没学返回 None（无需补蓝）。
 
+    法师 = 单体输出三招；道士 = 治愈术(2)/灵魂火符(13)——托管道士没蓝就
+    没法回血没法远程输出（用户 2026-11-26 要求补蓝逻辑覆盖道士）。
     「空蓝才喝」的判据：当前蓝量（含回蓝池）连最便宜的一招都放不出来，
     才值得喝蓝药。`spell_cost` 与 `_cast_magic` 用同一公式
     （handlers_combat.py:60），避免判据和实际扣蓝口径不一致。
     """
+    if p.job == 2:
+        skills = TAOIST_MP_SKILLS
+    elif p.job == 1:
+        skills = MAGE_ATTACK_SKILLS
+    else:
+        return None
     best = None
-    for magic_id in MAGE_ATTACK_SKILLS:
+    for magic_id in skills:
         if magic_id not in p.skills:
             continue
         t = w.magic_templates.get(magic_id)
@@ -1645,6 +2001,7 @@ class AutoPilotManager:
         pilot.loot_until = 0
         pilot.unreachable.clear()
         pilot.blocked_steps = 0
+        pilot.maint = None       # 一键维护不跨开关周期
         pilot.last_progress_at = stamp
         pilot.last_exp = p.exp
         pilot.last_move_at = 0
@@ -1678,6 +2035,14 @@ class AutoPilotManager:
         pilot.active = False
         pilot.reason = reason
         pilot.path.clear()
+        # 一键维护被打断：装备若正处于「脱下待修」状态必须立即穿回，
+        # 不能留在背包里等下次开启（玩家可能直接下线）。
+        if pilot.maint is not None:
+            try:
+                pilot.maint.abort(pilot, self.service, self.service.world, p)
+            except Exception:
+                pass
+            pilot.maint = None
         pilot.set_status("已暂停 · 手动接管", now_ms(), force=True)
 
     def disable(self, p, reason: str) -> None:
@@ -1687,6 +2052,12 @@ class AutoPilotManager:
         pilot.active = False
         pilot.reason = reason
         pilot.status = "已停止"
+        if pilot.maint is not None and p is not None:
+            try:   # 停机兜底：脱下待修的装备先穿回（别留在背包里裸奔）
+                pilot.maint.abort(pilot, self.service, self.service.world, p)
+            except Exception:
+                pass
+            pilot.maint = None
         pilot.on_disabled(reason)
         if p is not None and p.session is not None:
             p.session.send_json(self.state_dict(p, None, pilot.preset,

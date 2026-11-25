@@ -26,6 +26,7 @@ from typing import Any
 
 from .afk_log import AfkSessionLog
 from .autopilot import (DEFAULT_PRESET, PRESETS, AutoPilot, _find_town_scroll,
+                       npc_really_repairs,
                         attack_interval_ms, normalize_preset)
 from .util import RED_NAME_PK_POINT, SLOT_NAMES, U_DRESS, U_WEAPON
 from .world import BAG_SIZE, Monster, Player, now_ms
@@ -438,7 +439,8 @@ class OfflinePilot(AutoPilot):
             why = "背包将满"
         elif p.level >= SUPPLY_POTION_MIN_LEVEL:
             hp, mp = count_potions(w, p)
-            if p.job == 1:
+            if p.job in (1, 2):
+                # 法师/道士都靠蓝吃饭（道士治愈+火符，用户 2026-11-26）
                 if hp == 0 or mp == 0:
                     why = "药水耗尽"
             elif hp == 0:
@@ -886,27 +888,8 @@ class OfflinePilot(AutoPilot):
 
     @staticmethod
     def _npc_really_repairs(npc) -> bool:
-        """这个商人**确实**能修装备（脚本真声明了修理能力）。
-
-        为什么不能直接用 ``srv._repair_allowed``：那个函数给玩家点链接用，
-        对没有能力头的 1.80 老脚本做了「是商人就允许」的宽松兜底
-        （handlers_npc.py:290-297）。机器人用它挑目标时，比奇省的
-        「彩票员」「仓库保管员」都会被判成能修（彩票员只卖彩票、仓库只存取），
-        走过去照样修不成——实测（2026-11-24）代理就是这样选了彩票员，
-        结果流程空转、装备脱不下来。
-        这里只认硬证据：脚本头 ``(@repair)`` / ``(@s_repair)``，
-        或者脚本里存在 ``[@repair]`` / ``[@s_repair]`` 段（1.80 老写法）。
-        """
-        script = getattr(npc, "script", None)
-        if script is None:
-            return False
-        abilities = getattr(script, "abilities", None) or set()
-        if abilities:
-            return "repair" in abilities or "s_repair" in abilities
-        for sec in ("repair", "s_repair"):
-            if script.section(sec) is not None:
-                return True
-        return False
+        """薄封装 → 模块级 npc_really_repairs（在线托管复用同一判定）。"""
+        return npc_really_repairs(npc)
 
     def _supply_repair_npc(self, srv, w, p, item=None, item_tpl=None):
         """找当前地图上**能修这件东西**的最近商人。
@@ -1288,8 +1271,8 @@ class OfflinePilot(AutoPilot):
         return offers
 
     def _supply_buy(self, srv, w, p, now: int) -> None:
-        """按目标数量买血药（法师另买蓝药），金币不够一瓶 → 熔断计失败。"""
-        want_mp = p.job == 1
+        """按目标数量买血药（法师/道士另买蓝药），金币不够一瓶 → 熔断计失败。"""
+        want_mp = p.job in (1, 2)
         offers = self._supply_potion_offers(srv, w, p, want_mp)
         hp_offers = [o for o in offers if o[2].acMin > 0]
         mp_offers = [o for o in offers if want_mp and o[2].macMin > 0]

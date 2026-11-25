@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from pyserver.autopilot import (BAG_SIZE, BUTCH_BAG_RESERVE, MEAT_KEEP,  # noqa: E402
-                                SPELL_INPUT_BASE_MS, _min_mage_spell_cost)
+                                SPELL_INPUT_BASE_MS, _min_spell_cost)
 from pyserver.config import load  # noqa: E402
 from pyserver.db import Database  # noqa: E402
 from pyserver.service import GameService  # noqa: E402
@@ -264,7 +264,7 @@ def main() -> None:
     mana = w.new_item_instance(w.item_templates[idx_mana])
     p5.bag.append(mana)
     p5.inc_spell = 0
-    min_cost = _min_mage_spell_cost(w, p5)
+    min_cost = _min_spell_cost(w, p5)
     assert min_cost is not None and min_cost > 0
 
     # 蓝够放技能时不喝（新口径：不再按 20%/35% 蓝线就灌）
@@ -285,6 +285,36 @@ def main() -> None:
     check("蓝药已从背包消耗",
           all(it.get("makeIndex") != mana["makeIndex"] for it in p5.bag))
     ap.disable(p5, "测试切换")
+
+    # ============ 2d. 道士空蓝（治愈/火符放不出）才喝蓝药 ============
+    print("\n[2d] 道士缺蓝自动喝蓝药（用户 2026-11-26：治愈术没蓝就要补）")
+    p5b, sess5b = login(srv, "TAOMANA", job=2)
+    p5b.skills[2] = {"level": 0, "train": 0, "key": 0}    # 治愈术
+    ap.enable(p5b, "balanced")
+    clear_mobs(srv, p5b)
+    idx_mana2 = idx + 5
+    w.item_templates[idx_mana2] = replace(base, index=idx_mana2, stdMode=0,
+                                          shape=1, acMin=0, macMin=50,
+                                          duraMax=100, name="测试魔法药2")
+    mana2 = w.new_item_instance(w.item_templates[idx_mana2])
+    p5b.bag.append(mana2)
+    p5b.inc_spell = 0
+    min_cost2 = _min_spell_cost(w, p5b)
+    check("道士补蓝判据生效（治愈术耗蓝>0）",
+          min_cost2 is not None and min_cost2 > 0, f"need={min_cost2}")
+    # 蓝够 → 不喝
+    p5b.mp = min_cost2 + 5
+    rec.reset()
+    tick(srv, 1)
+    check("道士蓝够时不喝蓝药", mana2["makeIndex"] not in rec.uses,
+          f"mp={p5b.mp} uses={rec.uses}")
+    # 蓝不够放治愈 → 喝
+    p5b.mp = min_cost2 - 1
+    rec.reset()
+    tick(srv, 1)
+    check("道士空蓝自动喝蓝药", mana2["makeIndex"] in rec.uses,
+          f"uses={rec.uses}")
+    ap.disable(p5b, "测试切换")
 
     # ============ 3. 武器自动换装 ============
     print("\n[3] 武器损毁→自动从背包补耐久最高的下一把")

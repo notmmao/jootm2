@@ -1330,3 +1330,55 @@ MANUAL_TYPES，按「手动优先」pause 托管。即托管每捡一瓶金创�
 托管击杀→GM 同图传送离开再回原点→断言实体 `_corpse=true && action=death`；
 二次换图复验）5 PASS；stash 掉修复复跑精确 FAIL 2 项（action=None
 corpse=False，即站立），证明用例有效。`test_corpse_fx.py` 8 PASS 无回归。
+
+## §173 道士自动喝蓝药（在线+离线）（2026-11-26）
+
+需求（用户）：道士离线挂机不会自动喝蓝——治愈术施法没蓝就要补蓝药。
+
+现状核对：`_survive` 补蓝段只认 `p.job == 1`（法师），道士蓝空了
+`_taoist_heal`/`_taoist_fire` 直接放不出，只能喝血药硬扛；离线补给
+`_supply_buy` 的 `want_mp = p.job == 1`、`_supply_check_trigger` 的
+「药水耗尽」判据同样只覆盖法师。
+
+改动：
+- `autopilot.py`：`_min_mage_spell_cost` 改名 `_min_spell_cost` 并按职业取
+  技能集（法师 MAGE_ATTACK_SKILLS / 道士新增 `TAOIST_MP_SKILLS=(2,13)`
+  治愈术+灵魂火符），补蓝触发条件 `p.job == 1` → `p.job in (1, 2)`。
+  仍是「空蓝才喝」口径（含 inc_spell 回蓝池连最低耗蓝一招都放不出）。
+- `afk.py`：`_supply_buy` 的 want_mp 与 `_supply_check_trigger` 缺蓝判据
+  同步改为 `job in (1, 2)`（道士离线也会因蓝药耗尽触发进城补给）。
+- 引用点 `test_autopilot_hosted_opt.py` 随改名更新。
+
+验证：`test_autopilot_hosted_opt.py` 新增 [2d] 道士喝蓝三断言（判据生效/
+蓝够不喝/空蓝自动喝），39 PASS；其余回归全套无破坏。
+
+## §174 在线托管一键维护（修装备+卖肉按钮）（2026-11-26）
+
+需求（用户）：在线托管旁边加「自动修装备（武器/衣服/项链/戒指/手镯）+
+自动卖肉」按钮，触发后自己找 NPC 对话交易。
+
+实现（`pyserver/autopilot.py` 新增 `MaintenanceFlow`）：
+- 触发：WS `autopilot {action:'maint'}`（service.py handler）。托管未开启
+  时先自动开启再维护；背包没肉且身上无低耐久装备 → 明确拒绝回执。
+- 流程：当前地图卖肉（StdMode 40，找肯收购的最近商人，≤120 格）→
+  逐件修理身上装备（槽位 MAINT_EQUIP_SLOTS=武器/衣服/项链/左右戒指/
+  左右手镯，耐久<50% 才修），每件「贴近→脱下→修理→穿回」严格串行，
+  与离线 §162 同一套安全约束：先 ≤12 格再脱（_npc_and_player 硬限 15）、
+  满包不脱、修不动记 failed、任何中断路径 abort 先穿回。
+- 修理商判定 `npc_really_repairs` 从 OfflinePilot 上提为模块级（afk 侧
+  改薄封装，防「彩票员被判能修」的老坑），两侧共用。
+- 不跨图：在线玩家随时可能接管，绝不擅自跑回比奇；本图没修理商就跳过
+  并在收尾文案说明。维护期间 `_survive` 保命照常、跳过 `_ensure_equipment`
+  自动补装（防抢背包槽位活锁，同 §162）、不打怪、不做零进展熔断。
+- 收尾（成功/超时 180s/全跳过）恢复战斗循环；pause/disable 均兜底穿回。
+- 前端（PlayScene.mjs）：托管条正下方新增「修装备·卖肉」按钮
+  （#autoPilotMaintBtn），点设置面板时自动隐藏避让。
+
+验证：`scripts/test_autopilot_maint.py` 状态机单测 25 PASS（卖修顺序/
+脱-修-穿串行/无商跳过/修不动不死磕/中断穿回/能力判定）；
+`scripts/test_autopilot_maint_ws.py` 真实进程 WS 7 PASS（含线上同构路径
+「前往屠夫→卖肉 3 块→收尾」实拍状态流）。Playwright 前端按钮渲染+点击
+通过（点后托管正常进入维护态）。
+
+顺带（用户插问）：精英怪爆率 2.0→5.0 已提交 `e6758f4 [调整]`
+（elite.dropMult 四处口径同步，test_elite_monster 21 PASS）。

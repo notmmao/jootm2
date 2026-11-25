@@ -728,6 +728,21 @@ export class PlayScene extends Scene {
         autoBar.appendChild(autoMenu);
         root.appendChild(autoBar);
 
+        // 「一键维护」：托管原地卖肉 + 找本图商人修理身上装备
+        // （武器/衣服/项链/戒指/手镯）。放在托管条正下方，执行全在服务端
+        // （autopilot action=maint），没开托管时服务端会先开启再维护。
+        this._maintBtn = document.createElement('div');
+        this._maintBtn.id = 'autoPilotMaintBtn';
+        this._maintBtn.style.cssText = 'position:absolute;left:690px;top:148px;'
+            + 'width:102px;height:22px;box-sizing:border-box;line-height:20px;'
+            + 'text-align:center;cursor:pointer;color:#ffe9a8;font-size:12px;'
+            + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;'
+            + 'pointer-events:auto;user-select:none;';
+        this._maintBtn.textContent = '修装备·卖肉';
+        this._maintBtn.title = '一键维护：卖掉背包里的肉，找本图商人修理身上装备（托管中自动进行）';
+        this._maintBtn.addEventListener('click', () => this._startMaint());
+        root.appendChild(this._maintBtn);
+
         this._autoStatusEl = document.createElement('div');
         this._autoStatusEl.id = 'autoPilotStatus';
         // 状态条贴画面最底边（HUD_Y=349），一条细带，不再横贯视野中上部。
@@ -807,6 +822,8 @@ export class PlayScene extends Scene {
         if (!this._autoMenuEl) return;
         const show = this._autoMenuEl.style.display !== 'block';
         this._autoMenuEl.style.display = show ? 'block' : 'none';
+        // 面板展开会盖住下方维护按钮：收起时才显示它
+        if (this._maintBtn) this._maintBtn.style.display = show ? 'none' : 'block';
         if (this._autoMenuBtn) this._autoMenuBtn.textContent = show ? '▴' : '▾';
     }
 
@@ -814,6 +831,7 @@ export class PlayScene extends Scene {
     _closeAutoMenu() {
         if (!this._autoMenuEl) return;
         this._autoMenuEl.style.display = 'none';
+        if (this._maintBtn) this._maintBtn.style.display = 'block';
         if (this._autoMenuBtn) this._autoMenuBtn.textContent = '▾';
     }
 
@@ -822,6 +840,12 @@ export class PlayScene extends Scene {
         if (this._auto.active) this.conn.send('autopilot', { action: 'off' });
         else this.conn.send('autopilot', { action: 'on', preset: this._auto.preset,
                                            noButch: this._auto.noButch });
+    }
+
+    /** 一键维护：发 maint 动作（服务端未开托管会先开再维护）。 */
+    _startMaint() {
+        if (!this._auto) return;
+        this.conn.send('autopilot', { action: 'maint' });
     }
 
     _changeNoButch(on) {

@@ -563,6 +563,20 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
         if action == "pause":
             self.autopilot.pause(p)
             return
+        if action == "maint":
+            # 一键维护（用户 2026-11-26）：当前地图卖肉 + 修理身上装备。
+            # 托管未开启时先开启再维护——玩家的意图就是「让它去干活」。
+            if cur is None or not cur.active:
+                ok_on, why_on = self.autopilot.enable(p, preset)
+                if not ok_on:
+                    self.autopilot.push_state(p, reason=why_on, ok=False)
+                    return
+                cur = self.autopilot.get(p)
+            ok_m, why_m = cur.start_maint(self, self.world, p)
+            if not ok_m:
+                self.world.send_system(p, f"[托管] {why_m}。")
+            self.autopilot.push_state(p)
+            return
         if action == "status":
             self.autopilot.push_state(p)
             return
