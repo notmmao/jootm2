@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gamedata/Mir200/Envir 配置文件说明</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#1f2329; --sub:#5b6572;
+    --line:#e5e8ec; --accent:#c0392b; --code:#f2f4f7; --tag:#eef2f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;line-height:1.65;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 20px 64px}
+  header h1{font-size:24px;margin:0 0 6px}
+  header p{margin:0;color:var(--sub);font-size:14px}
+  .note{background:#fff8e6;border:1px solid #f0dca0;border-radius:8px;
+    padding:12px 16px;margin:18px 0 26px;font-size:13.5px;color:#7a5c00}
+  .note b{color:#946a00}
+  h2{font-size:15px;color:var(--accent);margin:30px 0 12px;padding-bottom:6px;
+    border-bottom:2px solid var(--line);letter-spacing:.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;margin:12px 0;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .card .name{font-family:"Cascadia Code",Consolas,monospace;font-weight:600;
+    font-size:15px;color:#1a56b0}
+  .card .dir{font-size:12px;color:var(--sub);margin-left:8px}
+  .card .desc{margin:8px 0 0;font-size:14px}
+  table{border-collapse:collapse;width:100%;margin:10px 0 2px;font-size:13px}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+  th{background:var(--tag);font-weight:600}
+  td code,.inline{font-family:"Cascadia Code",Consolas,monospace;background:var(--code);
+    padding:1px 5px;border-radius:4px;font-size:12.5px;color:#334}
+  .fmt{background:var(--code);border-radius:6px;padding:8px 12px;margin:8px 0 0;
+    font-family:"Cascadia Code",Consolas,monospace;font-size:12.5px;color:#334;
+    white-space:pre-wrap;border:1px solid var(--line)}
+  .unit{color:#0a7d3c;font-weight:600}
+  .none{color:var(--sub)}
+  footer{margin-top:40px;font-size:12px;color:var(--sub);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>gamedata / Mir200 / Envir — 配置文件说明</h1>
+  <p>传奇 1.76/1.80（GameOfMir）服务端环境目录逐个文件的作用与字段口径。</p>
+</header>
+
+<div class="note">
+  约定：<b>所有以 <code style="color:#946a00">;</code> 或 <code style="color:#946a00">#</code> 开头的行都是注释</b>，解析时跳过；空行忽略。<br>
+  文本编码混合 UTF-8 / GBK / UTF-16，由服务端 <code style="color:#946a00">gamedata.read_lines</code> 按内容自动探测，<b>不要写死编码</b>。<br>
+  涉及<span class="unit">时间</span>的字段，本文一律在含义后标注<span class="unit">单位</span>。
+</div>
+
+<h2>一、地图与坐标</h2>
+
+<div class="card">
+  <span class="name">MapInfo.txt</span><span class="dir">地图属性总表</span>
+  <p class="desc">登记所有地图的编号、中文名与通行/属性标志。是地图世界的权威清单。</p>
+  <div class="fmt">[地图号    地图名]   标志1 标志2 ...
+[0    比奇省]
+[0122   皇宫]    FIGHT
+D011 <-> D012 (33,8 -> 3,8)   ; 地图连接门(传送)</div>
+  <table>
+    <tr><th>字段 / 标志</th><th>说明</th></tr>
+    <tr><td><code>地图号</code></td><td>与 <code>.map</code> 文件名一致（如 0、0122、D011）。</td></tr>
+    <tr><td><code>FIGHT</code></td><td>可 PK 区；<code>DARK</code> 无地图光；<code>QUIZ</code> 禁魔法；<code>NOHERO</code> 等按原版语义。</td></tr>
+    <tr><td><code>A -&gt; B (x,y -&gt; x,y)</code></td><td>地图间连接门：A 图坐标 (x,y) 通到 B 图坐标 (x,y)。坐标为<span class="unit">格</span>。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">MiniMap.txt</span><span class="dir">小地图编号映射</span>
+  <p class="desc">把地图号映射到客户端 <code>MiniMap.mmp</code> 里的小地图序号，供右上小地图取图。</p>
+  <div class="fmt">地图号   小地图序号
+D001    1
+D011    4</div>
+  <p class="desc"><span class="none">注：客户端按 <code>序号 - 1</code> 索引纹理（1-based 表，0-based 取数）。</span></p>
+</div>
+
+<div class="card">
+  <span class="name">StartPoint.txt</span><span class="dir">出生 / 复活点</span>
+  <p class="desc">各地图的安全区与复活坐标。角色死亡后回到所属地图的对应行。</p>
+  <div class="fmt">地图号   X    Y
+0     289   618
+0     650   631</div>
+  <p class="desc">X / Y 单位均为<span class="unit">地图格</span>。</p>
+</div>
+
+<h2>二、怪物</h2>
+
+<div class="card">
+  <span class="name">MonGen.txt</span><span class="dir">刷怪配置（Mon Generator）</span>
+  <p class="desc">全局刷怪表：在哪个地图的哪块区域、刷哪种怪、刷多少只、多久刷一批。</p>
+  <div class="fmt">地图号   X    Y    怪物名     范围   数量   时间
+0137    21   11   练功师      0     1     10
+0       665  87   弓箭护卫    0     1     10</div>
+  <table>
+    <tr><th>列</th><th>含义</th><th>单位</th></tr>
+    <tr><td>地图号 / X / Y</td><td>刷怪中心点坐标</td><td><span class="unit">地图格</span></td></tr>
+    <tr><td>怪物名</td><td>须与 <code>mud2/DB/Monster</code>（怪物库）名称匹配</td><td>—</td></tr>
+    <tr><td>范围</td><td>以 (X,Y) 为中心的扩散半径，0=只在这一点</td><td><span class="unit">格</span></td></tr>
+    <tr><td>数量</td><td>该刷新点一次保持的怪物只数</td><td><span class="unit">只</span></td></tr>
+    <tr><td>时间</td><td>刷怪间隔（死亡后重刷的周期）。服务端按 <b>间隔 × 60000 毫秒</b> 换算，即 10 → 10 分钟</td><td><span class="unit">分钟</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">GuardList.txt</span><span class="dir">地图守卫站位</span>
+  <p class="desc">皇宫 / 土城等固定守卫（卫士、弓箭手）的站列位置。</p>
+  <div class="fmt">;名称   区域    X    Y     dir
+卫士    0     275, 212  : 7</div>
+  <p class="desc">X / Y 为<span class="unit">格</span>；<code>dir</code>（0–7）为守卫初始<span class="unit">朝向</span>（8 方向）。</p>
+</div>
+
+<h2>三、NPC 与商店</h2>
+
+<div class="card">
+  <span class="name">Npcs.txt</span><span class="dir">固定 NPC 表（脚本类）</span>
+  <p class="desc">登记非商品的固定 NPC（国王、传送员、任务 NPC 等）在地图上的位置与外观。</p>
+  <div class="fmt">名称          代码   地图   X    Y    范围  图标
+比奇国王       1     0122   29   32    0     8
+玛法领路人     ...    3     297  302   0     ...</div>
+  <table>
+    <tr><th>列</th><th>说明</th><th>单位</th></tr>
+    <tr><td>代码 / 图标</td><td>对应 NPC 库外观资源号</td><td>—</td></tr>
+    <tr><td>地图 / X / Y</td><td>NPC 所在地图与坐标</td><td><span class="unit">格</span></td></tr>
+    <tr><td>范围</td><td>活动范围</td><td><span class="unit">格</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">MerChant.txt</span><span class="dir">商人 / 功能 NPC 表</span>
+  <p class="desc">带脚本交互的商人、修理匠、仓库管理员等 NPC（与 Npcs.txt 同族，走商品/脚本流程）。</p>
+  <div class="fmt">;调用文件    地图   X   Y   名称       数量 代码 刷新时间
+1Bme-屠夫    0102   9   7   屠夫        0   11   0</div>
+  <table>
+    <tr><th>列</th><th>说明</th></tr>
+    <tr><td>调用文件</td><td>对应 <code>Market_Def/</code> 下的脚本文件名（含地图后缀）。</td></tr>
+    <tr><td>数量 / 代码</td><td>外观代码等，含义同 NPC 库。</td></tr>
+    <tr><td>刷新时间</td><td>库存补货周期，<span class="unit">分钟</span>（0 = 不自动刷新）。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">Market_Def/</span><span class="dir">NPC 脚本 + 货物表目录</span>
+  <p class="desc">每个商人一份脚本，文件名格式 <code>调用名-显示名-地图.txt</code>（如 <code>2Are-铁匠铺老板-0151.txt</code>）。含对话段与 <code>[goods]</code> 卖货清单。</p>
+  <div class="fmt">%100            ; 价格倍率(百分比)：Round(单价×1.1)×%100/100
+[@main]          ; 对话入口标签
+ &lt;购买/@buy&gt; ...
+[goods]          ; 货物段
+物品名  库存  刷新</div>
+  <table>
+    <tr><th>字段</th><th>说明</th><th>单位</th></tr>
+    <tr><td><code>%100</code>（脚本头）</td><td>整体价格倍率百分比，最终售价 = <code>Round(Price×1.1) × 倍率 ÷ 100</code>，与服务端 <code>NpcScriptEngine.goods()</code> 同源。</td><td><span class="unit">%</span></td></tr>
+    <tr><td>[goods] 库存</td><td>该行货物的存量（<b>第二列是库存，不是价格</b>——常见误区）。</td><td><span class="unit">个</span></td></tr>
+    <tr><td>[goods] 刷新</td><td>第三列补货周期，<span class="unit">分钟</span>。</td><td><span class="unit">分钟</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">Npc_Def/</span><span class="dir">对话型 NPC 脚本目录</span>
+  <p class="desc">传送员、任务 NPC 等纯对话脚本，文件名 <code>显示名-地图.txt</code>（如 <code>玛法领路人-3.txt</code>）。用 <code>[@标签]</code> 与 <code>#IF / #ACT / #CALL</code> 等命令驱动。</p>
+</div>
+
+<h2>四、掉落与物品</h2>
+
+<div class="card">
+  <span class="name">MonItems/</span><span class="dir">怪物掉落表（每怪一份）</span>
+  <p class="desc">文件名即怪物名（如 <code>僵尸1.txt</code>），内容为该怪被击杀后的掉落规则。</p>
+  <div class="fmt">;注释
+1/200            基本剑术     ; 概率 1/200 掉「基本剑术」
+1/1              金创药(小量) ; 必掉
+{1/50}           屠龙         ; {} 表示精英/额外条件掉落</div>
+  <table>
+    <tr><th>写法</th><th>说明</th></tr>
+    <tr><td><code>1/N</code></td><td>掉落概率，每 N 次击杀期望掉 1 次（<span class="unit">次</span>为分母，非时间）。</td></tr>
+    <tr><td>物品名</td><td>须与物品库（<code>mud2/DB</code>）匹配；缺失定义的原版会跳过。</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <span class="name">UnbindList.txt</span><span class="dir">绑定解绑表</span>
+  <p class="desc">定义可通过「解绑卷轴」等操作解除绑定的物品清单。</p>
+  <div class="fmt">序号   物品名
+100   强效金创药</div>
+</div>
+
+<h2>五、玩家 / 帮会 / 城堡 / 任务</h2>
+
+<div class="card">
+  <span class="name">AdminList.txt</span><span class="dir">管理员(GM)名单</span>
+  <p class="desc">每行一个 GM 账号名（<code>*</code> 开头为注释），登录后获得管理权限。</p>
+</div>
+
+<div class="card">
+  <span class="name">MakeItem.txt</span><span class="dir">合成 / 制造配方</span>
+  <p class="desc">定义用材料合成物品的配方。</p>
+  <div class="fmt">[灰色药粉(少量)]   ; 成品
+食人树叶    4      ; 材料   所需数量(个)
+毒蜘蛛牙齿  2</div>
+</div>
+
+<div class="card">
+  <span class="name">MapQuest.txt</span><span class="dir">地图任务触发表</span>
+  <p class="desc">把地图刷怪点与任务脚本关联：某图某怪被击杀时触发对应 <code>MapQuest_Def/</code> 脚本。</p>
+  <div class="fmt">编号     [地图]  数量  怪物名    物品/标记    任务脚本
+12       [401]   1     幻影蜘蛛   *            Q1401</div>
+  <p class="desc">任务脚本名对应 <code>MapQuest_Def/Q1401.txt</code>。</p>
+</div>
+
+<div class="card">
+  <span class="name">MapQuest_Def/</span><span class="dir">任务脚本目录</span>
+  <p class="desc">每个 <code>Q####.txt</code> 是一段任务逻辑脚本（条件、奖励、对话），由 MapQuest.txt 引用。</p>
+</div>
+
+<div class="card">
+  <span class="name">Startup/</span><span class="dir">登录脚本</span>
+  <p class="desc"><code>StartupQuest.txt</code>：角色每次登录时触发的全局脚本（引导、公告、状态检查等）。以 <code>;这里是登录脚本</code> 起始。</p>
+</div>
+
+<div class="card">
+  <span class="name">Castle/</span><span class="dir">沙巴克攻城配置</span>
+  <p class="desc">沙城争夺战数据。<code>Sabuk.txt</code> / <code>SabukW.txt</code> 用 INI 分段（<code>[SetUp]</code> / <code>[Defense]</code> 等）。</p>
+  <div class="fmt">[SetUp]
+CastleName=沙巴克
+ChangeDate=2017-2-27 AM 11:05:27   ; 时间戳
+WarDate=...                          ; 攻城日期
+[Defense]
+MainDoorX=672  MainDoorY=330         ; 城门坐标(格)
+MainDoorHP=10000                     ; HP(点)
+LeftWallHP=5000                      ; 城墙耐久(点)</div>
+  <table>
+    <tr><th>字段</th><th>说明</th><th>单位</th></tr>
+    <tr><td>ChangeDate / WarDate</td><td>占领 / 攻城日期，格式 <code>年-月-日 AM/PM 时:分:秒</code></td><td><span class="unit">时刻(年月日时分秒)</span></td></tr>
+    <tr><td>MainDoorX/Y、WallX/Y</td><td>城门与城墙坐标</td><td><span class="unit">格</span></td></tr>
+    <tr><td>HP</td><td>城门 / 城墙耐久</td><td><span class="unit">点</span></td></tr>
+  </table>
+  <p class="desc"><code>AttackSabukWAll.txt</code>：攻城报名/参与名单。<code>沙巴克配置备份文件.txt</code>：原始配置备份。</p>
+</div>
+
+<div class="card">
+  <span class="name">GuildBase/</span><span class="dir">帮会基础数据</span>
+  <p class="desc"><span class="none">本目录为空——帮会运行时数据存于数据库（<code>mud2/DB</code>），此处仅保留占位。</span></p>
+</div>
+
+<footer>
+  Envir 配置文件说明 · 口径来源：GameOfMir 原版 Delphi + 本项目 <code>pyserver/gamedata.py</code> ·
+  时间字段凡标「分钟」者，服务端统一 ×60000 转毫秒
+</footer>
+</div>
+</body>
+</html>
