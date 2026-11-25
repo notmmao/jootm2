@@ -643,6 +643,7 @@ export class PlayScene extends Scene {
             active: false, paused: false, preset: this._loadAutoPreset(),
             noButch: this._loadAutoNoButch(),
             status: '', reason: '', route: '', kills: 0, presetNames: {},
+            maint: null,
         };
         const autoBar = document.createElement('div');
         autoBar.id = 'autoPilotBar';
@@ -728,9 +729,9 @@ export class PlayScene extends Scene {
         autoBar.appendChild(autoMenu);
         root.appendChild(autoBar);
 
-        // 「一键维护」：托管原地卖肉 + 找本图商人修理身上装备
-        // （武器/衣服/项链/戒指/手镯）。放在托管条正下方，执行全在服务端
-        // （autopilot action=maint），没开托管时服务端会先开启再维护。
+        // 「一键维护」：原地（当前地图）卖肉 + 找本图商人修理身上装备
+        // （武器/衣服/头盔/项链/戒指/手镯）。维护与托管是两回事：不开托管
+        // 也能点（执行全在服务端 MaintDriver，action=maint），手动操作自动中断。
         this._maintBtn = document.createElement('div');
         this._maintBtn.id = 'autoPilotMaintBtn';
         this._maintBtn.style.cssText = 'position:absolute;left:690px;top:148px;'
@@ -739,7 +740,7 @@ export class PlayScene extends Scene {
             + 'background:rgba(16,16,16,.75);border:1px solid #8a7a4a;'
             + 'pointer-events:auto;user-select:none;';
         this._maintBtn.textContent = '修装备·卖肉';
-        this._maintBtn.title = '一键维护：卖掉背包里的肉，找本图商人修理身上装备（托管中自动进行）';
+        this._maintBtn.title = '一键维护：卖掉背包里的肉，找本图商人修理身上装备（武器/衣服/头盔/项链/戒指/手镯）；无需开启托管';
         this._maintBtn.addEventListener('click', () => this._startMaint());
         root.appendChild(this._maintBtn);
 
@@ -885,6 +886,8 @@ export class PlayScene extends Scene {
         a.reason = msg.reason || '';
         a.route = msg.route || '';
         a.kills = msg.kills || 0;
+        // 维护独立于托管：状态随 autopilotState.maint 字段推送
+        a.maint = msg.maint || null;
         if (Array.isArray(msg.presets) && msg.presets.length) {
             a.presetNames = {};
             for (const pr of msg.presets) a.presetNames[pr.id] = pr.name;
@@ -902,6 +905,11 @@ export class PlayScene extends Scene {
         this._autoBtn.style.color = a.active ? '#ffd0d0' : '#ffe9a8';
         this._autoSel.value = a.preset;
         if (this._autoNoButch) this._autoNoButch.checked = a.noButch;
+        const maintOn = !!(a.maint && a.maint.running);
+        if (this._maintBtn) {
+            this._maintBtn.textContent = maintOn ? '维护中…' : '修装备·卖肉';
+            this._maintBtn.style.color = maintOn ? '#9fd09f' : '#ffe9a8';
+        }
         const fallback = { safe: '安全', balanced: '均衡', efficient: '效率' };
         const name = a.presetNames[a.preset] || fallback[a.preset] || a.preset;
         let text = '';
@@ -909,6 +917,11 @@ export class PlayScene extends Scene {
             text = `托管中 · ${name}档 · ${a.noButch ? '不挖肉' : '挖肉'} · ${a.status || '搜索中'} · 手动操作自动接管`;
         } else if (a.paused) {
             text = `托管已暂停 · ${a.reason || '手动接管'} · 按 P 恢复`;
+        }
+        // 维护条独立显示（维护与托管是两回事，可能只有维护没有托管）
+        if (maintOn) {
+            text = (text ? text + '　|　' : '')
+                + `维护中 · ${(a.maint.status || '').replace(/^维护\s*·\s*/, '') || '进行中'} · 手动操作自动中断`;
         }
         if (text) {
             this._autoStatusEl.textContent = text;

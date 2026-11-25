@@ -140,6 +140,8 @@ def make_env(meat=(), equipment=None, repair_npc=True, repair_price_ok=True,
         set_status=lambda *a, **k: None,
         _step_to=lambda *a, **k: True,
         _survive=lambda *a, **k: None,
+        player_id=1,
+        manager=SimpleNamespace(drop_maint=lambda pid: None),
     )
     return pilot, srv, w, p, calls
 

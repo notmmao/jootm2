@@ -227,6 +227,9 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 owner = self.find_by_session(session)
             if owner is not None:
                 self.autopilot.pause(owner)
+                # 维护独立于托管，同样「手动优先」：玩家一动就中断维护
+                # （脱下待修的装备由 abort_maint 兜底穿回）。
+                self.autopilot.abort_maint(owner)
         handler = self._handlers.get(msg_type)
         if handler is not None:
             try:
@@ -564,17 +567,11 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             self.autopilot.pause(p)
             return
         if action == "maint":
-            # 一键维护（用户 2026-11-26）：当前地图卖肉 + 修理身上装备。
-            # 托管未开启时先开启再维护——玩家的意图就是「让它去干活」。
-            if cur is None or not cur.active:
-                ok_on, why_on = self.autopilot.enable(p, preset)
-                if not ok_on:
-                    self.autopilot.push_state(p, reason=why_on, ok=False)
-                    return
-                cur = self.autopilot.get(p)
-            ok_m, why_m = cur.start_maint(self, self.world, p)
+            # 一键维护（用户 2026-11-26）：维护与托管是两回事——不依赖
+            # 托管开关，直接走独立的 MaintDriver（本图卖肉 + 修装备）。
+            ok_m, why_m = self.autopilot.start_maint(p)
             if not ok_m:
-                self.world.send_system(p, f"[托管] {why_m}。")
+                self.world.send_system(p, f"[维护] {why_m}。")
             self.autopilot.push_state(p)
             return
         if action == "status":

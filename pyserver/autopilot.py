@@ -27,8 +27,8 @@ from typing import Any
 from .world import (BAG_SIZE, Monster, Player, direction_delta,
                     direction_toward, now_ms)
 from .handlers_combat import spell_cost, skill_level, direction_from
-from .util import (U_ARMRINGL, U_ARMRINGR, U_BUJUK, U_DRESS, U_NECKLACE,
-                   U_RINGL, U_RINGR, U_WEAPON, slot_accepts)
+from .util import (U_ARMRINGL, U_ARMRINGR, U_BUJUK, U_DRESS, U_HELMET,
+                   U_NECKLACE, U_RINGL, U_RINGR, U_WEAPON, slot_accepts)
 
 
 def npc_really_repairs(npc) -> bool:
@@ -398,14 +398,150 @@ def bfs_path(game_map, sx: int, sy: int, tx: int, ty: int,
     return plan.build() if state == "done" else []
 
 
+def _step_to_impl(self, srv, w, p, tx: int, ty: int, key: tuple,
+                label: str, now: int, exact: bool = False) -> bool:
+    """走到目标点（默认相邻即可，``exact=True`` 要求踏上目标格——
+    捡拾原版必须站在物品所在格上，ObjBase.pas:1696）；返回 False =
+    目标不可达、已换目标。
+
+    距离 >=3 格按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去；逼近时
+    仍用走。路径 A* 与 ``try_move`` 共用阻挡判定，找不到路**绝不退化成
+    direction_toward 朝墙直线撞**，而是短时拉黑目标重新选。
+
+    动作锁：原版 ``CanNextAction`` 要求 ``IsIdle``（ClMain.pas:3975），
+    ``SendActMsg/SendSpellMsg`` 发出即置 ``ActionLock=TRUE``（:3581/:3592），
+    出刀/施法动作未落地前不接受移动。托管刚出刀或施法的一拍内原地不动，
+    等动作完成再走；但「走向拾取物」也走这里，锁只挡移动、不放弃目标。
+    """
+    if self._action_busy(p, now):
+        return True                  # 动作未落地：本 tick 保持站位，目标不变
+    dist = max(abs(p.x - tx), abs(p.y - ty))
+    if dist <= (0 if exact else 1):
+        return True
+    # 近距离贪心降级（2026-11-25 CPU 优化）：追一只游走的怪时目标坐标
+    # 每拍都在变，path_key 每拍失效 → 每拍整场 A* 重搜（剖析里 advance
+    # 调用次数的绝对大头）。dist<=6 时先看「正对目标的方向格」是否可走
+    # （位图+占用直查，与寻路同一判据），可走就一步到位；被挡仍走下面
+    # 的 A*（墙后目标照旧「规划失败→拉黑」，不撞墙）。
+    if dist <= 6:
+        d = direction_toward(p.x, p.y, tx, ty, p.dir)
+        dx, dy = direction_delta(d)
+        nx, ny = p.x + dx, p.y + dy
+        gm = p.map
+        if (gm is not None and gm.inside(nx, ny)
+                and gm.walk_bits_map()[nx * gm.height + ny]
+                and not gm.occupied(nx, ny)
+                and now - self.last_move_at >= WALK_INTERVAL_MS
+                and now_ms() - getattr(p, "map_change_at", 0) >= 350):
+            self.path = []
+            self.path_key = ()
+            self.plan = None
+            before = (p.x, p.y, p.map.name if p.map else "")
+            self.last_move_at = now
+            self.last_move_dur = WALK_INTERVAL_MS
+            srv._move(p.session, {"type": "move", "dir": d, "run": False})
+            after = (p.x, p.y, p.map.name if p.map else "")
+            self.set_status(f"{label} · {dist}格", now)
+            if before[2] != after[2]:
+                self.target_id = 0
+                self.loot_id = 0
+            elif before[:2] == after[:2]:
+                self.blocked_steps += 1
+                if self.blocked_steps >= BLOCKED_LIMIT:
+                    self.blocked_steps = 0
+                    _give_up_target_impl(self, key, now)
+                    self.set_status("寻路受阻 · 换目标", now)
+                    return False
+            else:
+                self.blocked_steps = 0
+            return True
+    running = dist >= RUN_MIN_DIST or len(self.path) >= 2
+    interval = RUN_INTERVAL_MS if running else WALK_INTERVAL_MS
+    if now - self.last_move_at < interval:
+        return True
+    if now_ms() - getattr(p, "map_change_at", 0) < 350:
+        return True                      # 与手动共用换图短锁
+    # 缓存只绑「目标 + 坐标 + 所在图」，不绑玩家坐标：路径是一串方向，
+    # 走一步 pop 一步；目标移动 / 换图 / 被挡才重算。
+    path_key = key + (tx, ty, p.map.name if p.map else "", exact)
+    if not self.path or self.path_key != path_key:
+        # 跨 tick 续算：大图远距离绕墙时一次算不完，先原地「看路」，
+        # 算完整条路线再走（旧实现每拍重算一小段，会在墙角左右横跳）。
+        plan = self.plan
+        if plan is None or plan.key != (id(p.map), p.x, p.y, tx, ty, exact):
+            plan = self.plan = PathPlanner(p.map, p.x, p.y, tx, ty, exact)
+        state = plan.advance()
+        if state == "running":
+            # 规划迟迟算不完：近距离目标（怪/掉落）不该这样，基本可以判定
+            # 「目标在墙后/河对岸」——按不可达处理，别把 tick 全耗在算路上。
+            if plan.scanned > max(6000, dist * 400):
+                self.plan = None
+                self.path = []
+                self.path_key = ()
+                _give_up_target_impl(self, key, now)
+                self.set_status("目标不可达 · 换目标", now)
+                return False
+            self.set_status(f"{label} · 规划路线", now)
+            return True
+        self.plan = None
+        self.path_key = path_key
+        if state == "failed":
+            self.path = []
+            self.path_key = ()
+            _give_up_target_impl(self, key, now)
+            self.set_status("目标被墙挡住 · 换目标", now)
+            return False
+        self.path = plan.build()
+        if not self.path:
+            self.path_key = ()
+            _give_up_target_impl(self, key, now)
+            self.set_status("目标被墙挡住 · 换目标", now)
+            return False
+    d = self.path.pop(0)
+    before = (p.x, p.y, p.map.name if p.map else "")
+    self.last_move_at = now
+    self.last_move_dur = interval
+    srv._move(p.session, {"type": "move", "dir": d, "run": running})
+    after = (p.x, p.y, p.map.name if p.map else "")
+    self.set_status(f"{label} · {dist}格{' · 跑' if running else ''}", now)
+    if before[2] != after[2]:
+        self.path.clear()            # 踩门换图：旧路径失效，重新选怪
+        self.path_key = ()
+        self.target_id = 0
+        self.loot_id = 0
+    elif before[:2] == after[:2]:
+        self.path.clear()            # 被占格 / 墙挡住，下个节拍重算
+        self.blocked_steps += 1
+        if self.blocked_steps >= BLOCKED_LIMIT:
+            self.path_key = ()
+            _give_up_target_impl(self, key, now)
+            self.set_status("寻路受阻 · 换目标", now)
+            return False
+    else:
+        self.blocked_steps = 0
+    return True
+
+
+def _give_up_target_impl(self, key: tuple, now: int) -> None:
+    """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
+    self.plan = None
+    if not key:
+        return
+    self.unreachable[key[1]] = now + UNREACHABLE_MS
+    if key[0] == "monster":
+        self.target_id = 0
+    else:
+        self.loot_id = 0
+        self.loot_until = 0
+
 
 # ---------------------------------------------------------------- 一键维护
 MAINT_ACT_MS = 600               # 卖/修动作节奏（与离线补给 SUPPLY_ACT_MS 同值）
 MAINT_NPC_MAX_DIST = 120         # 本图找商人/修理商的距离预算
 MAINT_TOTAL_TIMEOUT_MS = 180_000  # 整个维护流程上限（超时收尾，绝不无限挂着）
 MAINT_LEG_RETRY = 3              # 单段路连续失败次数
-# 一键维护检查的装备槽（用户 2026-11-26 点名：武器、衣服、项链、戒指、手镯）
-MAINT_EQUIP_SLOTS = (U_WEAPON, U_DRESS, U_NECKLACE,
+# 一键维护修理的装备槽（用户 2026-11-26 点名：衣服、戒指、头盔、手镯、项链、武器）
+MAINT_EQUIP_SLOTS = (U_WEAPON, U_DRESS, U_HELMET, U_NECKLACE,
                      U_RINGL, U_RINGR, U_ARMRINGL, U_ARMRINGR)
 MAINT_REPAIR_DURA_PCT = 50       # 耐久低于上限该比例才修（与离线补给一致）
 
@@ -415,7 +551,10 @@ MAINT_REPAIR = "repair"
 
 @dataclass(slots=True)
 class MaintenanceFlow:
-    """在线托管「一键维护」：原地（当前地图）卖肉 + 修理身上装备。
+    """「一键维护」本体：原地（当前地图）卖肉 + 修理身上装备。
+
+    **维护与托管是两回事**（用户 2026-11-26）：本状态机由独立的
+    ``MaintDriver`` 驱动，不需要也不开启托管；托管开着时只做保命让路。
 
     与离线补给的 ``_supply_sell/_supply_maintain_equipped`` 语义一致但刻意
     独立轻量实现：
@@ -426,11 +565,10 @@ class MaintenanceFlow:
     * **修理走「脱下→修→穿回」**：原版 ``ClientRepairItem`` 只认背包物品
       （ObjBase.pas:24653），流程与离线代理相同：先贴近商人（≤12 格，
       ``_npc_and_player`` 硬限 15）再卸，避免「脱了修不成」的活锁。
-    * **维护期间托管继续保命**（``_survive`` 喝药/治愈照常跑），只做卖/修
-      不做战斗；``_ensure_equipment`` 自动补装会跟修理流程抢背包槽位，
-      维护中跳过（离线代理 §162 同样处理）。
-    * 流程结束（成功/超时/无对象）自动回到正常打怪循环；玩家任何手动
-      动作经 MANUAL_TYPES 照常接管暂停。
+    * 修理范围 = ``MAINT_EQUIP_SLOTS`` 六个部位：武器、衣服、头盔、项链、
+      戒指（左右）、手镯（左右）。
+    * 流程结束（成功/超时/无对象）自动收尾；托管若开着则交还控制权，
+      玩家任何手动动作经 MANUAL_TYPES 照常中断维护。
     """
     started_at: int
     stage: str = MAINT_SELL
@@ -448,25 +586,25 @@ class MaintenanceFlow:
     notes: list = field(default_factory=list)
 
     # ---- 主推进 ----
-    def tick(self, pilot, srv, w, p, now: int) -> None:
+    def tick(self, drv, srv, w, p, now: int) -> None:
         if now - self.started_at > MAINT_TOTAL_TIMEOUT_MS:
-            self._finish(pilot, srv, w, p, now, "维护超时，提前收尾")
+            self._finish(drv, srv, w, p, now, "维护超时，提前收尾")
             return
         if self.r_off or self.r_slot >= 0:
-            self._repair_step(pilot, srv, w, p, now)
+            self._repair_step(drv, srv, w, p, now)
             return
         if self.stage == MAINT_SELL:
-            self._sell_step(pilot, srv, w, p, now)
+            self._sell_step(drv, srv, w, p, now)
         else:
-            self._repair_pick(pilot, srv, w, p, now)
+            self._repair_pick(drv, srv, w, p, now)
 
-    def abort(self, pilot, srv, w, p) -> None:
+    def abort(self, drv, srv, w, p) -> None:
         """中断兜底：装备躺在背包里没穿回时，立刻穿回（防死亡掉落前裸装）。"""
         if self.r_off:
             self._reclaim(srv, w, p)
 
     # ---- 卖肉 ----
-    def _sell_step(self, pilot, srv, w, p, now: int) -> None:
+    def _sell_step(self, drv, srv, w, p, now: int) -> None:
         cand = cand_t = None
         for it in p.bag:
             mi = int(it.get("makeIndex", 0))
@@ -480,7 +618,7 @@ class MaintenanceFlow:
             self.stage = MAINT_REPAIR
             self.leg_try = 0
             self.npc_id = 0
-            self._repair_pick(pilot, srv, w, p, now)
+            self._repair_pick(drv, srv, w, p, now)
             return
         npc = self._buy_back_npc(srv, w, p, cand_t, cand)
         if npc is None:
@@ -488,7 +626,7 @@ class MaintenanceFlow:
             return
         self.npc_id = npc.id
         if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
-            if not self._walk(pilot, srv, w, p, npc, now):
+            if not self._walk(drv, srv, w, p, npc, now):
                 self.unsellable.add(int(cand.get("makeIndex", 0)))
             return
         if now - self.last_act_at < MAINT_ACT_MS:
@@ -497,7 +635,7 @@ class MaintenanceFlow:
         srv._sell_item(p.session, {"type": "sellItem", "npcId": npc.id,
                                    "makeIndex": int(cand.get("makeIndex", 0))})
         self.sold += 1
-        pilot.set_status(f"维护 · 卖肉 {self.sold} 块", now)
+        drv.set_status(f"维护 · 卖肉 {self.sold} 块", now)
 
     def _buy_back_npc(self, srv, w, p, t, it):
         """本图肯收购这件肉的最近商人（口径同离线 _supply_sell_npc）。"""
@@ -515,7 +653,7 @@ class MaintenanceFlow:
         return best
 
     # ---- 修装备 ----
-    def _repair_pick(self, pilot, srv, w, p, now: int) -> None:
+    def _repair_pick(self, drv, srv, w, p, now: int) -> None:
         """挑下一件需要修的装备；全部处理完 → 收尾。"""
         for slot in MAINT_EQUIP_SLOTS:
             if slot >= len(p.equipment):
@@ -542,14 +680,14 @@ class MaintenanceFlow:
             self.npc_id = npc.id
             self.leg_try = 0
             if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
-                pilot.set_status(f"维护 · 前往{npc.name}修理", now, force=True)
-                self._walk(pilot, srv, w, p, npc, now)
+                drv.set_status(f"维护 · 前往{npc.name}修理", now, force=True)
+                self._walk(drv, srv, w, p, npc, now)
                 return
-            self._repair_step(pilot, srv, w, p, now)
+            self._repair_step(drv, srv, w, p, now)
             return
         # 没有待修装备（或全被跳过）→ 完成
         tail = f"，{self.skipped} 件本图无修理商" if self.skipped else ""
-        self._finish(pilot, srv, w, p, now,
+        self._finish(drv, srv, w, p, now,
                      f"维护完成：卖肉 {self.sold} 块，修理 {self.repaired} 件{tail}")
 
     def _repair_npc(self, srv, w, p, item, item_tpl):
@@ -571,15 +709,15 @@ class MaintenanceFlow:
             return None
         return best
 
-    def _repair_step(self, pilot, srv, w, p, now: int) -> None:
+    def _repair_step(self, drv, srv, w, p, now: int) -> None:
         """推进当前件：贴近 → 脱下 → (下拍) 修理+穿回。"""
         slot, mi = self.r_slot, self.r_mi
         npc = w.npc(self.npc_id) if hasattr(w, "npc") else None
         if npc is None or npc.map is not p.map:
-            self._give_up(pilot, srv, w, p, now, "修理商不在了")
+            self._give_up(drv, srv, w, p, now, "修理商不在了")
             return
         if max(abs(p.x - npc.x), abs(p.y - npc.y)) > 12:
-            self._walk(pilot, srv, w, p, npc, now)
+            self._walk(drv, srv, w, p, npc, now)
             return
         if now - self.last_act_at < MAINT_ACT_MS:
             return
@@ -589,18 +727,18 @@ class MaintenanceFlow:
                 self.r_slot = -1
                 return                      # 装备没了（死亡掉落/手动卸下）：换下一件
             if len(p.bag) >= BAG_SIZE:
-                self._give_up(pilot, srv, w, p, now, "背包已满腾不出格子")
+                self._give_up(drv, srv, w, p, now, "背包已满腾不出格子")
                 return
             self.last_act_at = now
             srv._take_off_item(p.session, {"type": "takeOffItem",
                                            "slot": slot, "makeIndex": mi})
             self.r_off = True
-            pilot.set_status("维护 · 卸下装备准备修理", now)
+            drv.set_status("维护 · 卸下装备准备修理", now)
             return
         # 已脱下：修 → 穿回
         it = p.bag_item(mi) if hasattr(p, "bag_item") else None
         if it is None:
-            self._give_up(pilot, srv, w, p, now, "装备不在背包（异常），放弃")
+            self._give_up(drv, srv, w, p, now, "装备不在背包（异常），放弃")
             return
         self.last_act_at = now
         dura_before = int(it.get("durability", 0) or 0)
@@ -616,14 +754,14 @@ class MaintenanceFlow:
             srv._take_on_item(p.session, {"type": "takeOnItem",
                                           "slot": slot, "makeIndex": mi})
         self.r_slot, self.r_mi, self.r_off = -1, 0, False
-        pilot.set_status(f"维护 · 修理 {self.repaired} 件", now, force=True)
+        drv.set_status(f"维护 · 修理 {self.repaired} 件", now, force=True)
 
-    def _give_up(self, pilot, srv, w, p, now: int, why: str) -> None:
+    def _give_up(self, drv, srv, w, p, now: int, why: str) -> None:
         if self.r_off:
             self._reclaim(srv, w, p)
         self.failed_mis.add(self.r_mi)
         self.r_slot, self.r_mi, self.r_off = -1, 0, False
-        pilot.set_status(f"维护 · 跳过一件（{why}）", now)
+        drv.set_status(f"维护 · 跳过一件（{why}）", now)
 
     def _reclaim(self, srv, w, p) -> None:
         """兜底穿回：装备若还在背包，立即 takeOnItem 回原槽。"""
@@ -636,25 +774,101 @@ class MaintenanceFlow:
         self.r_off = False
 
     # ---- 公共 ----
-    def _walk(self, pilot, srv, w, p, npc, now: int) -> bool:
+    def _walk(self, drv, srv, w, p, npc, now: int) -> bool:
         """走向商人；返回 False = 连续失败放弃。"""
-        if pilot._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
+        if drv._step_to(srv, w, p, npc.x, npc.y, ("maint_npc", npc.id),
                           f"维护 · 前往{npc.name}", now):
             self.leg_try = 0
             return True
         self.leg_try += 1
         if self.leg_try >= MAINT_LEG_RETRY:
-            self._give_up(pilot, srv, w, p, now, f"走不到 {npc.name}")
+            self._give_up(drv, srv, w, p, now, f"走不到 {npc.name}")
             return False
         return True
 
-    def _finish(self, pilot, srv, w, p, now: int, msg: str) -> None:
+    def _finish(self, drv, srv, w, p, now: int, msg: str) -> None:
         if self.r_off:
             self._reclaim(srv, w, p)
-        pilot.maint = None
-        pilot.last_progress_at = now     # 维护不算零进展，别让熔断误停
-        pilot.set_status(msg, now, force=True)
-        srv.world.send_system(p, f"[托管] {msg}。")
+        drv.maint = None
+        drv.last_progress_at = now     # 维护不算零进展，别让熔断误停
+        drv.set_status(msg, now, force=True)
+        # 收尾后独立驱动器不再有用（状态已推送）；等下次点按钮重建。
+        drv.manager.drop_maint(drv.player_id)
+        srv.world.send_system(p, f"[维护] {msg}。")
+
+
+# ---------------------------------------------------------------- 独立维护
+@dataclass(slots=True)
+class MaintDriver:
+    """「一键维护」的独立驱动器（用户 2026-11-26：维护与托管是两回事）。
+
+    不依赖 AutoPilot：没开托管也能点「修装备·卖肉」，流程走完自动收尾。
+    托管恰好开着时，pilot 的 tick 检测到 ``manager.maint_busy`` 会让路
+    （只保命喝药，不打怪、不自动补装），双方互不抢背包槽位与移动权。
+
+    字段刻意与 AutoPilot 的移动相关项同名，``_step_to_impl`` 直接复用
+    同一套寻路/动作锁实现。
+    """
+    manager: "AutoPilotManager"
+    player_id: int
+    maint: Any = None                # 进行中的 MaintenanceFlow；None = 没在维护
+    status: str = "维护中"
+    pushed_status: str = ""
+    last_state_at: int = 0
+    last_progress_at: int = 0
+    # —— _step_to_impl 所需状态（与 AutoPilot 同名）——
+    last_move_at: int = 0
+    last_move_dur: int = 0
+    target_id: int = 0
+    loot_id: int = 0
+    loot_until: int = 0
+    blocked_steps: int = 0
+    path: list[int] = field(default_factory=list)
+    path_key: tuple = ()
+    plan: Any = None
+    unreachable: dict[int, int] = field(default_factory=dict)
+
+    def set_status(self, text: str, now: int, force: bool = False) -> None:
+        self.status = text
+        if force or (text != self.pushed_status
+                     and now - self.last_state_at >= STATE_PUSH_MS):
+            self.manager.push_maint(self.player_id, now, force=force)
+
+    def _step_to(self, srv, w, p, tx: int, ty: int, key: tuple,
+                 label: str, now: int, exact: bool = False) -> bool:
+        return _step_to_impl(self, srv, w, p, tx, ty, key, label, now, exact)
+
+    def _action_busy(self, p, now: int) -> bool:
+        # 维护不产生出刀/施法动作（喝药由托管侧自理，不占本驱动时间线）；
+        # 移动节拍由 last_move_at/last_move_dur 保证，不会连发。
+        return False
+
+    def tick(self, now: int) -> None:
+        mgr = self.manager
+        srv = mgr.service
+        w = srv.world
+        p = w.actor(self.player_id)
+        if p is None or not isinstance(p, Player) or p.session is None:
+            mgr.drop_maint(self.player_id)   # 离场：静默清场
+            return
+        if getattr(p, "dead", False) or not p.alive:
+            mgr.abort_maint(p, "角色死亡，维护已中断")
+            return
+        flow = self.maint
+        if flow is None:
+            return
+        try:
+            flow.tick(self, srv, w, p, now)
+        except Exception as e:
+            print(f"[maint] {p.name} 维护异常: {type(e).__name__}: {e}")
+            try:
+                flow.abort(self, srv, w, p)
+            except Exception:
+                pass
+            self.maint = None
+            mgr.drop_maint(self.player_id)
+            if p.session is not None:
+                w.send_system(p, "[维护] 内部错误，维护已中断。")
 
 
 # ---------------------------------------------------------------- 实例
@@ -710,8 +924,6 @@ class AutoPilot:
     blocked_steps: int = 0
     # AI Bot 专用：选怪时跳过已被真人玩家锁定的怪（§4.1 决不抢怪）。
     avoid_real_targets: bool = False
-    # 在线一键维护（MaintenanceFlow）：None = 未在维护。
-    maint: Any = None
 
     # ---- 状态回包 -------------------------------------------------------
     def set_status(self, text: str, now: int, force: bool = False) -> None:
@@ -748,10 +960,15 @@ class AutoPilot:
         self.last_hp_seen = p.hp
 
         cfg = self.adjust_cfg(PRESETS[self.preset])
-        # 一键维护优先：只做卖/修（保命照旧），不打怪，也不做零进展熔断
-        # （维护本来就没经验）。
-        if self.maint is not None:
-            self._tick_maint(srv, w, p, cfg, now)
+        # 维护与托管是两回事（用户 2026-11-26）：维护由 MaintDriver 独立
+        # 驱动；托管若恰好开着，这里只让路——继续保命喝药，不打怪、
+        # 不做自动补装（会和「脱下待修」抢背包槽位），也不走零进展熔断。
+        if self.manager.maint_busy(self.player_id):
+            self.last_progress_at = now   # 维护占用期间顺延熔断，别维护完即误停
+            try:
+                self._survive(srv, w, p, cfg, now)
+            except Exception as e:
+                print(f"[autopilot] {p.name} 维护让路异常: {type(e).__name__}: {e}")
             return
         # 熔断：长时间一点进展都没有（经验/背包/金币都不变），说明卡住 /
         # 打不到怪 / 断在奇怪状态。挖肉不涨经验但会进肉、捡钱也只动金币，
@@ -794,57 +1011,6 @@ class AutoPilot:
             self.manager.disable(p, "内部错误，托管已停止")
             return
         self.set_status(self.status, now)
-
-    # ---- 一键维护循环 ---------------------------------------------------
-    def _tick_maint(self, srv, w, p, cfg, now: int) -> None:
-        """维护期间：保命照做，跳过自动补装（会和「脱下待修」抢槽位——
-        离线代理 §162 同款处理），只做卖/修状态机。"""
-        try:
-            self.acted = False
-            self._survive(srv, w, p, cfg, now)
-            if not self.active:
-                return
-            if self.maint is not None:
-                self.maint.tick(self, srv, w, p, now)
-        except Exception as e:
-            print(f"[autopilot] {p.name} 维护异常: {type(e).__name__}: {e}")
-            if self.maint is not None:
-                try:
-                    self.maint.abort(self, srv, w, p)
-                except Exception:
-                    pass
-                self.maint = None
-            self.manager.disable(p, "一键维护内部错误，托管已停止")
-            return
-        self.set_status(self.status, now)
-
-    def start_maint(self, srv, w, p) -> tuple[bool, str]:
-        """启动一键维护；返回 (ok, 说明)。"""
-        if self.maint is not None:
-            return False, "维护已在进行中"
-        if getattr(p, "dead", False) or not p.alive:
-            return False, "角色已死亡"
-        meat = sum(1 for it in p.bag
-                   if (t := w.item_templates.get(int(it.get("index", 0))))
-                   is not None and t.stdMode == 40)
-        worn = 0
-        for slot in MAINT_EQUIP_SLOTS:
-            if slot < len(p.equipment) and p.equipment[slot] is not None:
-                it = p.equipment[slot]
-                d, dm = int(it.get("durability", 0) or 0), int(it.get("durabilityMax", 0) or 0)
-                if dm > 0 and d * 100 < dm * MAINT_REPAIR_DURA_PCT:
-                    worn += 1
-        if not meat and not worn:
-            return False, "背包里没有肉、身上也没有低耐久装备，无需维护"
-        self.maint = MaintenanceFlow(started_at=now_ms())
-        self.path.clear()
-        self.path_key = ()
-        self.plan = None
-        self.target_id = 0
-        self.loot_id = 0
-        self.set_status(f"一键维护 · 肉 {meat} 块 · 待修 {worn} 件", now_ms(),
-                        force=True)
-        return True, f"开始维护：卖 {meat} 块肉、修 {worn} 件装备（本图商人）"
 
     # ---- 生存：喝药 / 血线 / 背包满 ------------------------------------
     def _survive(self, srv, w, p, cfg, now: int) -> None:
@@ -1620,126 +1786,11 @@ class AutoPilot:
 
     def _step_to(self, srv, w, p, tx: int, ty: int, key: tuple,
                  label: str, now: int, exact: bool = False) -> bool:
-        """走到目标点（默认相邻即可，``exact=True`` 要求踏上目标格——
-        捡拾原版必须站在物品所在格上，ObjBase.pas:1696）；返回 False =
-        目标不可达、已换目标。
+        return _step_to_impl(self, srv, w, p, tx, ty, key, label, now,
+                             exact)
 
-        距离 >=3 格按前端 ``RUN_INTERVAL`` 发 ``run: True`` 跑过去；逼近时
-        仍用走。路径 A* 与 ``try_move`` 共用阻挡判定，找不到路**绝不退化成
-        direction_toward 朝墙直线撞**，而是短时拉黑目标重新选。
-
-        动作锁：原版 ``CanNextAction`` 要求 ``IsIdle``（ClMain.pas:3975），
-        ``SendActMsg/SendSpellMsg`` 发出即置 ``ActionLock=TRUE``（:3581/:3592），
-        出刀/施法动作未落地前不接受移动。托管刚出刀或施法的一拍内原地不动，
-        等动作完成再走；但「走向拾取物」也走这里，锁只挡移动、不放弃目标。
-        """
-        if self._action_busy(p, now):
-            return True                  # 动作未落地：本 tick 保持站位，目标不变
-        dist = max(abs(p.x - tx), abs(p.y - ty))
-        if dist <= (0 if exact else 1):
-            return True
-        # 近距离贪心降级（2026-11-25 CPU 优化）：追一只游走的怪时目标坐标
-        # 每拍都在变，path_key 每拍失效 → 每拍整场 A* 重搜（剖析里 advance
-        # 调用次数的绝对大头）。dist<=6 时先看「正对目标的方向格」是否可走
-        # （位图+占用直查，与寻路同一判据），可走就一步到位；被挡仍走下面
-        # 的 A*（墙后目标照旧「规划失败→拉黑」，不撞墙）。
-        if dist <= 6:
-            d = direction_toward(p.x, p.y, tx, ty, p.dir)
-            dx, dy = direction_delta(d)
-            nx, ny = p.x + dx, p.y + dy
-            gm = p.map
-            if (gm is not None and gm.inside(nx, ny)
-                    and gm.walk_bits_map()[nx * gm.height + ny]
-                    and not gm.occupied(nx, ny)
-                    and now - self.last_move_at >= WALK_INTERVAL_MS
-                    and now_ms() - getattr(p, "map_change_at", 0) >= 350):
-                self.path = []
-                self.path_key = ()
-                self.plan = None
-                before = (p.x, p.y, p.map.name if p.map else "")
-                self.last_move_at = now
-                self.last_move_dur = WALK_INTERVAL_MS
-                srv._move(p.session, {"type": "move", "dir": d, "run": False})
-                after = (p.x, p.y, p.map.name if p.map else "")
-                self.set_status(f"{label} · {dist}格", now)
-                if before[2] != after[2]:
-                    self.target_id = 0
-                    self.loot_id = 0
-                elif before[:2] == after[:2]:
-                    self.blocked_steps += 1
-                    if self.blocked_steps >= BLOCKED_LIMIT:
-                        self.blocked_steps = 0
-                        self._give_up_target(key, now)
-                        self.set_status("寻路受阻 · 换目标", now)
-                        return False
-                else:
-                    self.blocked_steps = 0
-                return True
-        running = dist >= RUN_MIN_DIST or len(self.path) >= 2
-        interval = RUN_INTERVAL_MS if running else WALK_INTERVAL_MS
-        if now - self.last_move_at < interval:
-            return True
-        if now_ms() - getattr(p, "map_change_at", 0) < 350:
-            return True                      # 与手动共用换图短锁
-        # 缓存只绑「目标 + 坐标 + 所在图」，不绑玩家坐标：路径是一串方向，
-        # 走一步 pop 一步；目标移动 / 换图 / 被挡才重算。
-        path_key = key + (tx, ty, p.map.name if p.map else "", exact)
-        if not self.path or self.path_key != path_key:
-            # 跨 tick 续算：大图远距离绕墙时一次算不完，先原地「看路」，
-            # 算完整条路线再走（旧实现每拍重算一小段，会在墙角左右横跳）。
-            plan = self.plan
-            if plan is None or plan.key != (id(p.map), p.x, p.y, tx, ty, exact):
-                plan = self.plan = PathPlanner(p.map, p.x, p.y, tx, ty, exact)
-            state = plan.advance()
-            if state == "running":
-                # 规划迟迟算不完：近距离目标（怪/掉落）不该这样，基本可以判定
-                # 「目标在墙后/河对岸」——按不可达处理，别把 tick 全耗在算路上。
-                if plan.scanned > max(6000, dist * 400):
-                    self.plan = None
-                    self.path = []
-                    self.path_key = ()
-                    self._give_up_target(key, now)
-                    self.set_status("目标不可达 · 换目标", now)
-                    return False
-                self.set_status(f"{label} · 规划路线", now)
-                return True
-            self.plan = None
-            self.path_key = path_key
-            if state == "failed":
-                self.path = []
-                self.path_key = ()
-                self._give_up_target(key, now)
-                self.set_status("目标被墙挡住 · 换目标", now)
-                return False
-            self.path = plan.build()
-            if not self.path:
-                self.path_key = ()
-                self._give_up_target(key, now)
-                self.set_status("目标被墙挡住 · 换目标", now)
-                return False
-        d = self.path.pop(0)
-        before = (p.x, p.y, p.map.name if p.map else "")
-        self.last_move_at = now
-        self.last_move_dur = interval
-        srv._move(p.session, {"type": "move", "dir": d, "run": running})
-        after = (p.x, p.y, p.map.name if p.map else "")
-        self.set_status(f"{label} · {dist}格{' · 跑' if running else ''}", now)
-        if before[2] != after[2]:
-            self.path.clear()            # 踩门换图：旧路径失效，重新选怪
-            self.path_key = ()
-            self.target_id = 0
-            self.loot_id = 0
-        elif before[:2] == after[:2]:
-            self.path.clear()            # 被占格 / 墙挡住，下个节拍重算
-            self.blocked_steps += 1
-            if self.blocked_steps >= BLOCKED_LIMIT:
-                self.path_key = ()
-                self._give_up_target(key, now)
-                self.set_status("寻路受阻 · 换目标", now)
-                return False
-        else:
-            self.blocked_steps = 0
-        return True
+    def _give_up_target(self, key: tuple, now: int) -> None:
+        _give_up_target_impl(self, key, now)
 
     def _action_busy(self, p, now: int) -> bool:
         """原版 ``ActionLock``：出刀/施法落地前不能移动。
@@ -1769,18 +1820,6 @@ class AutoPilot:
         即「太空滑步」。这里要求上一步的步长走完才允许下一个原地动作。
         """
         return self.last_move_dur > 0 and 0 <= now - self.last_move_at < self.last_move_dur
-
-    def _give_up_target(self, key: tuple, now: int) -> None:
-        """不可达目标短时拉黑（id 由 world.new_id() 全局唯一，怪/物品共用）。"""
-        self.plan = None
-        if not key:
-            return
-        self.unreachable[key[1]] = now + UNREACHABLE_MS
-        if key[0] == "monster":
-            self.target_id = 0
-        else:
-            self.loot_id = 0
-            self.loot_until = 0
 
     @staticmethod
     def _held_by_real(w, monster: Monster, p) -> bool:
@@ -1954,22 +1993,125 @@ def _want_pickup(w, gi, cfg: dict) -> bool:
 
 # ---------------------------------------------------------------- 管理器
 class AutoPilotManager:
-    """只存在于服务进程内存；角色登出/断线时由 GameService 显式清理。"""
+    """只存在于服务进程内存；角色登出/断线时由 GameService 显式清理。
+
+    「一键维护」（MaintDriver）也挂在这里统一驱动，但状态独立于托管
+    （用户 2026-11-26：修装备和托管是两回事）——没开托管同样可以维护。
+    """
 
     def __init__(self, service: Any):
         self.service = service
         self._pilots: dict[int, AutoPilot] = {}
+        self._maints: dict[int, MaintDriver] = {}
 
     def get(self, p) -> AutoPilot | None:
         return self._pilots.get(p.id) if p is not None else None
 
+    # ---- 维护（独立于托管）----------------------------------------------
+    def maint_busy(self, player_id: int) -> bool:
+        drv = self._maints.get(player_id)
+        return drv is not None and drv.maint is not None
+
+    def start_maint(self, p) -> tuple[bool, str]:
+        """启动一键维护；返回 (ok, 说明)。不需要托管开启。"""
+        if p is None or p.session is None:
+            return False, "角色不在线"
+        if self.maint_busy(p.id):
+            return False, "维护已在进行中"
+        w = self.service.world
+        if getattr(p, "dead", False) or not p.alive:
+            return False, "角色已死亡"
+        meat = sum(1 for it in p.bag
+                   if (t := w.item_templates.get(int(it.get("index", 0))))
+                   is not None and t.stdMode == 40)
+        worn = 0
+        for slot in MAINT_EQUIP_SLOTS:
+            if slot < len(p.equipment) and p.equipment[slot] is not None:
+                it = p.equipment[slot]
+                d, dm = int(it.get("durability", 0) or 0), int(it.get("durabilityMax", 0) or 0)
+                if dm > 0 and d * 100 < dm * MAINT_REPAIR_DURA_PCT:
+                    worn += 1
+        if not meat and not worn:
+            return False, "背包里没有肉、身上也没有低耐久装备，无需维护"
+        stamp = now_ms()
+        drv = self._maints.get(p.id)
+        if drv is None:
+            drv = MaintDriver(self, p.id, last_progress_at=stamp)
+            self._maints[p.id] = drv
+        drv.maint = MaintenanceFlow(started_at=stamp)
+        drv.status = "维护中"
+        drv.pushed_status = ""
+        drv.path.clear()
+        drv.path_key = ()
+        drv.plan = None
+        drv.target_id = 0
+        drv.loot_id = 0
+        drv.blocked_steps = 0
+        drv.unreachable.clear()
+        # 托管若开着：清掉战斗/拾取目标，避免双方同时给移动下令
+        pilot = self._pilots.get(p.id)
+        if pilot is not None:
+            pilot.path.clear()
+            pilot.path_key = ()
+            pilot.plan = None
+            pilot.target_id = 0
+            pilot.loot_id = 0
+        drv.set_status(f"一键维护 · 肉 {meat} 块 · 待修 {worn} 件", stamp,
+                       force=True)
+        return True, f"开始维护：卖 {meat} 块肉、修 {worn} 件装备（本图商人）"
+
+    def abort_maint(self, p, reason: str = "手动操作，维护已中断") -> None:
+        """中断维护（手动动作/断线/死亡）：脱下待修的装备必须穿回，
+        不能留在背包里等下一次（玩家可能直接下线）。"""
+        if p is None:
+            return
+        drv = self._maints.pop(p.id, None)
+        if drv is None or drv.maint is None:
+            return
+        try:
+            drv.maint.abort(drv, self.service, self.service.world, p)
+        except Exception:
+            pass
+        drv.maint = None
+        if p.session is not None:
+            self.service.world.send_system(p, f"[维护] {reason}。")
+            self.push_state(p)   # 刷新前端：maint 归位，按钮恢复可点
+
+    def drop_maint(self, player_id: int) -> None:
+        self._maints.pop(player_id, None)
+
+    def push_maint(self, player_id: int, now: int, force: bool = False) -> None:
+        """维护状态推送：复用 autopilotState 消息（带 maint 字段），
+        前端一个通道同时显示托管与维护状态。"""
+        w = self.service.world
+        p = w.actor(player_id)
+        drv = self._maints.get(player_id)
+        if p is None or p.session is None or drv is None:
+            return
+        if not force and now - drv.last_state_at < STATE_PUSH_MS:
+            return
+        drv.last_state_at = now
+        drv.pushed_status = drv.status
+        pilot = self._pilots.get(player_id)
+        state = self.state_dict(p, pilot,
+                                pilot.preset if pilot else DEFAULT_PRESET,
+                                now=now)
+        state["maint"] = {"running": drv.maint is not None,
+                          "status": drv.status}
+        p.session.send_json(state)
+
     def discard(self, player_id: int) -> None:
         self._pilots.pop(player_id, None)
+        self._maints.pop(player_id, None)
 
     def on_disconnect(self, p) -> None:
-        """断线即停：直接丢弃实例，不落库、不推消息（会话已不可用）。"""
+        """断线即停：直接丢弃实例，不落库、不推消息（会话已不可用）。
+        维护装备「脱下待修」时断线，物品已随角色存库，重登后仍在背包，
+        不会丢——所以这里静默清场即可。"""
         if p is not None:
             self._pilots.pop(p.id, None)
+            self._maints.pop(p.id, None)
+
 
     def handle_death(self, p, pilot: AutoPilot) -> None:
         """死亡处理钩子：在线托管停机；离线代理覆写为自动复活/熔断。"""
@@ -2001,7 +2143,6 @@ class AutoPilotManager:
         pilot.loot_until = 0
         pilot.unreachable.clear()
         pilot.blocked_steps = 0
-        pilot.maint = None       # 一键维护不跨开关周期
         pilot.last_progress_at = stamp
         pilot.last_exp = p.exp
         pilot.last_move_at = 0
@@ -2035,14 +2176,6 @@ class AutoPilotManager:
         pilot.active = False
         pilot.reason = reason
         pilot.path.clear()
-        # 一键维护被打断：装备若正处于「脱下待修」状态必须立即穿回，
-        # 不能留在背包里等下次开启（玩家可能直接下线）。
-        if pilot.maint is not None:
-            try:
-                pilot.maint.abort(pilot, self.service, self.service.world, p)
-            except Exception:
-                pass
-            pilot.maint = None
         pilot.set_status("已暂停 · 手动接管", now_ms(), force=True)
 
     def disable(self, p, reason: str) -> None:
@@ -2052,12 +2185,6 @@ class AutoPilotManager:
         pilot.active = False
         pilot.reason = reason
         pilot.status = "已停止"
-        if pilot.maint is not None and p is not None:
-            try:   # 停机兜底：脱下待修的装备先穿回（别留在背包里裸奔）
-                pilot.maint.abort(pilot, self.service, self.service.world, p)
-            except Exception:
-                pass
-            pilot.maint = None
         pilot.on_disabled(reason)
         if p is not None and p.session is not None:
             p.session.send_json(self.state_dict(p, None, pilot.preset,
@@ -2065,8 +2192,6 @@ class AutoPilotManager:
             self.service.world.send_system(p, f"[托管] {reason}。")
 
     def tick(self, now: int) -> None:
-        if not self._pilots:
-            return
         for pilot in list(self._pilots.values()):
             try:
                 pilot.tick(now)
@@ -2074,6 +2199,14 @@ class AutoPilotManager:
                 print(f"[autopilot] tick 异常 id={pilot.player_id}: "
                       f"{type(e).__name__}: {e}")
                 self.discard(pilot.player_id)
+        # 维护独立驱动（没开托管也要跑）
+        for drv in list(self._maints.values()):
+            try:
+                drv.tick(now)
+            except Exception as e:
+                print(f"[maint] tick 异常 id={drv.player_id}: "
+                      f"{type(e).__name__}: {e}")
+                self.drop_maint(drv.player_id)
 
     # ---- 状态视图（WS 回包 + REST 共用）--------------------------------
     def state_dict(self, p, pilot: AutoPilot | None, preset: str,
@@ -2096,6 +2229,10 @@ class AutoPilotManager:
             "route": route_for(p.level if p is not None else 1)["note"],
             "presets": [{"id": k, "name": v["name"], "desc": v["desc"]}
                         for k, v in PRESETS.items()],
+            # 维护状态（独立于托管）：前端据此渲染「修装备·卖肉」进度。
+            "maint": ({"running": drv.maint is not None, "status": drv.status}
+                      if (drv := self._maints.get(p.id if p is not None else 0))
+                      is not None else None),
         }
 
     def push(self, player_id: int, now: int, force: bool = False) -> None:

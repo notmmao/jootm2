@@ -1382,3 +1382,40 @@ corpse=False，即站立），证明用例有效。`test_corpse_fx.py` 8 PASS �
 
 顺带（用户插问）：精英怪爆率 2.0→5.0 已提交 `e6758f4 [调整]`
 （elite.dropMult 四处口径同步，test_elite_monster 21 PASS）。
+
+## §175 维护与托管解耦 + 修装备部位补齐头盔（2026-11-26）
+
+反馈（用户，针对 §174 上线后）：
+1. 「修装备和托管是两回事」——维护不该要求先开托管、也不该绑定托管生命周期；
+2. 修装备范围要包括 **衣服、戒指、头盔、手镯、项链、武器**（§174 漏了头盔）。
+
+实现（`pyserver/autopilot.py`）：
+- 新增 `MaintDriver`（dataclass）：独立维护驱动器，自带 `_step_to_impl`
+  所需的寻路状态字段（path/plan/unreachable/last_move_*…），不依赖
+  AutoPilot 实例。`AutoPilotManager` 持有 `_maints: dict[pid, MaintDriver]`，
+  `start_maint / abort_maint / drop_maint / maint_busy / push_maint` 全在
+  manager 层；`tick()` 同轮驱动 pilots 与 maints。
+- `MaintenanceFlow.tick(flow, drv, …)` 的驱动对象改为 MaintDriver（原
+  pilot 参数改名 drv）；`_finish` 收尾时 `drop_maint` 并推 `[维护]` 系统消息。
+- `AutoPilot` 删除 `maint` 字段与 `_tick_maint`/`start_maint`；托管 tick
+  检测到 `manager.maint_busy(pid)` 时让路：只 `_survive` 保命、顺延
+  `last_progress_at`（防维护完被零进展熔断误停），不打怪/不拾取/不自动补装。
+- 手动接管：service.on_message MANUAL_TYPES 里 `pause(owner)` 之外新增
+  `abort_maint(owner)`——维护同样「手动优先」，中断时脱下待修装备兜底穿回。
+- 断线：`on_disconnect/discard` 同时清 `_maints`（脱下待修的装备已随角色
+  存库，重登仍在背包，不丢）。
+- 状态回包：`autopilotState` 新增 `maint: {running, status} | null` 字段
+  （REST snapshot 不变）；前端 `PlayScene._renderAuto` 独立渲染维护条
+  「维护中 · 卖肉 N 块…」（绿色按钮态），托管没开也显示。
+- `MAINT_EQUIP_SLOTS` 补 `U_HELMET`（头盔/帽子 StdMode 15），现为
+  武器/衣服/头盔/项链/左戒/右戒/左手镯/右手镯 8 槽。
+- 提取模块级 `_step_to_impl / _give_up_target_impl`（AutoPilot 保留同名
+  薄包装），供 pilot 与 MaintDriver 共用同一套寻路+动作锁，避免双实现。
+
+测试：
+- `test_autopilot_maint.py` 25 PASS（drv 桩补 manager/player_id）；
+- `test_autopilot_maint_ws.py` 改为**不开托管**直发 maint 的链路：
+  未开托管也能维护 / 维护不连带开启托管 / 有肉进入维护(maint.running) /
+  重复幂等 / 手动 move 中断维护 —— 7 PASS；
+- 回归 `test_autopilot` 40、`test_autopilot_hosted_opt` 39、
+  `test_afk_offline` 57 全绿（离线补给 `_supply_maintain_equipped` 不受影响）。

@@ -98,10 +98,7 @@ def main():
                                 pred=lambda m: m.get("ok"))))
         collect(1.5)
 
-        ws.send({"type": "autopilot", "action": "on"})
-        st = wait("autopilotState", pred=lambda m: m.get("active"))
-        check("托管已开启", bool(st))
-
+        # 维护与托管是两回事（用户 2026-11-26）：**不开托管**直接发 maint
         # 空维护（新号没肉、装备耐久满）→ 明确拒绝，不是无响应
         ws.send({"type": "autopilot", "action": "maint"})
         got = None
@@ -112,9 +109,14 @@ def main():
                     got = m
                 if m.get("type") == "systemMessage" and "开始维护" in (m.get("text") or ""):
                     got = m   # 新号身上有低耐久装备时走这条，也算链路通
-        check("维护请求有明确回执", bool(got), str(got)[:100])
+        check("未开托管也能维护（有明确回执）", bool(got), str(got)[:100])
+        # 确认托管没有被「先开启」：status 回包 active 应为 False
+        ws.send({"type": "autopilot", "action": "status"})
+        st0 = wait("autopilotState", 5.0)
+        check("维护不连带开启托管", st0 is not None and not st0.get("active"),
+              str(st0)[:100])
 
-        # 造 3 块肉再维护 → 进入维护状态
+        # 造 3 块肉再维护 → 进入维护状态（autopilotState.maint.running）
         ws.send({"type": "say", "text": "@制造 肉 3"})
         time.sleep(0.6)
         collect(1.0)
@@ -123,27 +125,27 @@ def main():
         e = time.time() + 10
         while time.time() < e:
             for m in collect(0.8):
-                if m.get("type") == "autopilotState" and "维护" in (m.get("status") or ""):
-                    maint_seen.append(m["status"])
+                if m.get("type") == "autopilotState" and (m.get("maint") or {}).get("running"):
+                    maint_seen.append(m["maint"].get("status") or "running")
                 if m.get("type") == "systemMessage" and "维护" in (m.get("text") or ""):
                     maint_seen.append(m["text"])
-            if any("开始维护" in s for s in maint_seen):
+            if maint_seen:
                 break
-        check("有肉时进入维护", bool(maint_seen), str(maint_seen)[:160])
-        # 重复点击幂等：进行中不再叠加流程（状态仍 active，无异常）
+        check("有肉时进入维护（未开托管）", bool(maint_seen), str(maint_seen)[:160])
+        # 重复点击幂等：进行中不再叠加流程（维护状态仍在，无异常）
         ws.send({"type": "autopilot", "action": "maint"})
         time.sleep(1.0)
         ws.send({"type": "autopilot", "action": "status"})
         st2 = wait("autopilotState", 5.0)
-        check("重复维护不打崩托管", st2 is not None and st2.get("active"),
-              str((st2 or {}).get("status"))[:60])
-        # 维护中被打断（手动 move 消息 = MANUAL_TYPES）→ 暂停 + 装备兜底不报错
+        check("重复维护不打崩服务器", st2 is not None, str(st2)[:60])
+        # 维护中被打断（手动 move 消息 = MANUAL_TYPES）→ 维护中断
         ws.send({"type": "move", "dir": 2})
         time.sleep(0.8)
         ws.send({"type": "autopilot", "action": "status"})
         st3 = wait("autopilotState", 5.0)
-        check("手动接管后暂停", st3 is not None and st3.get("paused"),
-              str(st3)[:100])
+        check("手动接管后维护中断", st3 is not None
+              and not (st3.get("maint") or {}).get("running"),
+              str((st3 or {}).get("maint"))[:100])
         ws.close()
     finally:
         proc.kill()
