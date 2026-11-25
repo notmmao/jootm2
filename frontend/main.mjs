@@ -94,17 +94,24 @@ function watchDisconnect(c, sm) {
     const prev = c.onClose;
     c.onClose = () => {
         if (prev) prev();
-        if (dropping) return;
-        // 只有「已经在游戏里」才回登录：登录界面掉线时自动重连会变成死循环
-        // （服务端没起来 → 连不上 → onclose → 再回登录…），交给启动时的 boot.fail 处理。
-        if (!sm.current || sm.current instanceof LoginScene) return;
+        if (dropping || c._intentional) return;   // 主动 close（退出/回登录流程）不触发重连
+        if (!sm.current) return;
         dropping = true;
-        showNetError('与服务器断开连接，即将返回登录界面…');
+        // 登录界面也会掉线（例如服务端重启）：连接已死，不重连的话用户
+        // 输密码时 send 静默失败、界面无任何反馈。重连逻辑本身有失败重试
+        // 上限（见 onReturnLogin），不会变成无限循环。
+        const atLogin = sm.current instanceof LoginScene;
+        showNetError(atLogin
+            ? '与服务器断开连接，正在尝试重连…'
+            : '与服务器断开连接，即将返回登录界面…');
         setTimeout(async () => {
-            dropping = false;
-            hideNetError();
             try { await sm.onReturnLogin(); }
-            catch (e) { console.warn('[net] 回登录失败，请刷新页面', e); }
+            catch (e) {
+                console.warn('[net] 回登录失败', e);
+                showNetError('无法重新连接服务器，请刷新页面重试');
+            } finally {
+                dropping = false;
+            }
         }, 1600);
     };
 }
@@ -156,15 +163,26 @@ async function init() {
     // 原版 SelChrExitClick 是 FrmMain.Close 直接关客户端；浏览器不能关标签页，回登录最接近。
     sceneManager.onReturnLogin = async () => {
         try { conn.close(); } catch { /* 连接已断开 */ }
-        const nc = new Connection();
+        // 服务端重启期间 TCP 直接拒接，要重试到它回来（约 6 次 × 3s ≈ 20s 窗口）。
+        // 全部失败则抛给调用方提示刷新；绝不带着打不开的连接进登录界面，
+        // 否则输密码 send 静默失败，又回到「无反应」的状态。
+        let nc = null, lastErr = null;
+        for (let i = 0; i < 6; i++) {
+            nc = new Connection();
+            try {
+                await nc.connect();
+                break;
+            } catch (e) {
+                lastErr = e;
+                nc = null;
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+        if (!nc) throw lastErr || new Error('无法连接服务器');
         sound.attach(nc);               // 新连接重新挂消息钩子（全局手势/点击监听只装一次）
         sceneManager.bind(nc);          // 消息路由指向新连接
         watchDisconnect(nc, sceneManager);   // 新连接同样要监听掉线
-        try {
-            await nc.connect();
-        } catch (e) {
-            console.warn('[exit] 重连失败，刷新页面重试', e);
-        }
+        hideNetError();                 // 重连成功，撤掉「连接已断开」提示
         sceneManager.switchTo(new LoginScene(sceneManager));
         window.__conn = nc;
     };

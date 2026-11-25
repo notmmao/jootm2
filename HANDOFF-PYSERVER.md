@@ -1205,3 +1205,31 @@ tick_systems 全绿（除既有 MonItems FAIL）、mage_kite 5/5。
 
 遗留：线上真实收益以部署后 py-spy 对照为准（本地代理负载形态与线上
 多人+多代理不同，寻路收益在线上会更大）。
+
+## §168 服务器重启后登录界面无反应（前端自动重连）（2026-11-25）
+
+问题（用户报告）：服务器重启后，在线玩家窗口退回登录界面（正常），但输入
+密码后无法登录、也没有任何报错；必须刷新页面才能登录。
+
+根因（`frontend/main.mjs::watchDisconnect`）：旧逻辑只对「已在游戏里」的
+断线做处理（回登录+新建连接）；**登录界面自身的 onclose 被直接忽略**
+（当时担心服务端没起来时「连不上→onclose→再回登录」死循环）。服务器重启
+瞬间在线玩家被踢回登录界面后，`this.conn` 仍指向已死的旧 WebSocket，
+`Connection.send()` 对非 OPEN 连接返回 false 静默失败——输什么密码都发不出去，
+`loginResult` 永远不来，界面无任何反馈。刷新页面=整页重跑 init()=新连接，
+所以刷新就好了。
+
+修复（`frontend/main.mjs` + `frontend/net/Connection.mjs`）：
+- watchDisconnect 不再跳过登录界面断线：任何场景掉线都走「提示→自动重连」。
+  死循环防护改由 onReturnLogin 的重连上限承担（6 次 × 3s ≈ 20s 窗口，
+  覆盖部署重启时长；全失败则提示「请刷新页面重试」并保留原绑定）。
+- onReturnLogin：先 connect 成功再换绑（bind/sound.attach/switchTo），
+  失败抛错绝不带着打不开的新连接进登录界面；成功时 hideNetError() 撤横幅。
+- Connection.close() 置 `_intentional`，watchDisconnect 对主动断开（登录窗
+  关闭按钮、选角退出流程内 conn.close()）不触发自动重连。
+- 登录界面掉线提示文案改为「正在尝试重连…」（区别于游戏内的「即将返回登录界面」）。
+
+验证：`scripts/test_relogin_after_restart.py`（D:/Python39 Playwright +
+D:/Python310 pyserver）：起服→登录界面→kill 服务器→原端口重启→**不刷新
+页面**→断言自动重连成功→真实输入框填密码回车→进 SelectCharScene。
+6/6 PASS（修复前该链路在第 5 步等待超时复现原 bug）。

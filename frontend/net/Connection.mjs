@@ -45,6 +45,7 @@ export class Connection {
     }
 
     close() {
+        this._intentional = true;   // 主动断开（登录窗关闭/退出）：不触发自动重连
         if (this.ws) this.ws.close();
     }
 
