@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .world import (BAG_SIZE, Monster, Player, direction_delta,
-                    now_ms)
+                    direction_toward, now_ms)
 from .handlers_combat import spell_cost, skill_level, direction_from
 from .util import U_ARMRINGL, U_BUJUK, U_WEAPON, slot_accepts
 
@@ -199,7 +199,7 @@ class PathPlanner:
     """
 
     __slots__ = ("key", "map", "start", "goal", "exact", "tol", "width",
-                 "height", "dist", "prev", "heap", "walkable", "best_h",
+                 "height", "dist", "prev", "heap", "best_h",
                  "best_node", "frontier", "scanned", "reached", "h0")
 
     def __init__(self, game_map, sx: int, sy: int, tx: int, ty: int,
@@ -221,19 +221,17 @@ class PathPlanner:
         self.frontier = node
         self.scanned = 0
         self.reached = None
-        self.walkable = {}
 
     # -- 内部 ---------------------------------------------------------
     def _ok(self, x: int, y: int) -> bool:
+        """单点可走判定（与 advance 内联逻辑同口径），外部校验用。"""
         if x < 0 or y < 0 or x >= self.width or y >= self.height:
             return False
-        k = y * self.width + x
-        v = self.walkable.get(k)
-        if v is None:
-            m = self.map
-            v = m.can_walk(x, y) and not m.occupied(x, y)
-            self.walkable[k] = v
-        return v
+        gm = self.map
+        if not gm.walk_bits_map()[x * gm.grid.height + y]:
+            return False
+        lst = gm.by_pos.get((x, y))
+        return not lst or not any(a.alive for a in lst)
 
     def _h(self, x: int, y: int) -> int:
         return max(abs(x - self.goal[0]), abs(y - self.goal[1]))
@@ -241,11 +239,26 @@ class PathPlanner:
     # -- 外部 ---------------------------------------------------------
     def advance(self, budget_ms: int = PATH_PLAN_BUDGET_MS,
                 max_nodes: int = PATH_PLAN_MAX_NODES) -> str:
-        """推进一段搜索。返回 ``running`` / ``done`` / ``failed``。"""
+        """推进一段搜索。返回 ``running`` / ``done`` / ``failed``。
+
+        热循环内联（2026-11-25 CPU 优化）：旧实现每邻居一次 ``_ok`` 函数调用，
+        可走判定走 can_walk→flag→inside 三层 Python 调用 + 每 plan 重建
+        walkable 缓存 dict；剖析里 600 tick 调了 1800 万次。现在：
+        * 地形 = 图级位图 ``walk_bits``（0 可走→1，一次 C 层 translate 生成），
+          bytearray 下标直取，越界显式挡（位图本身会环绕，必须先判界）；
+          位图按 **列优先** ``x*height+y``（与 .map / MapGrid.flag 同构），
+          节点号是行优先 ``y*width+x``，两者换算只在起点做一次；
+        * 占用 = 只在「地形可走」的格上才查 by_pos（大多数邻居是墙，直接短路），
+          语义与旧 ``_ok`` 完全一致；
+        * 启发式、终判全部内联，循环内零函数调用。
+        """
         if self.reached is not None:
             return "done"
         tx, ty = self.goal
-        tol, width = self.tol, self.width
+        tol, width, height = self.tol, self.width, self.height
+        gm = self.map
+        bits = gm.walk_bits_map()
+        by_pos = gm.by_pos
         deadline = time.perf_counter() + budget_ms / 1000.0
         n = 0
         while self.heap:
@@ -263,27 +276,53 @@ class PathPlanner:
                 return "done" if self.reached != self.start_node else "failed"
             self.frontier = node
             cy, cx = divmod(node, width)
-            hh = self._h(cx, cy)
-            if hh < self.best_h:
-                self.best_h, self.best_node = hh, node
+            hh = cx - tx
+            if hh < 0:
+                hh = -hh
+            hv = cy - ty
+            if hv < 0:
+                hv = -hv
+            if hh > hv:
+                hv = hh
+            if hv < self.best_h:
+                self.best_h, self.best_node = hv, node
             for d in range(8):
                 dx, dy = _DELTAS[d]
                 nx, ny = cx + dx, cy + dy
-                if not self._ok(nx, ny):
+                if nx < 0 or ny < 0 or nx >= width or ny >= height:
                     continue
+                # 位图是列优先：下标 = x*height + y（见 docstring）
+                if not bits[nx * height + ny]:
+                    continue
+                lst = by_pos.get((nx, ny))
+                if lst:
+                    busy = False
+                    for a in lst:
+                        if a.alive:
+                            busy = True
+                            break
+                    if busy:
+                        continue
                 nnode = ny * width + nx
                 ng = g + 1
                 if ng >= self.dist.get(nnode, _INF):
                     continue
                 self.dist[nnode] = ng
                 self.prev[nnode] = (d, node)
-                if max(abs(nx - tx), abs(ny - ty)) <= tol:
+                hx = nx - tx
+                if hx < 0:
+                    hx = -hx
+                hy = ny - ty
+                if hy < 0:
+                    hy = -hy
+                if hx > hy:
+                    hy = hx
+                if hy <= tol:
                     self.reached = nnode
                     self.heap.clear()
                     return "done"
                 heapq.heappush(self.heap,
-                               (ng + self._h(nx, ny) * PATH_HEURISTIC_WEIGHT,
-                                ng, nnode))
+                               (ng + hy * PATH_HEURISTIC_WEIGHT, ng, nnode))
         # 队列搜空：目标所在连通块里到不了
         self.reached = None
         return "failed"
@@ -1247,6 +1286,43 @@ class AutoPilot:
         dist = max(abs(p.x - tx), abs(p.y - ty))
         if dist <= (0 if exact else 1):
             return True
+        # 近距离贪心降级（2026-11-25 CPU 优化）：追一只游走的怪时目标坐标
+        # 每拍都在变，path_key 每拍失效 → 每拍整场 A* 重搜（剖析里 advance
+        # 调用次数的绝对大头）。dist<=6 时先看「正对目标的方向格」是否可走
+        # （位图+占用直查，与寻路同一判据），可走就一步到位；被挡仍走下面
+        # 的 A*（墙后目标照旧「规划失败→拉黑」，不撞墙）。
+        if dist <= 6:
+            d = direction_toward(p.x, p.y, tx, ty, p.dir)
+            dx, dy = direction_delta(d)
+            nx, ny = p.x + dx, p.y + dy
+            gm = p.map
+            if (gm is not None and gm.inside(nx, ny)
+                    and gm.walk_bits_map()[nx * gm.height + ny]
+                    and not gm.occupied(nx, ny)
+                    and now - self.last_move_at >= WALK_INTERVAL_MS
+                    and now_ms() - getattr(p, "map_change_at", 0) >= 350):
+                self.path = []
+                self.path_key = ()
+                self.plan = None
+                before = (p.x, p.y, p.map.name if p.map else "")
+                self.last_move_at = now
+                self.last_move_dur = WALK_INTERVAL_MS
+                srv._move(p.session, {"type": "move", "dir": d, "run": False})
+                after = (p.x, p.y, p.map.name if p.map else "")
+                self.set_status(f"{label} · {dist}格", now)
+                if before[2] != after[2]:
+                    self.target_id = 0
+                    self.loot_id = 0
+                elif before[:2] == after[:2]:
+                    self.blocked_steps += 1
+                    if self.blocked_steps >= BLOCKED_LIMIT:
+                        self.blocked_steps = 0
+                        self._give_up_target(key, now)
+                        self.set_status("寻路受阻 · 换目标", now)
+                        return False
+                else:
+                    self.blocked_steps = 0
+                return True
         running = dist >= RUN_MIN_DIST or len(self.path) >= 2
         interval = RUN_INTERVAL_MS if running else WALK_INTERVAL_MS
         if now - self.last_move_at < interval:

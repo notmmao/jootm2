@@ -1161,3 +1161,47 @@ tick_systems 全绿（除既有 MonItems FAIL）、mage_kite 5/5。
 
 回归：afk_offline 57/57（新增 §14 视图/中止 7 用例）、dashboard 24/24
 （新增 [7] 离线视图 3 用例）、maintain 46、supply 43、log 47 全绿。
+
+## §167 服务器 CPU 热点优化：寻路位图化 / 索敌候选集 / 名索引（2026-11-25，用户反馈线上 CPU 又高）
+
+线上分析（只读，未重启）：py-spy 60s 火焰图显示忙时 CPU 大头是托管
+寻路 PathPlanner（A*，约 15%，每 tick 每代理烧 20ms 预算）与
+`_resolve_target` 全图扫描（每次复制 800+ 实体列表）；进程平均单核 16%，
+无失控。用户要求先优化代码再本地起服务器验证收益。
+
+改动（全在服务端热路径，行为语义不变）：
+- `world.py` GameMap：新增 `summons` 索引（有主召唤物登记，add/remove/
+  reposition 同步维护）与 `walk_bits_map()` 惰性地形位图（node→bool，
+  地图加载后静态）；`_resolve_target` 候选集改走 `players/summons` 索引
+  +保留怪互殴语义（只预过滤，不丢分支）。
+- `autopilot.py` PathPlanner：`_ok`/`_h`/`walkable` 三层函数链删除，
+  `advance` 内循环直接查 `walk_bits_map()` 位图 + `by_pos` 占用直查 +
+  seen 集合免重复 dist 字典读写；`_step_to` 新增 dist≤6 贪心降级
+  （正对目标方向格可走则一步直走，被挡仍回 A*——追游走怪不再每拍
+  重建整场搜索）。
+- `world_extra.py`：`item_template_by_name` 线性 genexpr → 惰性
+  name→template dict 索引。
+- `handlers_combat.py`：诱惑之爪转主人处同步 `summons` 索引。
+- 测试适配：test_autopilot §11 造墙从 monkeypatch `GameMap.can_walk`
+  改为数据层 `grid.flags` 置位 + 位图缓存失效（补丁式造墙已进不了
+  位图热路径）；test_tick_systems 远程测试怪 hit=15 固定必中（消除
+  飞矢用例 12/15 概率性 flaky）。
+
+验证：
+- 进程内 bench（`scripts/bench_tick_cpu.py`，3 在线托管+2 离线代理+
+  E603 满怪，同一 GameService.tick）：8000 tick 墙钟 **66.6s → 9.0s
+  （7.4×）**。
+- 真实进程（`scripts/bench_server_cpu.py`：起 pyserver → GM 双角色
+  `@离线 grant`+afk start → 断线转离线代理 → psutil 采样）：总量
+  采样受代理随机行为影响方差大（busy 3.7~12.3s/60s 波动）；改看
+  py-spy 火焰图相对占比（`scripts/bench_profile_ab.py`，90s/100Hz）：
+  `_resolve_target` 从 TOP3（6.5%）跌出 TOP20，PathPlanner 0.3~0.7%
+  持平（本地空图代理杀怪少，寻路触发远低于线上），事件循环空等占比
+  22%→9.6%。
+- 回归全绿：test_autopilot 39/39、hosted_opt 36/36、hosted_fixes 14/14、
+  afk_supply 43、afk_maintain 46、afk_offline 57、bots 29、mage_kite 5、
+  afk_log 47、pyserver 132/132、tick_systems 181（+基线预存 MonItems
+  尾空格 1 FAIL，非本批）。
+
+遗留：线上真实收益以部署后 py-spy 对照为准（本地代理负载形态与线上
+多人+多代理不同，寻路收益在线上会更大）。

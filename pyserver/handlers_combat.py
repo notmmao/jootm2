@@ -1680,6 +1680,10 @@ class CombatHandlers:
                             target.slave_make_level = lv
                             target.target_id = -1
                             p.summon_id = target.id
+                            # 诱惑 = 原地转有主怪，须补登图级召唤物索引
+                            # （怪物索敌候选集走 map.summons，出生时未登记）
+                            if target.map is not None:
+                                target.map.summons[target.id] = target
                             w.send_system(p, f"诱惑了 {target.name}！")
                             return True
                         if random.randrange(14) == 0:

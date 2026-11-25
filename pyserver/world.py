@@ -241,6 +241,7 @@ class GameMap:
     """
 
     __slots__ = ("grid", "actors", "open_doors", "by_pos", "players",
+                 "summons", "walk_bits",
                  "last_active_at", "mon_spawned")
 
     def __init__(self, grid: MapGrid):
@@ -249,6 +250,11 @@ class GameMap:
         self.open_doors: dict[tuple[int, int], int] = {}
         self.by_pos: dict[tuple[int, int], list["Actor"]] = {}
         self.players: dict[int, "Player"] = {}
+        # 有主召唤物（宝宝/骷髅/诱惑怪）：怪物索敌候选集，与 players 同族。
+        self.summons: dict[int, "Monster"] = {}
+        # 惰性「可走位图」（1=可走），由 walk_bits() 首次使用时从 grid.flags
+        # 一次性 translate 生成；寻路热循环逐格查它，不再走 can_walk 三层调用。
+        self.walk_bits: bytearray | None = None
         # 空图休眠：0 = 从未有玩家进过（保持满编冷置，AI 跳过但不清怪）；
         # 否则是最后一名在线玩家离开/在图时刻，超过阈值才清怪。
         self.last_active_at = 0
@@ -291,6 +297,13 @@ class GameMap:
             return False
         return any(a.alive for a in lst)
 
+    def walk_bits_map(self) -> bytearray:
+        """惰性生成 1=可走 位图（flags 里 0 可走 → 取反），一次 C 层 translate。
+        地图 flags 加载后静态（门不改 flags），终身有效。"""
+        if self.walk_bits is None:
+            self.walk_bits = self.grid.flags.translate(bytes.maketrans(b"\x00\x01\x02", b"\x01\x00\x00"))
+        return self.walk_bits
+
     def add(self, actor: "Actor") -> None:
         self.actors[actor.id] = actor
         actor.map = self
@@ -298,6 +311,8 @@ class GameMap:
         if isinstance(actor, Player):
             self.players[actor.id] = actor
             self.last_active_at = now_ms()
+        elif isinstance(actor, Monster) and actor.master_id >= 0:
+            self.summons[actor.id] = actor
 
     def remove(self, actor_id: int) -> None:
         a = self.actors.pop(actor_id, None)
@@ -315,6 +330,8 @@ class GameMap:
             self.players.pop(a.id, None)
             if self.players:
                 self.last_active_at = now_ms()
+        elif isinstance(a, Monster):
+            self.summons.pop(a.id, None)
 
     def reposition(self, a: "Actor", nx: int, ny: int) -> None:
         """try_move 成功后同步位索引（坐标突变只发生在 try_move / 传送）。"""
@@ -2864,23 +2881,34 @@ class GameWorld(WorldExtra):
             # 召唤物也在仇恨名单里（原版 TAnimalObject.SearchTarget 的
             # IsProperTarget 含宠物/骷髅——道士宝宝顶怪时怪会转火宝宝）。
             return cur
+        # 候选集 = 同图玩家 + 有主召唤物（与旧「扫全图 actors」逐分支等价：
+        # 旧循环里野怪 master_id<0 一律 continue，非玩家非召唤物也 continue）。
+        # 旧实现每扫描复制整图实体列表（800+ 项）再逐个 isinstance：剖析里
+        # 6 万次调用复制了 5000 万项。现在走 GameMap.players/summons 索引，
+        # 候选恒为个位数。守卫的「打怪」分支在函数开头 SUPER_GUARD_RACES
+        # 独立段里，不走这里。
         best, best_d = None, 1 << 30
-        cand = (list(m.map.actors.values()) if m.map is not None
-                else list(self.players()))
-        for a in cand:
-            if isinstance(a, Player):
-                if a.map is not m.map or a.hide_until > now or not a.alive:
-                    continue
-                if is_guard and not self._guard_hostile(m, a):
-                    continue
-            elif isinstance(a, Monster):
-                if a.master_id < 0 or not a.alive or is_guard:
-                    continue    # 守卫只管红名玩家（ObjMon2 TGuard 语义）
-            else:
+        gm = m.map
+        if gm is None:
+            return None
+        aggro2 = AGGRO_RANGE * AGGRO_RANGE
+        for a in gm.players.values():
+            if a.hide_until > now or not a.alive:
+                continue
+            if is_guard and not self._guard_hostile(m, a):
                 continue
             d = a.distance_to(m)
             if d <= AGGRO_RANGE and d < best_d:
                 best, best_d = a, d
+        if not is_guard:
+            for a in gm.summons.values():
+                # 召唤物也在仇恨名单里（原版 SearchTarget 的 IsProperTarget
+                # 含宠物/骷髅——道士宝宝顶怪时怪会转火宝宝）
+                if not a.alive:
+                    continue
+                d = a.distance_to(m)
+                if d <= AGGRO_RANGE and d < best_d:
+                    best, best_d = a, d
         return best
 
     @staticmethod

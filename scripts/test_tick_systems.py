@@ -285,8 +285,11 @@ def test_fire_wall(w, p, sess):
 def test_ranged(w, p, sess):
     print("\n[5] 远程怪飞矢 / 延迟结算 / 魔法盾减伤")
     base_t = next(iter(w.monster_templates.values()))
+    # hit=15 ≥ 玩家敏捷点 Random 上界（delphi_random(15)=0..14）→ 必中。
+    # 本段测「飞矢延迟登记/到点结算」，不该被全局随机流的命中抖动拖成
+    # flaky（模板默认 hit=12 时命中率 12/15，历史基线也偶发 FAIL）。
     t = replace(base_t, name="远程测试怪", race=82, dc=20, maxDc=20,
-                ac=0, hp=100, level=1, walkSpeed=800, attackSpeed=1000)
+                ac=0, hp=100, level=1, hit=15, walkSpeed=800, attackSpeed=1000)
     m = Monster(id=w.new_id(), name=t.name, x=p.x + 2, y=p.y, dir=4,
                 hp=100, max_hp=100, level=1, race=82, template=t,
                 spawn_x=p.x + 2, spawn_y=p.y)

@@ -464,7 +464,11 @@ class WorldExtra:
     def item_template_by_name(self, name: str | None):
         if name is None:
             return None
-        return next((t for t in self.item_templates.values() if t.name == name), None)
+        idx = self._item_by_name
+        if idx is None:
+            idx = self._item_by_name = {t.name: t for t in self.item_templates.values()}
+        return idx.get(name)
+    _item_by_name = None   # 惰性 name→template 索引（物品表加载后不变）
 
     def new_item_instance(self, t, dura: int | None = None) -> dict:
         d = dura if dura is not None else t.duraMax

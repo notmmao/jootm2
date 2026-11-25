@@ -269,11 +269,15 @@ def main() -> int:
             del srv.world.ground_items[gid]
         srv.autopilot.enable(p2, "balanced", now=end + 1000)
         pilot4 = srv.autopilot.get(p2)
-        # GameMap 是 slots dataclass，实例属性不可写；临时在类上打补丁造一整行墙。
-        orig_can_walk = GameMap.can_walk
+        # 造一整行墙：直接改底层 grid.flags（列优先 x*height+y），寻路热路径
+        # 走图级位图 walk_bits（2026-11-25 CPU 优化），旧「patch GameMap.can_walk」
+        # 已不被位图感知——数据层造墙才是有效测试。置 None 强制位图重建。
+        gm2 = p2.map
         wall_y = p2.y + 1
-        GameMap.can_walk = (lambda self, x, y: False if y == wall_y
-                            else orig_can_walk(self, x, y))
+        orig_flags = bytes(gm2.grid.flags)
+        for xx in range(gm2.width):
+            gm2.grid.flags[xx * gm2.height + wall_y] = 1
+        gm2.walk_bits = None
         try:
             behind = spawn(srv, p2, 0, 3)     # 整行墙之后，完全不可达
             spawn(srv, p2, 4, 0)             # 同侧可达
@@ -289,7 +293,8 @@ def main() -> int:
             check("转而击杀同侧可达怪", p2.exp > exp_wall,
                   f"exp {exp_wall} → {p2.exp}")
         finally:
-            GameMap.can_walk = orig_can_walk
+            gm2.grid.flags[:] = orig_flags
+            gm2.walk_bits = None
 
         print("\n=== 12. 空档期挖肉（safe/balanced 开、efficient 关）===")
         from pyserver.world_extra import CORPSE_MS
