@@ -1233,3 +1233,23 @@ tick_systems 全绿（除既有 MonItems FAIL）、mage_kite 5/5。
 D:/Python310 pyserver）：起服→登录界面→kill 服务器→原端口重启→**不刷新
 页面**→断言自动重连成功→真实输入框填密码回车→进 SelectCharScene。
 6/6 PASS（修复前该链路在第 5 步等待超时复现原 bug）。
+
+## §169 手机端自动横屏（2026-11-25）
+
+反馈：玩家手机打开浏览器没有自动横屏。
+
+背景：浏览器不允许无手势自动改屏幕方向；`screen.orientation.lock()` 只在
+全屏态可用（Chrome 系），iOS Safari/微信 WKWebView 两个 API 都不支持。
+原实现只有 `#rotate-tip` 横幅提示手动旋转（且仅游戏场景显示）。
+
+改动（`frontend/core/orientation.mjs` 新建 + `main.mjs` 装载）：
+- 触屏设备 + 小窗竖屏（min 边 ≤560 判定手机，排除触屏笔记本）才安装助手；
+- 监听 `pointerdown`（capture）：玩家进页面第一次点按即尝试
+  `requestFullscreen({navigationUI:'hide'})` → `orientation.lock('landscape')`，
+  成功即移除监听；失败静默、下次点按重试（部分 WebView 手势窗口已过才放行）。
+- `orientationchange` 若被系统旋回竖屏则重新挂监听再锁。
+- 环境无 `orientation.lock`（iOS）直接跳过不抢全屏——单独进全屏锁不了方向反而更糟。
+- 横竖屏切换后缩放由既有 resize→fitStage 链路自动重排，零额外工作。
+
+验证：Playwright 手机竖屏仿真（390×844 has_touch）：点按后进入全屏、无页面
+报错；桌面触屏宽窗（1440×900 has_touch）：不触发全屏。6/6→2/2 通过。

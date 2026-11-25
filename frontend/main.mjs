@@ -14,6 +14,7 @@ import { opfsInit, opfsGetStats } from './gfx/opfsStore.mjs';
 import { getLib } from './image/Images.mjs';
 import { sound } from './audio/SoundManager.mjs';
 import { fitStage, setUiScale, onStageFit } from './core/viewport.mjs';
+import { installLandscapeAssist } from './core/orientation.mjs';
 import { Presenter } from './core/present.mjs';
 import { boot, fetchAssetVersion, preloadEssentials, warmInBackground, warmState,
          warmMapBytes, getBootInfo } from './core/boot.mjs';
@@ -50,6 +51,10 @@ window.__setHiText = (on) => presenter.setHiText(on);
 
 // 全局屏蔽浏览器右键菜单（右键用于游戏跑动，任何界面包括 NPC 对话框都不弹菜单）
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// 移动端：触屏设备首次点按即尝试全屏+锁横屏（Android 有效，iOS 静默失败，
+// 由 #rotate-tip 横幅引导手动旋转）。必须在最外层装，登录界面就要生效。
+installLandscapeAssist();
 // 全局禁用文本/元素框选与图片拖拽（按住移动时避免误选内容）
 document.addEventListener('selectstart', (e) => e.preventDefault());
 document.addEventListener('dragstart', (e) => e.preventDefault());
