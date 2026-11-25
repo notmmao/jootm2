@@ -2528,7 +2528,20 @@ export class PlayScene extends Scene {
                     this.self = msg.player;
                     this._selfLevel = msg.player.level != null ? msg.player.level : null;
                     this.entities.set(msg.player.id, msg.player); this._registerSound(msg.player); }
-                for (const e of msg.nearby || []) { this.entities.set(e.id, e); this._registerSound(e); }
+                // 换图快照里的尸体要还原成 ActDeath 定格帧（与构造路径 :309、
+                // entityAdd :1933 一致）：brief 只带 corpse 布尔，渲染层靠 _corpse/
+                // _action 分流。漏标就把尸体当活物画成站立，走门换图再回来时
+                // 「尸体站起来」（服务端 corpse 字段其实一直是对的）。
+                for (const e of msg.nearby || []) {
+                    if (e.corpse) {
+                        e._corpse = true;
+                        e._action = 'death';
+                        e._actionAt = Date.now();
+                        e._dieUntil = 0;
+                    }
+                    this.entities.set(e.id, e); this._registerSound(e);
+                    if (e.corpse) this._sprite(e).prefetchDeathFrame(e);
+                }
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
                 if (msg.map) {
                     const p = this.self || { x: 0, y: 0 };

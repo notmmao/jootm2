@@ -1307,3 +1307,26 @@ MANUAL_TYPES，按「手动优先」pause 托管。即托管每捡一瓶金创�
 - `test_afk_maintain` 46 / `test_afk_supply` 43 / `test_afk_offline` 57 全过；
 - 真实 pyserver WS 复现路径（enterGame→autopilot on→quickSlot→status）
   修复前 active=False reason=手动接管，修复后保持 active。
+
+## §172 换图后尸体站起来（changeMap 快照漏还原）（2026-11-26）
+
+反馈：怪物死后出尸体，切换地图再切回来，尸体变成站立状态；该问题早年
+修过（23117b1），死亡动画泛化（baf5305/§164）后复现。
+
+根因：前端把服务端 brief 的 `corpse:true` 翻译成渲染层 `_corpse` +
+`_action='death'` 的逻辑存在于**三条路径**，但只补了两条：
+1. PlayScene 构造（登录/重连快照）—— 23117b1 补的；
+2. `entityAdd`（回视野）—— 一直有；
+3. **游戏内 `changeMap` 消息（走门/传送/回城卷）—— 裸 for-set，没补**。
+23117b1 当时 changeMap 分支大概率没尸体（换图即清场重刷），后来尸体留 3
+分钟 + 同图传送也发 changeMap，路径 3 就暴露了。服务端 brief 一直是对的
+（`o["corpse"] = not alive and corpse_until>0`，world.py:1002）。
+
+修复（`frontend/scene/PlayScene.mjs` case 'changeMap'）：实体重建循环
+对齐路径 1——`e.corpse` 则置 `_corpse/_action='death'/_actionAt/_dieUntil=0`
+并 `prefetchDeathFrame(e)`。
+
+验证：新回归 `scripts/test_corpse_change_map.py`（Playwright：@刷怪 鸡→
+托管击杀→GM 同图传送离开再回原点→断言实体 `_corpse=true && action=death`；
+二次换图复验）5 PASS；stash 掉修复复跑精确 FAIL 2 项（action=None
+corpse=False，即站立），证明用例有效。`test_corpse_fx.py` 8 PASS 无回归。
