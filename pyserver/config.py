@@ -74,7 +74,7 @@ DEFAULTS: dict[str, str] = {
     "elite.hpMult": "2.0",             # 精英 HP 倍率
     "elite.dcMult": "1.5",             # 精英攻击(DC)倍率
     "elite.expMult": "3.0",            # 精英经验倍率
-    "elite.dropMult": "2.0",           # 精英掉落概率倍率（判定时乘，不改 MonItems 表）
+    "elite.dropMult": "5.0",           # 精英掉落概率倍率（判定时乘，不改 MonItems 表）
 }
 
 _ENV_KEYS = {
@@ -157,7 +157,7 @@ class ServerConfig:
     elite_hp_mult: float = 2.0
     elite_dc_mult: float = 1.5
     elite_exp_mult: float = 3.0
-    elite_drop_mult: float = 2.0
+    elite_drop_mult: float = 5.0
 
     @property
     def mud2_dir(self) -> Path:
@@ -320,5 +320,5 @@ def load(config_path: str | Path | None = None, **overrides) -> ServerConfig:
         elite_hp_mult=max(0.0, as_float("elite.hpMult", None, None, 2.0)),
         elite_dc_mult=max(0.0, as_float("elite.dcMult", None, None, 1.5)),
         elite_exp_mult=max(0.0, as_float("elite.expMult", None, None, 3.0)),
-        elite_drop_mult=max(0.0, as_float("elite.dropMult", None, None, 2.0)),
+        elite_drop_mult=max(0.0, as_float("elite.dropMult", None, None, 5.0)),
     )

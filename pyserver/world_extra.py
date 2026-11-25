@@ -682,7 +682,7 @@ class WorldExtra:
         boost = weekend_drop_rate(self.config)   # 周末活动：只在判定时乘，不改掉落表
         # 精英怪爆率加成（用户新增，同周末机制：判定时乘，不回写 MonItems）
         if getattr(m, "elite", False):
-            boost *= max(0.0, float(getattr(self.config, "elite_drop_mult", 2.0)))
+            boost *= max(0.0, float(getattr(self.config, "elite_drop_mult", 5.0)))
         owner_id = killer.id if killer is not None and isinstance(killer, Player) else -1
         for e in table:
             # 原版概率是 num/den（MonItems 的 `1/4`），倍率在判定时相乘。
@@ -720,7 +720,7 @@ class WorldExtra:
         rates = self.drop_rates
         boost = weekend_drop_rate(self.config)
         if getattr(m, "elite", False):
-            boost *= max(0.0, float(getattr(self.config, "elite_drop_mult", 2.0)))
+            boost *= max(0.0, float(getattr(self.config, "elite_drop_mult", 5.0)))
         out: list[dict] = []
         for e in table:
             if not rates.hit(mon, e.item_name, e.sel_point + 1, e.max_point, boost):

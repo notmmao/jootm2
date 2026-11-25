@@ -94,8 +94,8 @@ random.seed(42)
 n_elite = sum(1 for _ in range(200) if spawn(cfg_half, t).elite)
 check("约一半为精英（80~120）", 80 <= n_elite <= 120, str(n_elite))
 
-print("\n[6] 精英爆率（elite.dropMult 判时乘，默认×2）")
-check("默认爆率×2", cfg.elite_drop_mult == 2.0)
+print("\n[6] 精英爆率（elite.dropMult 判时乘，默认×5）")
+check("默认爆率×5", cfg.elite_drop_mult == 5.0)
 from pyserver.world_extra import WorldExtra  # noqa: E402
 from pyserver.drop_rates import DropRates  # noqa: E402
 from pyserver.templates import ItemTemplate  # noqa: E402
@@ -132,9 +132,9 @@ def drop_count(config, elite, n=4000, seed=7):
 
 base = drop_count(cfg, elite=False)
 el = drop_count(cfg, elite=True)
-# 期望 400 对 800（1/10 × 4000），容差按二项 ±4σ
-check(f"精英爆率约为基础×2（{base} vs {el}）",
-      base > 0 and abs(el - 2 * base) < 120, f"base={base} elite={el}")
+# 期望 400 对 2000（1/10 → ×5 = 1/2 × 4000），容差按二项 ±4σ 叠加 base 波动
+check(f"精英爆率约为基础×5（{base} vs {el}）",
+      base > 0 and abs(el - 5 * base) < 400, f"base={base} elite={el}")
 boosted = drop_count(replace(cfg, elite_drop_mult=1.0), elite=True)
 check("dropMult=1 时精英与普通一致", abs(boosted - base) < 80, f"{boosted} vs {base}")
 
