@@ -531,6 +531,13 @@ class Database:
                  reason, notice),
             )
 
+    def latest_afk_report(self, character_id: int) -> dict | None:
+        """最近一条修炼报告（挂机后台离线展示用，不动 delivered 标记）。"""
+        row = self.conn.execute(
+            "SELECT * FROM afk_reports WHERE character_id=? "
+            "ORDER BY id DESC LIMIT 1", (character_id,)).fetchone()
+        return dict(row) if row else None
+
     def pending_afk_reports(self, character_id: int) -> list[dict]:
         rows = self.conn.execute(
             "SELECT * FROM afk_reports WHERE character_id=? AND delivered=0 "

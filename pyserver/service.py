@@ -1216,13 +1216,21 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
             if account is None:
                 return encode({"ok": False, "error": err})
             chars = self.db.list_characters(account.id)
-            online_ids = {p.character_id for p in world.players()}
+            # 离线代理也留在世界里（NullSession），要与真人在线区分开：
+            # 后台页面即使角色下线（甚至没挂）也要能查看修炼账目。
+            online_ids, afk_ids = set(), set()
+            for q in world.players():
+                if getattr(q, "afk_offline", False):
+                    afk_ids.add(q.character_id)
+                else:
+                    online_ids.add(q.character_id)
             return encode({
                 "ok": True, "username": account.username,
                 "isGm": account.username in GM_ACCOUNTS,
                 "characters": [{"id": c["id"], "name": c["name"],
                                 "level": c["level"], "job": c["job"],
-                                "online": c["id"] in online_ids}
+                                "online": c["id"] in online_ids,
+                                "afkActive": c["id"] in afk_ids}
                                for c in chars],
             })
         if path == "/api/dash/state":
@@ -1248,6 +1256,29 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                            "online": True,
                            "autopilot": ap,
                            "afk": self.afk.state_info(p)})
+        if path == "/api/dash/afk":
+            # 离线修炼后台专用：只读，不要求角色在线（下线后正是主场景）。
+            account, err = self._dash_account(query, body)
+            if account is None:
+                return encode({"ok": False, "error": err})
+            try:
+                cid = int(query.get("charId", 0))
+            except (TypeError, ValueError):
+                cid = 0
+            rec = next((c for c in self.db.list_characters(account.id)
+                        if c["id"] == cid), None)
+            if rec is None:
+                return encode({"ok": False, "error": "角色不存在或不属于该账号。"})
+            p = None
+            for q in self.world.players():
+                if q.character_id == cid:
+                    p = q
+                    break
+            return encode({"ok": True, "charId": cid, "charName": rec["name"],
+                           "level": rec["level"],
+                           "afkActive": bool(p is not None
+                                             and getattr(p, "afk_offline", False)),
+                           **self.afk.dash_view(cid, p)})
         if path == "/api/dash/action" and method.upper() == "POST":
             account, err = self._dash_account(query, body)
             if account is None:
@@ -1256,11 +1287,27 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                 data = json.loads(body.decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
                 return encode({"ok": False, "error": "请求格式错误。"})
-            p = self._dash_player(account, data.get("charId", 0))
-            if p is None:
-                return encode({"ok": False, "error": "角色未在线，无法操作挂机。"})
+            cid_try = data.get("charId", 0)
             scope = str(data.get("scope") or "autopilot")
             action = str(data.get("action") or "")
+            if scope == "afk":
+                # 离线修炼后台只保留「中止/取消」：角色可能已下线但仍以离线
+                # 代理身份留在世界里（NullSession），不能走 _dash_player 的
+                # 在线真人匹配；按 character_id 在世界里查（含离线代理）。
+                rec = next((c for c in self.db.list_characters(account.id)
+                            if c["id"] == cid_try), None)
+                if rec is None:
+                    return encode({"ok": False, "error": "角色不存在或不属于该账号。"})
+                p = next((q for q in self.world.players()
+                          if q.character_id == rec["id"]), None)
+                if action == "stop":
+                    ok, why = self.afk.dash_stop(p)
+                else:
+                    return encode({"ok": False, "error": f"未知操作：{action}"})
+                return encode({"ok": ok, "reason": why})
+            p = self._dash_player(account, cid_try)
+            if p is None:
+                return encode({"ok": False, "error": "角色未在线，无法操作挂机。"})
             if scope == "autopilot":
                 if action == "on":
                     ok, why = self.autopilot.enable(
@@ -1279,15 +1326,6 @@ class GameService(ItemHandlers, NpcHandlers, CombatHandlers, SocialHandlers):
                         ok, why = True, f"已切换托管档位：{preset}"
                     else:
                         ok, why = False, "托管未开启"
-                else:
-                    return encode({"ok": False, "error": f"未知操作：{action}"})
-            elif scope == "afk":
-                if action == "start":
-                    ok, why, _ = self.afk.request_start(
-                        p, int(data.get("minutes") or 0),
-                        str(data.get("preset") or DEFAULT_PRESET))
-                elif action == "stop":
-                    ok, why, _ = self.afk.request_stop(p)
                 else:
                     return encode({"ok": False, "error": f"未知操作：{action}"})
             else:

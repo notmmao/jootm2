@@ -342,6 +342,39 @@ def main() -> int:
               rep[0]["reason"] if rep else "")
         small_db.close()
 
+        print("\n=== 14. 挂机后台视图（dash_view / dash_stop，角色可离线）===")
+        sa = FakeSession()
+        pa = login(srv, sa, "AfkDash")
+        cida = pa.character_id
+        srv.afk.request_start(pa, 45, "balanced")
+        # 仅计划（还没下线）：dash_view 应见 plan、无 running
+        v = srv.afk.dash_view(cida, pa)
+        check("计划态视图含 plan", v["plan"] and v["plan"]["minutes"] == 45
+              and v["running"] is None, str(v["plan"]))
+        ok, why = srv.afk.dash_stop(pa)
+        check("计划态 dash_stop 取消计划", ok and "取消" in why
+              and srv.afk.dash_view(cida, pa)["plan"] is None, why)
+        # 运行中：下线接管 → running 实时字段齐全
+        srv.afk.request_start(pa, 45, "balanced")
+        srv.on_disconnect(sa)
+        v = srv.afk.dash_view(cida, srv.world.actor(pa.id))
+        r = v.get("running") or {}
+        check("运行态视图含实时收益字段",
+              r.get("remaining") == 45 and "kills" in r and "goldDelta" in r
+              and "expGained" in r and r.get("preset") == "balanced", str(r)[:160])
+        # 后台中止 → 立即结算退场 + 报告可查（用最新报告，不看 delivered）
+        ok, why = srv.afk.dash_stop(srv.world.actor(pa.id))
+        check("运行态 dash_stop 中止结算", ok and srv.world.player("AfkDash") is None, why)
+        last = db.latest_afk_report(cida)
+        check("latest_afk_report 返回中止报告",
+              last is not None and "中止" in last["reason"], last["reason"] if last else "")
+        check("latest 不消耗 delivered 标记", db.pending_afk_reports(cida) != [])
+        # 人已完全不在世界：balance/lastReport 仍可读（页面核心场景）
+        v = srv.afk.dash_view(cida, None)
+        check("离场后视图仍可读余额/报告",
+              v["balance"] > 0 and v["lastReport"] is not None
+              and v["running"] is None, str(v)[:160])
+
     finally:
         db.close()
         strict_db.close()

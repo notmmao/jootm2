@@ -1131,3 +1131,33 @@ Windows 大小写坑：目录真名 `Npc_Def`，git add 小写路径静默漏文
    =2min，ObjBase.pas:45）原本就对，未动。
 回归：afk_offline 50/50、afk_supply 43/43、afk_maintain 46/46、pyserver 132/132、
 tick_systems 全绿（除既有 MonItems FAIL）、mage_kite 5/5。
+
+## §166 挂机后台改为「离线修炼专用」页（2026-11-25，用户拍板三点）
+
+用户反馈 afk.html 定位不清：①去掉在线托管（页面只管离线修炼）；②「设定
+计划」在后台没有意义（离线没法设、在线本来就在游戏里设），删掉，只留取消/
+中止；③主诉求 = 看**当前离线挂机状态**（挂了多久、收益多少），类似重新登录
+时收到的那条报告。
+
+改动：
+- `frontend/afk.html` 重写：删在线托管卡与设定计划表单；新三段——「本次修炼
+  （进行中）」（已修炼时长/剩余/击杀/经验/金币增量/死亡/档位，修炼中每 30s
+  自动刷新）、「上次修炼报告」（末条 afk_reports，含结束原因）、「修炼时长」
+  （余额/今日已用/今日剩）。顶部 banner 三态：修炼中 / 有待生效计划 / 空闲。
+  角色下拉不再要求在线（`afkActive` 标「· 修炼中」）。唯一按钮「中止修炼 /
+  取消计划」带 confirm。GM 视图只留离线修炼表（snapshot 新增 goldDelta/
+  expGained）。
+- `pyserver/afk.py`：新增 `OfflineAgentManager.dash_view(character_id, p=None)`
+  （余额/今日量 + running 实时增量 + latest_afk_report，p 可为 None=人已完全
+  离场）与 `dash_stop(p)`（运行中→disable 立即结算退余额；仅有计划→清
+  afk_plan）。`snapshot()` 补 goldDelta/expGained。
+- `pyserver/db.py`：`latest_afk_report()`（只读末条，**不动 delivered**，游
+  客看不掉玩家登录报告）。
+- `pyserver/service.py`：新只读路由 `/api/dash/afk?token&charId`（不要求在
+  线，按账号校验归属防越权）；`/api/dash/auth` 角色项加 `afkActive`（区分
+  离线代理与真人在线，离线代理也在 world.players() 里）；`/api/dash/action`
+  的 afk 分支只留 stop 且改走 dash_stop（不再要求 `_dash_player` 在线匹配），
+  afk start 从后台 REST 移除（游戏内 WS `afk` 消息的设定计划不受影响）。
+
+回归：afk_offline 57/57（新增 §14 视图/中止 7 用例）、dashboard 24/24
+（新增 [7] 离线视图 3 用例）、maintain 46、supply 43、log 47 全绿。

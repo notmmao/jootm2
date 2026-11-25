@@ -2150,5 +2150,72 @@ class OfflineAgentManager:
                         "supply": pilot.supply_state,
                         "map": p.map.name if p.map else "",
                         "x": p.x, "y": p.y,
-                        "startedAt": pilot.started_at})
+                        "startedAt": pilot.started_at,
+                        "goldDelta": p.gold - pilot.gold_start,
+                        "expGained": self._exp_gained(w, pilot, p)})
         return out
+
+    # ---- 挂机后台（/api/dash）视图 --------------------------------------
+
+    def dash_view(self, character_id: int, p=None) -> dict:
+        """离线修炼面板数据：余额/今日用量 + 运行中实时收益 + 上次报告。
+
+        ``p`` 是世界里找到的角色（可能是离线代理，也可能是刚下线的真人对象
+        ——真人完全退场时为 None，此时余额/报告仍能从库里读，这正是本页面
+        的核心场景：人不在，看挂机的账）。
+        """
+        cfg = self.service.config
+        db = self.service.db
+        afk = db.get_afk(character_id)
+        used_today = afk["used_minutes"] if afk["used_date"] == today() else 0
+        out = {
+            "balance": afk["balance"],
+            "usedToday": used_today,
+            "dailyLimit": cfg.afk_daily_minutes,
+            "dailyRemaining": max(0, cfg.afk_daily_minutes - used_today),
+            "plan": None,
+            "running": None,
+            "lastReport": None,
+        }
+        if p is not None:
+            plan = getattr(p, "afk_plan", None)
+            if plan:
+                out["plan"] = dict(plan)
+            pilot = self._pilots.get(p.id)
+            if pilot is not None:
+                w = self.service.world
+                out["running"] = {
+                    "startedAt": pilot.started_at,
+                    "preset": pilot.preset,
+                    "remaining": self._remaining_of(pilot),
+                    "elapsedMin": max(0, int((now_ms() - pilot.started_at) // 60_000)),
+                    "kills": pilot.kills,
+                    "deaths": pilot.deaths,
+                    "goldDelta": p.gold - pilot.gold_start,
+                    "expGained": self._exp_gained(w, pilot, p),
+                    "level": p.level,
+                    "status": pilot.status,
+                    "supply": pilot.supply_state,
+                    "map": p.map.name if p.map else "",
+                    "hp": p.hp, "maxHp": p.max_hp,
+                }
+        rep = db.latest_afk_report(character_id)
+        if rep is not None:
+            out["lastReport"] = {k: rep[k] for k in
+                                 ("started_at", "ended_at", "minutes", "exp_gained",
+                                  "kills", "gold_delta", "deaths", "reason", "notice")}
+        return out
+
+    def dash_stop(self, p) -> tuple[bool, str]:
+        """后台「中止/取消」：运行中 → 立即结算停机；仅有待生效计划 → 取消计划。"""
+        if p is None:
+            return False, "角色不在修炼中，也没有待生效计划。"
+        if getattr(p, "afk_offline", False):
+            if self._pilots.get(p.id) is not None:
+                self.disable(p, "后台中止离线修炼")
+                return True, "已中止本次修炼，未用完的时长已退回余额（报告下次登录可见）。"
+        plan = getattr(p, "afk_plan", None)
+        if plan is not None:
+            p.afk_plan = None
+            return True, "已取消待生效的离线修炼计划。"
+        return False, "当前没有进行中的修炼，也没有待生效计划。"

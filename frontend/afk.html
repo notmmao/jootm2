@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>挂机管理后台 · 传奇 MIR2</title>
+<title>离线修炼 · 传奇 MIR2</title>
 <style>
     :root { --bg:#141210; --panel:#211d18; --line:#4a3f2e; --gold:#e8c877;
             --txt:#e8dcc0; --dim:#a89a78; --ok:#7bd88f; --warn:#e8a860; --err:#e87070; }
@@ -38,17 +38,20 @@
     .tag.off { background:#4a2d2d; color:var(--err); }
     h2 { font-size:15px; color:var(--gold); margin:2px 0 10px; border-bottom:1px solid var(--line);
          padding-bottom:6px; }
+    .hidden { display:none; }
+    .banner { border:1px solid #3f5a3a; background:#1c2a1d; color:var(--ok);
+              border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; }
+    .banner.idle { border-color:var(--line); background:#171410; color:var(--dim); }
     table { width:100%; border-collapse:collapse; font-size:12px; }
     th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #332b1e; }
     th { color:var(--dim); font-weight:normal; }
-    .hidden { display:none; }
     code { color:var(--dim); font-size:11px; word-break:break-all; }
 </style>
 </head>
 <body>
 <div class="wrap">
-    <h1>挂机管理后台</h1>
-    <div class="sub">查看在线托管 / 离线修炼状态，调整挂机策略。凭据使用游戏内登录签发的 token，不传输密码。</div>
+    <h1>离线修炼</h1>
+    <div class="sub">角色下线后自动修炼（计划在<b>游戏内</b>点「离线修炼」按钮设定）。本页查看修炼进度、收益与上次修炼报告。</div>
 
     <div class="card">
         <h2>连接</h2>
@@ -74,39 +77,39 @@
         </div>
 
         <div id="playerView">
+            <div class="banner idle" id="afkBanner">当前未在修炼。</div>
+
             <div class="card">
-                <h2>在线托管</h2>
-                <div class="grid" id="apStats"></div>
+                <h2>本次修炼（进行中）</h2>
+                <div class="grid" id="afkRunning"></div>
                 <div class="row" style="margin-top:12px">
-                    <div><label>策略档位</label><select id="apPreset">
-                        <option value="safe">安全</option><option value="balanced">均衡</option>
-                        <option value="efficient">效率</option></select></div>
-                    <div style="flex:0 0 auto"><button id="apOn" class="primary">开启托管</button></div>
-                    <div style="flex:0 0 auto"><button id="apPause">暂停</button></div>
-                    <div style="flex:0 0 auto"><button id="apOff" class="danger">关闭</button></div>
+                    <div style="flex:0 0 auto"><button id="afkStop" class="danger">中止修炼 / 取消计划</button></div>
                 </div>
+                <div class="sub" style="margin:8px 0 0">中止会立即结算：已消耗时长入账、未用完的退回余额，报告下次登录时在游戏内收到。若角色只是配置了计划还没开始，此按钮取消计划。</div>
             </div>
+
             <div class="card">
-                <h2>离线修炼</h2>
-                <div class="grid" id="afkStats"></div>
-                <div class="row" style="margin-top:12px">
-                    <div><label>修炼时长（分钟）</label><input id="afkMinutes" type="number" value="240" min="10" step="10"></div>
-                    <div><label>策略档位</label><select id="afkPreset">
-                        <option value="safe">安全</option><option value="balanced">均衡</option>
-                        <option value="efficient">效率</option></select></div>
-                    <div style="flex:0 0 auto"><button id="afkStart" class="primary">设定计划</button></div>
-                    <div style="flex:0 0 auto"><button id="afkStop" class="danger">取消计划</button></div>
-                </div>
-                <div class="sub" style="margin:8px 0 0">设定计划后，角色下次下线即自动开始修炼；上线自动结算。余额可找比奇城玛法领路人领取。</div>
+                <h2>上次修炼报告</h2>
+                <div class="grid" id="afkLast"></div>
+                <div class="sub" style="margin:8px 0 0" id="afkLastReason"></div>
+            </div>
+
+            <div class="card">
+                <h2>修炼时长</h2>
+                <div class="grid" id="afkQuota"></div>
+                <div class="sub" style="margin:8px 0 0">「今日已用」为已结算消耗的分钟数（修炼结束记账，运行中的不实时扣）；余额可找比奇城玛法领路人领取，每人每日上限见「今日额度」。</div>
             </div>
         </div>
 
         <div id="gmView" class="hidden">
             <div class="card">
-                <h2>全服挂机概览</h2>
+                <h2>全服离线修炼概览</h2>
                 <div class="sub" id="gmSummary"></div>
-                <table><thead><tr><th>角色</th><th>等级</th><th>类型</th><th>档位</th><th>状态</th><th>击杀</th><th>地图</th></tr></thead>
+                <table><thead><tr><th>角色</th><th>等级</th><th>档位</th><th>剩余</th><th>击杀</th><th>金币增量</th><th>死亡</th><th>地图</th><th>状态</th></tr></thead>
                 <tbody id="gmTable"></tbody></table>
+                <div class="row" style="margin-top:12px">
+                    <div style="flex:0 0 auto"><button id="gmBack">返回</button></div>
+                </div>
             </div>
         </div>
     </div>
@@ -114,7 +117,8 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let TOKEN = '', CHARS = [], IS_GM = false;
+let TOKEN = '', CHARS = [], IS_GM = false, AFK_ACTIVE = false;
+let timer = null;
 
 function autoToken() {
     try {
@@ -134,6 +138,18 @@ function jsonOpts(body) {
     return { method: 'POST', headers: {'Content-Type':'application/json'},
              body: JSON.stringify({ ...body, token: TOKEN }) };
 }
+function fmtMin(m) {
+    if (m == null) return '-';
+    m = Math.max(0, Math.round(m));
+    return m >= 60 ? `${Math.floor(m/60)} 小时 ${m%60} 分` : `${m} 分钟`;
+}
+function fmtNum(n) { return (n == null ? '-' : Number(n).toLocaleString('zh-CN')); }
+function fmtTime(ts) {
+    if (!ts) return '-';
+    const d = new Date(Number(ts));
+    const pad = (x) => String(x).padStart(2, '0');
+    return `${d.getMonth()+1}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 $('authBtn').onclick = async () => {
     TOKEN = $('token').value.trim();
@@ -148,78 +164,115 @@ $('authBtn').onclick = async () => {
         const sel = $('charSel'); sel.innerHTML = '';
         CHARS.forEach(c => {
             const o = document.createElement('option'); o.value = c.id;
-            o.textContent = `${c.name}（Lv${c.level}）${c.online ? ' · 在线' : ' · 离线'}`;
-            o.disabled = !c.online; sel.appendChild(o);
+            o.textContent = `${c.name}（Lv${c.level}）` +
+                (c.afkActive ? ' · 修炼中' : (c.online ? ' · 在线' : ' · 离线'));
+            sel.appendChild(o);
         });
-        if (CHARS.some(c => c.online)) { await refresh(); }
-        else msg($('dashMsg'), '当前没有在线角色。请先在游戏内登录角色后再操作。');
+        if (CHARS.length) { await refresh(); }
+        else msg($('dashMsg'), '这个账号还没有角色。', 'err');
     } catch (e) { msg($('connMsg'), '连接失败：' + e.message, 'err'); }
 };
 
 async function refresh() {
     const cid = $('charSel').value;
-    if (!cid) { msg($('dashMsg'), '请选择在线角色。'); return; }
+    if (!cid) { msg($('dashMsg'), '请选择角色。'); return; }
     msg($('dashMsg'), '刷新中…');
     try {
-        const d = await api(`/api/dash/state?token=${encodeURIComponent(TOKEN)}&charId=${cid}`);
+        const d = await api(`/api/dash/afk?token=${encodeURIComponent(TOKEN)}&charId=${cid}`);
         if (!d.ok) { msg($('dashMsg'), d.error, 'err'); return; }
-        msg($('dashMsg'), `${d.charName} · Lv${d.level} · 实时状态`, 'ok');
-        const ap = d.autopilot || {}, afk = d.afk || {};
-        $('apStats').innerHTML = kv([
-            ['托管状态', ap.active ? '开启中' : (ap.paused ? '已暂停' : '未开启'), ap.active],
-            ['策略档位', ap.presetName || ap.preset || '-'],
-            ['本轮击杀', ap.kills ?? 0],
-            ['当前情境', ap.status || ap.reason || '-'],
+        AFK_ACTIVE = !!d.afkActive;
+        const run = d.running;
+        $('afkBanner').className = 'banner' + (run ? '' : ' idle');
+        $('afkBanner').textContent = run
+            ? `● ${d.charName}（Lv${run.level}）正在修炼中 · ${run.map} · ${run.status || '进行中'}${d.plan ? '（下次下线还有 ' + d.plan.minutes + ' 分钟计划待生效）' : ''}`
+            : (d.plan ? `○ ${d.charName} 未在修炼，但有 ${d.plan.minutes} 分钟待生效计划（${d.plan.preset}档）——下次下线自动开始，可点下方按钮取消。`
+                      : `${d.charName} 当前未在修炼，也没有待生效计划。`);
+        if (run) {
+            const presetName = ({safe: '安全', balanced: '均衡', efficient: '效率'})[run.preset] || run.preset;
+            $('afkRunning').innerHTML = kv([
+                ['已修炼', fmtMin(run.elapsedMin) || '不足 1 分钟'],
+                ['剩余时长', fmtMin(run.remaining)],
+                ['击杀', fmtNum(run.kills) + ' 只'],
+                ['经验', '+' + fmtNum(run.expGained)],
+                ['金币', (run.goldDelta >= 0 ? '+' : '') + fmtNum(run.goldDelta)],
+                ['死亡', run.deaths + ' 次'],
+                ['策略档位', presetName],
+            ]);
+        } else {
+            $('afkRunning').innerHTML = '<div class="sub">暂无进行中的修炼。开启方式：游戏内登录后点右侧「离线修炼」按钮设定计划，下线即自动开始。</div>';
+        }
+        const rep = d.lastReport;
+        if (rep && rep.minutes > 0) {
+            $('afkLast').innerHTML = kv([
+                ['修炼时长', fmtMin(rep.minutes)],
+                ['开始 · 结束', `${fmtTime(rep.started_at)} → ${fmtTime(rep.ended_at)}`],
+                ['击杀', fmtNum(rep.kills) + ' 只'],
+                ['经验', '+' + fmtNum(rep.exp_gained)],
+                ['金币', (rep.gold_delta >= 0 ? '+' : '') + fmtNum(rep.gold_delta)],
+                ['死亡', rep.deaths + ' 次'],
+            ]);
+            $('afkLastReason').textContent = '结束原因：' + (rep.reason || '-') + (rep.notice ? ' ' + rep.notice : '');
+        } else if (rep) {
+            $('afkLast').innerHTML = '';
+            $('afkLastReason').textContent = (rep.notice || rep.reason || '暂无报告。');
+        } else {
+            $('afkLast').innerHTML = '';
+            $('afkLastReason').textContent = '还没有修炼过，暂无报告。';
+        }
+        $('afkQuota').innerHTML = kv([
+            ['时长余额', fmtMin(d.balance)],
+            ['今日已用', `${fmtMin(d.usedToday)} / ${fmtMin(d.dailyLimit)}`],
+            ['今日剩余', fmtMin(d.dailyRemaining)],
         ]);
-        if (ap.preset) $('apPreset').value = ap.preset;
-        $('afkStats').innerHTML = kv([
-            ['时长余额', afk.balance + ' 分钟'],
-            ['今日已用', afk.usedToday + ' / ' + afk.dailyLimit],
-            ['待生效计划', afk.plan ? `${afk.plan.minutes}分·${afk.plan.preset}` : '无'],
-            ['修炼中', afk.active ? '是' : '否', afk.active],
-        ]);
+        $('afkStop').disabled = !(run || d.plan);
+        msg($('dashMsg'), run ? '修炼中，每 30 秒自动刷新' : '状态已更新', 'ok');
+        restartTimer();
     } catch (e) { msg($('dashMsg'), '刷新失败：' + e.message, 'err'); }
 }
+function restartTimer() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (AFK_ACTIVE) timer = setInterval(refresh, 30_000);
+}
+
 function kv(items) {
-    return items.map(([k, v, flag]) => `<div class="kv"><div class="k">${k}</div>
-        <div class="v">${flag === undefined ? esc(v) :
-            `<span class="tag ${flag ? 'on' : 'off'}">${flag ? '● ' : '○ '}${esc(v)}</span>`}</div></div>`).join('');
+    return items.map(([k, v]) => `<div class="kv"><div class="k">${k}</div>
+        <div class="v" style="font-size:14px">${esc(v)}</div></div>`).join('');
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-async function action(scope, act, extra) {
+async function stopAfk() {
     const cid = $('charSel').value;
+    if (!cid) return;
+    if (!confirm('确定中止当前修炼 / 取消待生效计划？\n（正在修炼时中止会立即结算：已消耗入账、剩余时长退回余额。）')) return;
     msg($('dashMsg'), '操作中…');
     try {
-        const d = await api('/api/dash/action', jsonOpts({ charId: Number(cid), scope, action: act, ...extra }));
+        const d = await api('/api/dash/action', jsonOpts({ charId: Number(cid), scope: 'afk', action: 'stop' }));
         msg($('dashMsg'), (d.ok ? '✓ ' : '✗ ') + (d.reason || '完成'), d.ok ? 'ok' : 'err');
         await refresh();
     } catch (e) { msg($('dashMsg'), '操作失败：' + e.message, 'err'); }
 }
 
 $('refreshBtn').onclick = refresh;
-$('apOn').onclick = () => action('autopilot', 'on', { preset: $('apPreset').value });
-$('apPause').onclick = () => action('autopilot', 'pause');
-$('apOff').onclick = () => action('autopilot', 'off');
-$('afkStart').onclick = () => action('afk', 'start',
-    { minutes: Number($('afkMinutes').value), preset: $('afkPreset').value });
-$('afkStop').onclick = () => action('afk', 'stop');
+$('charSel').onchange = refresh;
+$('afkStop').onclick = stopAfk;
 
 $('gmBtn').onclick = async () => {
     try {
         const d = await api(`/api/dash/state?token=${encodeURIComponent(TOKEN)}&all=1`);
         if (!d.ok) { msg($('dashMsg'), d.error, 'err'); return; }
-        const aps = d.autopilot.pilots || [], afs = d.afk.agents || [];
-        $('gmSummary').textContent = `在线托管 ${d.autopilot.count} 人 · 离线修炼 ${d.afk.count} 人`;
-        const rows = [];
-        aps.forEach(a => rows.push([a.name, a.level, '在线托管', a.preset,
-            a.active ? '开启' : (a.status || '暂停'), a.kills, a.map]));
-        (Array.isArray(afs) ? afs : []).forEach(a => rows.push([a.name, a.level ?? '-', '离线修炼',
-            a.preset ?? '-', `剩${a.remaining ?? '-'}分`, a.kills ?? '-', a.map ?? '-']));
+        const afs = d.afk.agents || [];
+        $('gmSummary').textContent = `全服离线修炼中的代理：${d.afk.count} 个`;
+        const rows = (Array.isArray(afs) ? afs : []).map(a =>
+            [a.name, a.level ?? '-', a.preset ?? '-', fmtMin(a.remaining), a.kills ?? '-',
+             (a.goldDelta >= 0 ? '+' : '') + fmtNum(a.goldDelta), a.deaths ?? '-',
+             a.map ?? '-', a.status ?? '']);
         $('gmTable').innerHTML = rows.map(r => '<tr>' + r.map(c => `<td>${esc(c)}</td>`).join('') + '</tr>').join('')
-            || '<tr><td colspan="7">当前无人挂机</td></tr>';
+            || '<tr><td colspan="9">当前无人挂机</td></tr>';
         $('playerView').classList.add('hidden'); $('gmView').classList.remove('hidden');
     } catch (e) { msg($('dashMsg'), 'GM 视图加载失败：' + e.message, 'err'); }
+};
+$('gmBack').onclick = () => {
+    $('gmView').classList.add('hidden'); $('playerView').classList.remove('hidden');
 };
 </script>
 </body>

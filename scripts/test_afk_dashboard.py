@@ -109,8 +109,10 @@ def main():
         print("\n[1] 静态后台页面可访问")
         with urllib.request.urlopen(base + "/afk.html", timeout=5) as r:
             html = r.read().decode("utf-8")
-        check("/afk.html 可访问", "挂机管理后台" in html)
+        check("/afk.html 可访问", "离线修炼" in html)
         check("页面含 REST 端点", "/api/dash/auth" in html)
+        check("页面不再有在线托管", "在线托管" not in html and "scope: 'autopilot'" not in html)
+        check("页面不再有设定计划按钮", "afkStart" not in html and "afkMinutes" not in html)
 
         print("\n[2] token 认证")
         bad = post(base, "/api/dash/auth", {"token": "invalid.token"})
@@ -154,6 +156,16 @@ def main():
         cross = post(base, "/api/dash/action",
                      {"token": token, "charId": 999999, "scope": "autopilot", "action": "on"})
         check("越权操作被拒", cross.get("ok") is False, str(cross))
+
+        print("\n[7] 离线修炼后台专用 REST（/api/dash/afk）")
+        av = get(base, f"/api/dash/afk?token={token}&charId={cid}")
+        check("离线视图可读（角色在线也可）", av.get("ok") is True
+              and "balance" in av and "lastReport" in av, str(av)[:160])
+        cross2 = get(base, f"/api/dash/afk?token={token}&charId=999999")
+        check("离线视图越权被拒", cross2.get("ok") is False, str(cross2))
+        badact = post(base, "/api/dash/action",
+                      {"token": token, "charId": cid, "scope": "afk", "action": "start"})
+        check("后台 afk start 已下线", badact.get("ok") is False, str(badact))
 
     finally:
         try:
