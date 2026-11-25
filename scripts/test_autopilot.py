@@ -143,6 +143,11 @@ def main() -> int:
         srv.on_message(s, json.dumps({"type": "say", "text": "边聊天边托管"},
                                      ensure_ascii=False))
         check("聊天不暂停托管", pilot.active)
+        # §171：前端 bagUpdate 自动补快捷栏会代发 quickSlot（非玩家手势），
+        # 不得触发手动接管——否则托管角色一捡药水就被暂停。
+        srv.on_message(s, json.dumps({"type": "quickSlot", "slot": 0,
+                                      "makeIndex": 0}))
+        check("quickSlot 自动补位不暂停托管", pilot.active, pilot.reason)
         exp_before_manual = p.exp
         srv.on_message(s, json.dumps({"type": "move", "dir": 2}))
         check("手动 move 立即暂停", not pilot.active, pilot.reason)

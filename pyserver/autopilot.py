@@ -146,11 +146,15 @@ AVOID_NAMES = ("弓箭护卫", "虎卫", "鹰卫", "刀卫", "练功师", "卫�
 
 MANUAL_TYPES = frozenset({
     "move", "attack", "dirAttack", "castMagic", "pickup", "useItem", "butch",
-    "drop", "takeOnItem", "takeOffItem", "quickSlot", "moveItem",
+    "drop", "takeOnItem", "takeOffItem", "moveItem",
     "npcTalk", "npcSelect", "buyItem", "sellItem", "querySellPrice",
     "storageOpen", "storageStore", "storageTake",
     "tradeRequest", "tradeAccept", "tradeCancel", "tradeAddItem",
     "tradeAddGold", "tradeConfirm",
+    # quickSlot 不在名单内（§171）：前端收到 bagUpdate 后会自动把新捡的
+    # 药水填进快捷空位（原版 AddItemBag 行为，非玩家手势），托管每捡一瓶
+    # 金创药就被这条消息「手动接管」暂停——玩家反馈「捡东西时莫名其妙
+    # 暂停」的根因。真正的快捷栏拖动在前端也不走接管路径，口径一致。
 })
 
 

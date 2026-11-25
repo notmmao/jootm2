@@ -1284,3 +1284,26 @@ D011 291 p50=4 峰值11 | D012 392 p50=4 峰值13 —— 层间梯度恢复，�
 
 未动的其他洞穴（此前已核）：沃玛/祖玛/石墓/香石古墓/矿区/地牢全部与原版一致
 或为原版 BOSS 殿设计；D205* 牛魔已被 content_policy 剥离不加载。
+
+## §171 托管「捡东西时莫名暂停」修复（2026-11-26）
+
+反馈：托管经常莫名其妙暂停，玩家观察最多发生在捡东西时。
+
+根因（复现于最小 WS 探针）：托管角色每捡起一件可用物品（药水/卷轴，
+StdMode≤3）→ 服务端下发 `bagUpdate` → 前端按原版 AddItemBag 逻辑
+**自动**把新物品填进快捷栏空位，代发一条 `quickSlot`（PlayScene.mjs
+:2432-2449，非玩家手势）→ 服务端 `on_message` 把 `quickSlot` 列在
+MANUAL_TYPES，按「手动优先」pause 托管。即托管每捡一瓶金创药就自己
+把自己暂停，状态显示「已暂停 · 手动接管」。捡装备/金币不触发（不进
+快捷栏），与「捡东西时容易停」的现象吻合（挂机捡得最多的就是药水）。
+
+修复（`pyserver/autopilot.py`）：MANUAL_TYPES 移除 `quickSlot`。
+- 玩家真的手动拖快捷栏也仅是本地引用变化，不会中断战斗决策，口径无损；
+- 其余手势类消息（move/attack/useItem/takeOnItem…）照旧立即接管。
+
+验证：
+- `scripts/test_autopilot.py` §3 新增「quickSlot 自动补位不暂停托管」用例，
+  40 PASS / 0 FAIL；
+- `test_afk_maintain` 46 / `test_afk_supply` 43 / `test_afk_offline` 57 全过；
+- 真实 pyserver WS 复现路径（enterGame→autopilot on→quickSlot→status）
+  修复前 active=False reason=手动接管，修复后保持 active。
